@@ -1,0 +1,37 @@
+plugins {
+	java
+	id("org.springframework.boot")
+	id("io.spring.dependency-management")
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+// 실행 가능한 bootJar 만 남기고 plain jar 는 끈다 → 도커 COPY 시 jar 하나로 명확해진다.
+tasks.jar { enabled = false }
+
+dependencies {
+	implementation(project(":common"))
+
+	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	// WebSocket. Boot 4.0-SNAPSHOT 에서 아티팩트명이 다르면 조정 필요 (SSE 자체는 webmvc 만으로 동작).
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
+
+	compileOnly("org.projectlombok:lombok")
+	developmentOnly("org.springframework.boot:spring-boot-devtools")
+	annotationProcessor("org.projectlombok:lombok")
+
+	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testRuntimeOnly("com.h2database:h2")
+	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+	testCompileOnly("org.projectlombok:lombok")
+	testAnnotationProcessor("org.projectlombok:lombok")
+}
+
+tasks.withType<Test> {
+	useJUnitPlatform()
+}
