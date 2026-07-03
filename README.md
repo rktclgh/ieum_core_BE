@@ -170,3 +170,5 @@ AI 결과를 실시간으로 전달하는 기능을 만들 때는 이 경로(메
 
 멀티모듈이므로 루트의 `build.gradle.kts` 를 Gradle 프로젝트로 열면 3개 모듈이 자동 인식됩니다.
 구조 변경 후 모듈이 안 잡히면 **Gradle 툴윈도우 → Reload All Gradle Projects** (필요 시 File → Invalidate Caches) 로 재임포트하세요.
+
+
