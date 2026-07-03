@@ -266,6 +266,14 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void refreshReturnsUnauthorizedWhenRefreshCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/refresh"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("INVALID_REFRESH_TOKEN")))
+			.andExpect(jsonPath("$.message", is("Invalid refresh token")));
+	}
+
+	@Test
 	void signupReturnsBadRequestWhenVerificationTokenIsInvalid() throws Exception {
 		doThrow(new InvalidEmailVerificationTokenException())
 			.when(signupService)

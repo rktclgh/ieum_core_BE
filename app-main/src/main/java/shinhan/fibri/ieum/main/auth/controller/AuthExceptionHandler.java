@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.MissingRequestCookieException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.validation.ObjectError;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
@@ -82,6 +83,12 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 			.body(new AuthErrorResponse("INVALID_REFRESH_TOKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MissingRequestCookieException.class)
+	public ResponseEntity<AuthErrorResponse> handleMissingRequestCookie(MissingRequestCookieException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("INVALID_REFRESH_TOKEN", "Invalid refresh token"));
 	}
 
 	@ExceptionHandler(RefreshTokenReusedException.class)
