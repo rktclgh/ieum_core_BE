@@ -18,6 +18,7 @@ public class SecurityConfig {
 	private final JwtAuthenticationFilter jwtAuthenticationFilter;
 	private final CsrfDoubleSubmitFilter csrfDoubleSubmitFilter;
 	private final JsonAuthenticationEntryPoint jsonAuthenticationEntryPoint;
+	private final JsonAccessDeniedHandler jsonAccessDeniedHandler;
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -26,7 +27,10 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
-			.exceptionHandling(exception -> exception.authenticationEntryPoint(jsonAuthenticationEntryPoint))
+			.exceptionHandling(exception -> exception
+				.authenticationEntryPoint(jsonAuthenticationEntryPoint)
+				.accessDeniedHandler(jsonAccessDeniedHandler)
+			)
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers(
 					"/api/v1/auth/**",
@@ -34,6 +38,7 @@ public class SecurityConfig {
 					"/v3/api-docs/**",
 					"/actuator/health"
 				).permitAll()
+				.requestMatchers("/api/v1/admin/**").hasRole("admin")
 				.anyRequest().authenticated()
 			)
 			.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

@@ -2,10 +2,12 @@ package shinhan.fibri.ieum.main.auth.session;
 
 import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -13,9 +15,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.mock.web.MockCookie;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -23,6 +29,9 @@ class ProtectedEndpointSecurityTest {
 
 	@Autowired
 	private MockMvc mockMvc;
+
+	@Autowired
+	private SessionTokenValidator sessionTokenValidator;
 
 	@Test
 	void protectedEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
@@ -32,12 +41,34 @@ class ProtectedEndpointSecurityTest {
 			.andExpect(jsonPath("$.message", is("Authentication is required")));
 	}
 
+	@Test
+	void adminEndpointReturnsJsonForbiddenForUserRole() throws Exception {
+		when(sessionTokenValidator.validate("user-token"))
+			.thenReturn(Optional.of(new AuthenticatedUser(
+				42L,
+				"user@example.com",
+				UserRole.user,
+				UserStatus.active
+			)));
+
+		mockMvc.perform(get("/api/v1/admin/ping")
+				.cookie(new MockCookie("access_token", "user-token")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("ACCESS_DENIED")))
+			.andExpect(jsonPath("$.message", is("Access is denied")));
+	}
+
 	@RestController
 	static class ProtectedController {
 
 		@GetMapping("/api/v1/protected/ping")
 		String ping() {
 			return "ok";
+		}
+
+		@GetMapping("/api/v1/admin/ping")
+		String adminPing() {
+			return "admin-ok";
 		}
 	}
 
