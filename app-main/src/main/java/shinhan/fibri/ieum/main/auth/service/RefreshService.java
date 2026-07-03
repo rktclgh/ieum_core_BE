@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
+import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
 import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
@@ -25,6 +26,13 @@ public class RefreshService {
 		AuthSession session = sessionStore.findByRefreshTokenHash(refreshTokenHash)
 			.orElseThrow(InvalidRefreshTokenException::new);
 		if (session.status() != UserStatus.active) {
+			throw new InvalidRefreshTokenException();
+		}
+		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
+			sessionStore.revokeAllSessionsOfUser(session.userId());
+			throw new RefreshTokenReusedException();
+		}
+		if (!refreshTokenHash.equals(session.refreshTokenHash())) {
 			throw new InvalidRefreshTokenException();
 		}
 

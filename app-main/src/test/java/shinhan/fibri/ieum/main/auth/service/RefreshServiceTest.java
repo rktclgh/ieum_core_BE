@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
+import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
 import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
@@ -84,6 +85,36 @@ class RefreshServiceTest {
 
 		assertThatThrownBy(() -> service.refresh("refresh-token"))
 			.isInstanceOf(InvalidRefreshTokenException.class);
+		verify(sessionStore, never()).rotateRefreshToken(session, "new-refresh-hash");
+	}
+
+	@Test
+	void refreshRevokesAllSessionsWhenPreviousRefreshTokenIsReused() {
+		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
+		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
+		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
+		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		RefreshService service = new RefreshService(
+			sessionStore,
+			tokenHasher,
+			tokenGenerator,
+			accessTokenIssuer
+		);
+		AuthSession session = new AuthSession(
+			"sid-1",
+			42L,
+			"current-refresh-hash",
+			"previous-refresh-hash",
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00Z")
+		);
+		when(tokenHasher.hash("previous-refresh-token")).thenReturn("previous-refresh-hash");
+		when(sessionStore.findByRefreshTokenHash("previous-refresh-hash")).thenReturn(Optional.of(session));
+
+		assertThatThrownBy(() -> service.refresh("previous-refresh-token"))
+			.isInstanceOf(RefreshTokenReusedException.class);
+		verify(sessionStore).revokeAllSessionsOfUser(42L);
 		verify(sessionStore, never()).rotateRefreshToken(session, "new-refresh-hash");
 	}
 }
