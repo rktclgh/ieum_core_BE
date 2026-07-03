@@ -10,13 +10,12 @@ import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
+import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
-
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -29,7 +28,7 @@ public class SignupService {
 
 	@Transactional
 	public SignupResponse signup(SignupRequest request) {
-		String email = normalizeEmail(request.email());
+		String email = AuthEmailNormalizer.normalize(request.email());
 		String verifiedEmail = codeStore.findSignupVerificationEmail(request.emailVerificationToken())
 			.orElseThrow(InvalidEmailVerificationTokenException::new);
 		if (!verifiedEmail.equals(email)) {
@@ -52,10 +51,6 @@ public class SignupService {
 		userSettingsRepository.save(UserSettings.defaultFor(savedUser));
 		deleteVerificationTokenAfterCommit(request.emailVerificationToken());
 		return new SignupResponse(savedUser.getId());
-	}
-
-	private String normalizeEmail(String email) {
-		return email.trim().toLowerCase(Locale.ROOT);
 	}
 
 	private void deleteVerificationTokenAfterCommit(String token) {

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
+import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
@@ -13,8 +14,6 @@ import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
-import java.util.Locale;
-
 @Service
 @RequiredArgsConstructor
 public class EmailVerificationService {
@@ -33,7 +32,7 @@ public class EmailVerificationService {
 	private final EmailVerificationRateLimiter rateLimiter;
 
 	public SendEmailVerificationResponse sendSignupCode(SendEmailVerificationRequest request) {
-		String email = normalizeEmail(request.email());
+		String email = AuthEmailNormalizer.normalize(request.email());
 		if (userRepository.existsByEmailAndProviderAndDeletedAtIsNull(email, AuthProvider.email)) {
 			throw new EmailTakenException();
 		}
@@ -48,7 +47,7 @@ public class EmailVerificationService {
 	}
 
 	public VerifyEmailVerificationResponse verifySignupCode(VerifyEmailVerificationRequest request) {
-		String email = normalizeEmail(request.email());
+		String email = AuthEmailNormalizer.normalize(request.email());
 		String requestCodeHash = codeHasher.hash(email, request.code());
 		String savedCodeHash = codeStore.findSignupCodeHash(email)
 			.orElseThrow(InvalidEmailVerificationCodeException::new);
@@ -62,7 +61,4 @@ public class EmailVerificationService {
 		return new VerifyEmailVerificationResponse(token, VERIFICATION_TOKEN_TTL_SECONDS);
 	}
 
-	private String normalizeEmail(String email) {
-		return email.trim().toLowerCase(Locale.ROOT);
-	}
 }

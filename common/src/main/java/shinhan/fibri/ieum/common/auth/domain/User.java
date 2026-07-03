@@ -10,10 +10,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcType;
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
+import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.Locale;
 import java.util.Objects;
 
 @Entity
@@ -78,7 +78,7 @@ public class User {
 	}
 
 	private User(String email, String passwordHash, String nickname, LocalDate birthDate) {
-		this.email = normalizeEmail(email);
+		this.email = AuthEmailNormalizer.normalize(email);
 		this.passwordHash = Objects.requireNonNull(passwordHash, "passwordHash must not be null");
 		this.nickname = Objects.requireNonNull(nickname, "nickname must not be null");
 		this.birthDate = Objects.requireNonNull(birthDate, "birthDate must not be null");
@@ -93,10 +93,6 @@ public class User {
 
 	public static User createEmailUser(String email, String passwordHash, String nickname, LocalDate birthDate) {
 		return new User(email, passwordHash, nickname, birthDate);
-	}
-
-	private static String normalizeEmail(String email) {
-		return Objects.requireNonNull(email, "email must not be null").trim().toLowerCase(Locale.ROOT);
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
