@@ -9,6 +9,8 @@ import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
+import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,6 +71,28 @@ class AuthExceptionHandlerTest {
 		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
 			"SUSPENDED_USER",
 			"User is suspended"
+		));
+	}
+
+	@Test
+	void handleInvalidRefreshTokenReturnsUnauthorized() {
+		var response = handler.handleInvalidRefreshToken(new InvalidRefreshTokenException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"INVALID_REFRESH_TOKEN",
+			"Invalid refresh token"
+		));
+	}
+
+	@Test
+	void handleRefreshTokenReusedReturnsUnauthorized() {
+		var response = handler.handleRefreshTokenReused(new RefreshTokenReusedException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"REFRESH_TOKEN_REUSED",
+			"Refresh token was reused"
 		));
 	}
 

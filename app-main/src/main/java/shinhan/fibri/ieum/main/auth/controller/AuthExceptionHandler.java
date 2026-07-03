@@ -13,7 +13,9 @@ import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
+import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import java.util.Comparator;
@@ -74,6 +76,18 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleSuspendedUser(SuspendedUserException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("SUSPENDED_USER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidRefreshTokenException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("INVALID_REFRESH_TOKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(RefreshTokenReusedException.class)
+	public ResponseEntity<AuthErrorResponse> handleRefreshTokenReused(RefreshTokenReusedException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("REFRESH_TOKEN_REUSED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
