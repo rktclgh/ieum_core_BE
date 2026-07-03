@@ -250,7 +250,9 @@ class AuthControllerTest {
 					}
 					"""))
 			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("password")))
+			.andExpect(jsonPath("$.fieldErrors[0].message").exists());
 	}
 
 	@Test

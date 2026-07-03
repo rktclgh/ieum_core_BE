@@ -12,6 +12,9 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeExcept
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 
+import java.util.Comparator;
+import java.util.List;
+
 @RestControllerAdvice(assignableTypes = AuthController.class)
 public class AuthExceptionHandler {
 
@@ -53,7 +56,17 @@ public class AuthExceptionHandler {
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<AuthErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
+		List<AuthErrorResponse.FieldError> fieldErrors = exception.getBindingResult()
+			.getFieldErrors()
+			.stream()
+			.map(fieldError -> new AuthErrorResponse.FieldError(
+				fieldError.getField(),
+				fieldError.getDefaultMessage()
+			))
+			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
+			.toList();
+
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed"));
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", fieldErrors));
 	}
 }
