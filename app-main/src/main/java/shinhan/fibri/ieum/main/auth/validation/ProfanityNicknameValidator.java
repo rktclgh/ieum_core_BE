@@ -6,10 +6,13 @@ import jakarta.validation.ConstraintValidatorContext;
 import java.text.Normalizer;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class ProfanityNicknameValidator implements ConstraintValidator<NoProfanity, String> {
 
-	private static final Set<String> BLOCKED_TERMS = Set.of(
+	private static final Pattern IGNORED_CHARACTER_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]");
+	private static final Set<String> NORMALIZED_BLOCKED_TERMS = Set.of(
 		// English
 		"fuck", "shit", "bitch", "cunt", "dickhead",
 		// Mandarin Chinese
@@ -24,7 +27,9 @@ public class ProfanityNicknameValidator implements ConstraintValidator<NoProfani
 		"merde", "connard", "conne", "putain", "salope",
 		// Korean
 		"시발", "씨발", "ㅅㅂ", "병신", "개새끼", "좆", "존나"
-	);
+	).stream()
+		.map(ProfanityNicknameValidator::normalize)
+		.collect(Collectors.toUnmodifiableSet());
 
 	@Override
 	public boolean isValid(String value, ConstraintValidatorContext context) {
@@ -33,14 +38,13 @@ public class ProfanityNicknameValidator implements ConstraintValidator<NoProfani
 		}
 
 		String normalized = normalize(value);
-		return BLOCKED_TERMS.stream()
-			.map(ProfanityNicknameValidator::normalize)
+		return NORMALIZED_BLOCKED_TERMS.stream()
 			.noneMatch(normalized::contains);
 	}
 
 	private static String normalize(String value) {
 		String normalized = Normalizer.normalize(value, Normalizer.Form.NFKC)
 			.toLowerCase(Locale.ROOT);
-		return normalized.replaceAll("[^\\p{L}\\p{N}]", "");
+		return IGNORED_CHARACTER_PATTERN.matcher(normalized).replaceAll("");
 	}
 }
