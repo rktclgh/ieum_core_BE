@@ -6,8 +6,14 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
 import org.springframework.test.web.servlet.MockMvc;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
+import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
+import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
@@ -20,12 +26,22 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeExcept
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
+import shinhan.fibri.ieum.main.auth.service.LoginResult;
+import shinhan.fibri.ieum.main.auth.service.LoginService;
+import shinhan.fibri.ieum.main.auth.service.LogoutService;
+import shinhan.fibri.ieum.main.auth.service.RefreshResult;
+import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
+import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
+import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
+import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,6 +58,15 @@ class AuthControllerTest {
 
 	@Autowired
 	private SignupService signupService;
+
+	@Autowired
+	private LoginService loginService;
+
+	@Autowired
+	private RefreshService refreshService;
+
+	@Autowired
+	private LogoutService logoutService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -66,6 +91,8 @@ class AuthControllerTest {
 
 		mockMvc.perform(post("/api/v1/auth/email/send")
 				.contentType(MediaType.APPLICATION_JSON)
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
 				.content("""
 					{
 					  "email": "USER@example.com"
@@ -193,8 +220,102 @@ class AuthControllerTest {
 					  "emailVerificationToken": "verification-token"
 					}
 					"""))
-			.andExpect(status().isOk())
+			.andExpect(status().isCreated())
 			.andExpect(jsonPath("$.userId", is(42)));
+	}
+
+	@Test
+	void loginReturnsUserSummaryAndAuthCookies() throws Exception {
+		when(loginService.login(any(LoginRequest.class)))
+			.thenReturn(new LoginResult(
+				new LoginResponse(42L, UserRole.user, false),
+				"access-token",
+				"refresh-token",
+				"csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/login")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(jsonPath("$.passwordResetRequired", is(false)))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
+	}
+
+	@Test
+	void refreshReturnsUserSummaryAndRotatedAuthCookies() throws Exception {
+		when(refreshService.refresh("refresh-token"))
+			.thenReturn(new RefreshResult(
+				new RefreshResponse(42L, UserRole.user),
+				"new-access-token",
+				"new-refresh-token",
+				"new-csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.cookie(new MockCookie("refresh_token", "refresh-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=new-access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=new-refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=new-csrf-token")));
+	}
+
+	@Test
+	void refreshReturnsUnauthorizedWhenRefreshCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/refresh")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("INVALID_REFRESH_TOKEN")))
+			.andExpect(jsonPath("$.message", is("Invalid refresh token")));
+	}
+
+	@Test
+	void logoutRevokesSessionAndExpiresAuthCookies() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.cookie(new MockCookie("refresh_token", "refresh-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isNoContent())
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("access_token=")
+					.contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("refresh_token=")
+					.contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie)
+					.contains("csrf_token=")
+					.contains("Max-Age=0")));
+
+		verify(logoutService).logout("refresh-token");
+	}
+
+	@Test
+	void logoutIsNoContentWhenRefreshCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token"))
+			.andExpect(status().isNoContent())
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=").contains("Max-Age=0")));
 	}
 
 	@Test
@@ -397,6 +518,36 @@ class AuthControllerTest {
 		@Primary
 		SignupService signupService() {
 			return mock(SignupService.class);
+		}
+
+		@Bean
+		@Primary
+		LoginService loginService() {
+			return mock(LoginService.class);
+		}
+
+		@Bean
+		@Primary
+		RefreshService refreshService() {
+			return mock(RefreshService.class);
+		}
+
+		@Bean
+		@Primary
+		LogoutService logoutService() {
+			return mock(LogoutService.class);
+		}
+
+		@Bean
+		@Primary
+		SessionTokenValidator sessionTokenValidator() {
+			return mock(SessionTokenValidator.class);
+		}
+
+		@Bean
+		@Primary
+		AuthCookieWriter authCookieWriter() {
+			return new AuthCookieWriter(new AuthSessionProperties(true, "Lax", "", 1800, 1209600));
 		}
 	}
 }
