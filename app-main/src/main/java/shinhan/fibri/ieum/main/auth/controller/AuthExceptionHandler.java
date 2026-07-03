@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.auth.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
@@ -39,5 +40,11 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleNicknameTaken(NicknameTakenException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("NICKNAME_TAKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MethodArgumentNotValidException.class)
+	public ResponseEntity<AuthErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed"));
 	}
 }

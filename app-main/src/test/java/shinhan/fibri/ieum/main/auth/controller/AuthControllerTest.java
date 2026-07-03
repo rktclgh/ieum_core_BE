@@ -107,7 +107,7 @@ class AuthControllerTest {
 				.content("""
 					{
 					  "email": "USER@example.com",
-					  "password": "password123",
+					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
 					  "emailVerificationToken": "verification-token"
@@ -128,7 +128,7 @@ class AuthControllerTest {
 				.content("""
 					{
 					  "email": "USER@example.com",
-					  "password": "password123",
+					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
 					  "emailVerificationToken": "invalid-token"
@@ -150,7 +150,7 @@ class AuthControllerTest {
 				.content("""
 					{
 					  "email": "USER@example.com",
-					  "password": "password123",
+					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
 					  "emailVerificationToken": "verification-token"
@@ -172,7 +172,7 @@ class AuthControllerTest {
 				.content("""
 					{
 					  "email": "USER@example.com",
-					  "password": "password123",
+					  "password": "Passw@rd123",
 					  "nickname": "nickname",
 					  "birthDate": "2000-01-01",
 					  "emailVerificationToken": "verification-token"
@@ -181,6 +181,57 @@ class AuthControllerTest {
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code", is("NICKNAME_TAKEN")))
 			.andExpect(jsonPath("$.message", is("Nickname is already taken")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenPasswordIsTooShort() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Pass@1",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenPasswordHasNoSpecialCharacter() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Password123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenNicknameIsShorterThanTwoCharacters() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "Passw@rd123",
+					  "nickname": "n",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "verification-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
 	}
 
 	@TestConfiguration
