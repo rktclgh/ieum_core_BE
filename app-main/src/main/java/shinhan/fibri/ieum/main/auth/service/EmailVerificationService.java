@@ -52,11 +52,15 @@ public class EmailVerificationService {
 		String savedCodeHash = codeStore.findSignupCodeHash(email)
 			.orElseThrow(InvalidEmailVerificationCodeException::new);
 		if (!savedCodeHash.equals(requestCodeHash)) {
+			if (!rateLimiter.tryConsumeSignupVerifyFailure(email)) {
+				codeStore.deleteSignupCode(email);
+			}
 			throw new InvalidEmailVerificationCodeException();
 		}
 
 		String token = tokenGenerator.generate();
 		codeStore.deleteSignupCode(email);
+		rateLimiter.clearSignupVerifyFailures(email);
 		codeStore.saveSignupVerificationToken(token, email, VERIFICATION_TOKEN_TTL);
 		return new VerifyEmailVerificationResponse(token, VERIFICATION_TOKEN_TTL_SECONDS);
 	}

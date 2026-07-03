@@ -143,6 +143,7 @@ class EmailVerificationServiceTest {
 		assertThat(response.emailVerificationToken()).isEqualTo("verification-token");
 		assertThat(response.expiresInSeconds()).isEqualTo(1800);
 		verify(codeStore).deleteSignupCode("user@example.com");
+		verify(rateLimiter).clearSignupVerifyFailures("user@example.com");
 		verify(codeStore).saveSignupVerificationToken(
 			"verification-token",
 			"user@example.com",
@@ -202,12 +203,49 @@ class EmailVerificationServiceTest {
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("saved-code-hash"));
 		when(codeHasher.hash("user@example.com", "000000")).thenReturn("request-code-hash");
+		when(rateLimiter.tryConsumeSignupVerifyFailure("user@example.com")).thenReturn(true);
 
 		assertThatThrownBy(() -> service.verifySignupCode(
 			new VerifyEmailVerificationRequest(" USER@example.COM ", "000000")
 		)).isInstanceOf(InvalidEmailVerificationCodeException.class);
 
+		verify(rateLimiter).tryConsumeSignupVerifyFailure("user@example.com");
 		verify(codeStore, never()).deleteSignupCode("user@example.com");
+		verify(codeStore, never()).saveSignupVerificationToken(
+			"verification-token",
+			"user@example.com",
+			Duration.ofSeconds(1800)
+		);
+	}
+
+	@Test
+	void verifySignupCodeDeletesCodeWhenFailedAttemptsAreExceeded() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator,
+			userRepository,
+			rateLimiter
+		);
+		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("saved-code-hash"));
+		when(codeHasher.hash("user@example.com", "000000")).thenReturn("request-code-hash");
+		when(rateLimiter.tryConsumeSignupVerifyFailure("user@example.com")).thenReturn(false);
+
+		assertThatThrownBy(() -> service.verifySignupCode(
+			new VerifyEmailVerificationRequest(" USER@example.COM ", "000000")
+		)).isInstanceOf(InvalidEmailVerificationCodeException.class);
+
+		verify(rateLimiter).tryConsumeSignupVerifyFailure("user@example.com");
+		verify(codeStore).deleteSignupCode("user@example.com");
 		verify(codeStore, never()).saveSignupVerificationToken(
 			"verification-token",
 			"user@example.com",
