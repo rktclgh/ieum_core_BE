@@ -115,7 +115,7 @@ class LoginServiceTest {
 		when(passwordHasher.matches("Passw@rd123", "hashed-password")).thenReturn(true);
 		when(tokenGenerator.generate()).thenReturn("sid-1", "refresh-token", "csrf-token");
 		when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
-		when(accessTokenIssuer.issue(42L, "sid-1", UserRole.user)).thenReturn("access-token");
+		when(accessTokenIssuer.issue(42L, "sid-1", "user@example.com", UserRole.user)).thenReturn("access-token");
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {

@@ -23,7 +23,7 @@ public class AccessTokenIssuer {
 		this.ttlMinutes = ttlMinutes;
 	}
 
-	public String issue(Long userId, String sessionId, UserRole role) {
+	public String issue(Long userId, String sessionId, String email, UserRole role) {
 		Instant issuedAt = Instant.now();
 		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
 		JwtClaimsSet claims = JwtClaimsSet.builder()
@@ -31,6 +31,7 @@ public class AccessTokenIssuer {
 			.issuedAt(issuedAt)
 			.expiresAt(issuedAt.plusSeconds(ttlMinutes * 60L))
 			.claim("sid", sessionId)
+			.claim("email", email)
 			.claim("role", role.name())
 			.build();
 

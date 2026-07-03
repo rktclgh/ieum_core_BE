@@ -48,7 +48,7 @@ class RefreshServiceTest {
 		when(sessionStore.findByRefreshTokenHash("old-refresh-hash")).thenReturn(Optional.of(session));
 		when(tokenGenerator.generate()).thenReturn("new-refresh-token", "new-csrf-token");
 		when(tokenHasher.hash("new-refresh-token")).thenReturn("new-refresh-hash");
-		when(accessTokenIssuer.issue(42L, "sid-1", UserRole.user)).thenReturn("new-access-token");
+		when(accessTokenIssuer.issue(42L, "sid-1", "user@example.com", UserRole.user)).thenReturn("new-access-token");
 
 		RefreshResult result = service.refresh("refresh-token");
 

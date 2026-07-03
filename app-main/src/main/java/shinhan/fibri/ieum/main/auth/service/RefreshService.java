@@ -39,7 +39,7 @@ public class RefreshService {
 		String newRefreshToken = tokenGenerator.generate();
 		String csrfToken = tokenGenerator.generate();
 		String newRefreshTokenHash = tokenHasher.hash(newRefreshToken);
-		String accessToken = accessTokenIssuer.issue(session.userId(), session.sessionId(), session.role());
+		String accessToken = accessTokenIssuer.issue(session.userId(), session.sessionId(), session.email(), session.role());
 		sessionStore.rotateRefreshToken(session, newRefreshTokenHash);
 
 		return new RefreshResult(

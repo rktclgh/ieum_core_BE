@@ -64,7 +64,7 @@ public class LoginService {
 		String refreshToken = tokenGenerator.generate();
 		String csrfToken = tokenGenerator.generate();
 		String refreshTokenHash = tokenHasher.hash(refreshToken);
-		String accessToken = accessTokenIssuer.issue(user.getId(), sessionId, user.getRole());
+		String accessToken = accessTokenIssuer.issue(user.getId(), sessionId, user.getEmail(), user.getRole());
 		AuthSession session = new AuthSession(
 			sessionId,
 			user.getId(),
