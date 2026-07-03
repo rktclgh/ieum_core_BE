@@ -20,7 +20,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 @SuppressWarnings("unchecked")
 class RedisAuthSessionStoreTest {
 
-	private static final Duration SESSION_TTL = Duration.ofDays(14);
+	private static final Duration SESSION_TTL = Duration.ofDays(7);
 
 	@Test
 	void createStoresSessionRefreshIndexAndUserSessionSet() {
@@ -31,7 +31,7 @@ class RedisAuthSessionStoreTest {
 		when(redisTemplate.opsForHash()).thenReturn(hashOps);
 		when(redisTemplate.opsForValue()).thenReturn(valueOps);
 		when(redisTemplate.opsForSet()).thenReturn(setOps);
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
@@ -66,7 +66,7 @@ class RedisAuthSessionStoreTest {
 		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
 		when(redisTemplate.opsForHash()).thenReturn(hashOps);
 		when(redisTemplate.opsForValue()).thenReturn(valueOps);
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 		AuthSession session = new AuthSession(
 			"sid-1",
 			42L,
@@ -106,7 +106,7 @@ class RedisAuthSessionStoreTest {
 			"status", "active",
 			"createdAt", "2026-07-03T00:00Z"
 		));
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		Optional<AuthSession> session = store.findByRefreshTokenHash("refresh-hash");
 
@@ -128,7 +128,7 @@ class RedisAuthSessionStoreTest {
 		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
 		when(redisTemplate.opsForValue()).thenReturn(valueOps);
 		when(valueOps.get("auth:refresh:missing-hash")).thenReturn(null);
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		Optional<AuthSession> session = store.findByRefreshTokenHash("missing-hash");
 
@@ -144,7 +144,7 @@ class RedisAuthSessionStoreTest {
 		when(redisTemplate.opsForValue()).thenReturn(valueOps);
 		when(valueOps.get("auth:refresh:orphan-hash")).thenReturn("sid-1");
 		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of());
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		Optional<AuthSession> session = store.findByRefreshTokenHash("orphan-hash");
 
@@ -164,7 +164,7 @@ class RedisAuthSessionStoreTest {
 			"status", "active",
 			"createdAt", "2026-07-03T00:00Z"
 		));
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		Optional<AuthSession> session = store.findBySessionId("sid-1");
 
@@ -186,7 +186,7 @@ class RedisAuthSessionStoreTest {
 		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
 		when(redisTemplate.opsForHash()).thenReturn(hashOps);
 		when(hashOps.entries("auth:session:missing-sid")).thenReturn(Map.of());
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		Optional<AuthSession> session = store.findBySessionId("missing-sid");
 
@@ -205,7 +205,7 @@ class RedisAuthSessionStoreTest {
 			"refreshTokenHash", "current-hash",
 			"prevRefreshTokenHash", "previous-hash"
 		));
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		store.revokeSession("sid-1");
 
@@ -231,7 +231,7 @@ class RedisAuthSessionStoreTest {
 			"userId", "42",
 			"refreshTokenHash", "hash-2"
 		));
-		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+		RedisAuthSessionStore store = store(redisTemplate);
 
 		store.revokeAllSessionsOfUser(42L);
 
@@ -240,5 +240,32 @@ class RedisAuthSessionStoreTest {
 		verify(redisTemplate).delete("auth:session:sid-2");
 		verify(redisTemplate).delete("auth:refresh:hash-2");
 		verify(redisTemplate).delete("auth:user:42:sessions");
+	}
+
+	@Test
+	void revokeAllSessionsOfUserRemovesExpiredSessionIdsFromUserSet() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		when(redisTemplate.opsForSet()).thenReturn(setOps);
+		when(setOps.members("auth:user:42:sessions")).thenReturn(Set.of("expired-sid"));
+		when(hashOps.entries("auth:session:expired-sid")).thenReturn(Map.of());
+		RedisAuthSessionStore store = store(redisTemplate);
+
+		store.revokeAllSessionsOfUser(42L);
+
+		verify(setOps).remove("auth:user:42:sessions", "expired-sid");
+		verify(redisTemplate).delete("auth:user:42:sessions");
+	}
+
+	private RedisAuthSessionStore store(StringRedisTemplate redisTemplate) {
+		return new RedisAuthSessionStore(redisTemplate, new AuthSessionProperties(
+			false,
+			"Lax",
+			"",
+			1_800,
+			SESSION_TTL.toSeconds()
+		));
 	}
 }

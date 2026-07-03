@@ -29,18 +29,23 @@ public class AuthSessionConfig {
 	}
 
 	@Bean
-	AccessTokenIssuer accessTokenIssuer(
-		@Value("${app.jwt.secret}") String secret,
-		@Value("${app.jwt.access-token-ttl-minutes}") int ttlMinutes
-	) {
-		return new AccessTokenIssuer(secret, ttlMinutes);
+	SecretKeySpec jwtSecretKey(@Value("${app.jwt.secret}") String secret) {
+		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
+		return new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
 	}
 
 	@Bean
-	JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {
-		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
+	AccessTokenIssuer accessTokenIssuer(
+		SecretKeySpec jwtSecretKey,
+		@Value("${app.jwt.access-token-ttl-minutes}") int ttlMinutes
+	) {
+		return new AccessTokenIssuer(jwtSecretKey, ttlMinutes);
+	}
+
+	@Bean
+	JwtDecoder jwtDecoder(SecretKeySpec jwtSecretKey) {
 		return NimbusJwtDecoder
-			.withSecretKey(new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
+			.withSecretKey(jwtSecretKey)
 			.macAlgorithm(MacAlgorithm.HS256)
 			.build();
 	}

@@ -11,7 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Optional;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -134,7 +136,9 @@ class LoginServiceTest {
 				synchronization.afterCommit();
 			}
 
-			verify(sessionStore).create(any(AuthSession.class));
+			ArgumentCaptor<AuthSession> sessionCaptor = ArgumentCaptor.forClass(AuthSession.class);
+			verify(sessionStore).create(sessionCaptor.capture());
+			assertThat(sessionCaptor.getValue().createdAt().getOffset()).isEqualTo(ZoneOffset.UTC);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}

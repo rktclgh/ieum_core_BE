@@ -14,20 +14,20 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 @Component
 public class RedisAuthSessionStore {
 
-	private static final Duration SESSION_TTL = Duration.ofDays(14);
-
 	private final StringRedisTemplate redisTemplate;
+	private final AuthSessionProperties authSessionProperties;
 
-	public RedisAuthSessionStore(StringRedisTemplate redisTemplate) {
+	public RedisAuthSessionStore(StringRedisTemplate redisTemplate, AuthSessionProperties authSessionProperties) {
 		this.redisTemplate = redisTemplate;
+		this.authSessionProperties = authSessionProperties;
 	}
 
 	public void create(AuthSession session) {
 		redisTemplate.opsForHash().putAll(sessionKey(session.sessionId()), toRedisHash(session));
-		redisTemplate.expire(sessionKey(session.sessionId()), SESSION_TTL);
-		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), SESSION_TTL);
+		redisTemplate.expire(sessionKey(session.sessionId()), sessionTtl());
+		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), sessionTtl());
 		redisTemplate.opsForSet().add(userSessionsKey(session.userId()), session.sessionId());
-		redisTemplate.expire(userSessionsKey(session.userId()), SESSION_TTL);
+		redisTemplate.expire(userSessionsKey(session.userId()), sessionTtl());
 	}
 
 	public void rotateRefreshToken(AuthSession session, String newRefreshTokenHash) {
@@ -36,10 +36,10 @@ public class RedisAuthSessionStore {
 		redisTemplate.opsForHash().put(sessionKey, "refreshTokenHash", newRefreshTokenHash);
 		deleteRefreshKey(session.prevRefreshTokenHash());
 		// Keep the immediately previous refresh index alive so reuse can be detected and escalated.
-		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), SESSION_TTL);
-		redisTemplate.opsForValue().set(refreshKey(newRefreshTokenHash), session.sessionId(), SESSION_TTL);
-		redisTemplate.expire(sessionKey, SESSION_TTL);
-		redisTemplate.expire(userSessionsKey(session.userId()), SESSION_TTL);
+		redisTemplate.opsForValue().set(refreshKey(session.refreshTokenHash()), session.sessionId(), sessionTtl());
+		redisTemplate.opsForValue().set(refreshKey(newRefreshTokenHash), session.sessionId(), sessionTtl());
+		redisTemplate.expire(sessionKey, sessionTtl());
+		redisTemplate.expire(userSessionsKey(session.userId()), sessionTtl());
 	}
 
 	public Optional<AuthSession> findByRefreshTokenHash(String refreshTokenHash) {
@@ -72,6 +72,11 @@ public class RedisAuthSessionStore {
 	public void revokeSession(String sessionId) {
 		String sessionKey = sessionKey(sessionId);
 		Map<Object, Object> session = redisTemplate.opsForHash().entries(sessionKey);
+		revokeSession(sessionId, session);
+	}
+
+	private void revokeSession(String sessionId, Map<Object, Object> session) {
+		String sessionKey = sessionKey(sessionId);
 		redisTemplate.delete(sessionKey);
 		deleteRefreshKey(session.get("refreshTokenHash"));
 		deleteRefreshKey(session.get("prevRefreshTokenHash"));
@@ -85,7 +90,14 @@ public class RedisAuthSessionStore {
 		String userSessionsKey = userSessionsKey(userId);
 		Set<String> sessionIds = redisTemplate.opsForSet().members(userSessionsKey);
 		if (sessionIds != null) {
-			sessionIds.forEach(this::revokeSession);
+			for (String sessionId : sessionIds) {
+				Map<Object, Object> session = redisTemplate.opsForHash().entries(sessionKey(sessionId));
+				if (session.isEmpty()) {
+					redisTemplate.opsForSet().remove(userSessionsKey, sessionId);
+					continue;
+				}
+				revokeSession(sessionId, session);
+			}
 		}
 		redisTemplate.delete(userSessionsKey);
 	}
@@ -102,6 +114,10 @@ public class RedisAuthSessionStore {
 		values.put("status", session.status().name());
 		values.put("createdAt", session.createdAt().toString());
 		return values;
+	}
+
+	private Duration sessionTtl() {
+		return Duration.ofSeconds(authSessionProperties.refreshTokenMaxAgeSeconds());
 	}
 
 	private void deleteRefreshKey(Object refreshTokenHash) {

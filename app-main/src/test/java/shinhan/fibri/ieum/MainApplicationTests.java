@@ -48,10 +48,11 @@ class MainApplicationTests {
 
 	@Test
 	void securityFiltersAreNotRegisteredAsServletFilters() {
-		List<FilterRegistrationBean> registrations = applicationContext
+		List<? extends FilterRegistrationBean<?>> registrations = applicationContext
 			.getBeansOfType(FilterRegistrationBean.class)
 			.values()
 			.stream()
+			.map(registration -> (FilterRegistrationBean<?>) registration)
 			.toList();
 
 		assertThat(registrations)

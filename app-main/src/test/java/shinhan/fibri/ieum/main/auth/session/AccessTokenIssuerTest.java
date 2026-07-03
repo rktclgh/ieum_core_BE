@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.auth.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import javax.crypto.spec.SecretKeySpec;
@@ -31,5 +32,12 @@ class AccessTokenIssuerTest {
 		assertThat(jwt.getIssuedAt()).isNotNull();
 		assertThat(jwt.getExpiresAt()).isNotNull();
 		assertThat(jwt.getExpiresAt()).isAfter(jwt.getIssuedAt());
+	}
+
+	@Test
+	void constructorRejectsNonPositiveTtlMinutes() {
+		assertThatThrownBy(() -> new AccessTokenIssuer("01234567890123456789012345678901", 0))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("app.jwt.access-token-ttl-minutes must be positive");
 	}
 }

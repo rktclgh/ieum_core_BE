@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -73,7 +74,7 @@ public class LoginService {
 			null,
 			user.getRole(),
 			user.getStatus(),
-			OffsetDateTime.now()
+			OffsetDateTime.now(ZoneOffset.UTC)
 		);
 		writeSessionAfterCommit(session);
 

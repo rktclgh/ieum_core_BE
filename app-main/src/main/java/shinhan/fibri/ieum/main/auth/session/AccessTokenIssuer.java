@@ -18,10 +18,20 @@ public class AccessTokenIssuer {
 	private final int ttlMinutes;
 
 	public AccessTokenIssuer(String secret, int ttlMinutes) {
-		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
-		SecretKeySpec secretKey = new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+		this(secretKeyFrom(secret), ttlMinutes);
+	}
+
+	public AccessTokenIssuer(SecretKeySpec secretKey, int ttlMinutes) {
+		if (ttlMinutes <= 0) {
+			throw new IllegalStateException("app.jwt.access-token-ttl-minutes must be positive");
+		}
 		this.encoder = new NimbusJwtEncoder(new ImmutableSecret<SecurityContext>(secretKey));
 		this.ttlMinutes = ttlMinutes;
+	}
+
+	private static SecretKeySpec secretKeyFrom(String secret) {
+		String validatedSecret = AuthSecretValidator.requireAtLeast32Bytes(secret, "app.jwt.secret");
+		return new SecretKeySpec(validatedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
 	}
 
 	public String issue(Long userId, String sessionId, String email, UserRole role) {
