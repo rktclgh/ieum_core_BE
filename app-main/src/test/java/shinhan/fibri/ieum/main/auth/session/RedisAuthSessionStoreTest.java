@@ -147,6 +147,46 @@ class RedisAuthSessionStoreTest {
 	}
 
 	@Test
+	void findBySessionIdReturnsSession() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		when(hashOps.entries("auth:session:sid-1")).thenReturn(Map.of(
+			"userId", "42",
+			"refreshTokenHash", "refresh-hash",
+			"role", "user",
+			"status", "active",
+			"createdAt", "2026-07-03T00:00Z"
+		));
+		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+
+		Optional<AuthSession> session = store.findBySessionId("sid-1");
+
+		assertThat(session).hasValue(new AuthSession(
+			"sid-1",
+			42L,
+			"refresh-hash",
+			null,
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00Z")
+		));
+	}
+
+	@Test
+	void findBySessionIdReturnsEmptyWhenSessionDoesNotExist() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+		when(redisTemplate.opsForHash()).thenReturn(hashOps);
+		when(hashOps.entries("auth:session:missing-sid")).thenReturn(Map.of());
+		RedisAuthSessionStore store = new RedisAuthSessionStore(redisTemplate);
+
+		Optional<AuthSession> session = store.findBySessionId("missing-sid");
+
+		assertThat(session).isEmpty();
+	}
+
+	@Test
 	void revokeSessionDeletesSessionRefreshIndexesAndUserSessionMembership() {
 		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
 		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);

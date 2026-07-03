@@ -47,6 +47,10 @@ public class RedisAuthSessionStore {
 			return Optional.empty();
 		}
 
+		return findBySessionId(sessionId);
+	}
+
+	public Optional<AuthSession> findBySessionId(String sessionId) {
 		Map<Object, Object> session = redisTemplate.opsForHash().entries(sessionKey(sessionId));
 		if (session.isEmpty()) {
 			return Optional.empty();
