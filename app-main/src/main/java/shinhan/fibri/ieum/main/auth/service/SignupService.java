@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -47,10 +48,29 @@ public class SignupService {
 			request.nickname(),
 			request.birthDate()
 		);
-		User savedUser = userRepository.save(user);
+		User savedUser = saveUserOrThrowDuplicateException(user);
 		userSettingsRepository.save(UserSettings.defaultFor(savedUser));
 		deleteVerificationTokenAfterCommit(request.emailVerificationToken());
 		return new SignupResponse(savedUser.getId());
+	}
+
+	private User saveUserOrThrowDuplicateException(User user) {
+		try {
+			return userRepository.save(user);
+		} catch (DataIntegrityViolationException exception) {
+			throw mapDuplicateConstraint(exception);
+		}
+	}
+
+	private RuntimeException mapDuplicateConstraint(DataIntegrityViolationException exception) {
+		String message = String.valueOf(exception.getMostSpecificCause().getMessage()).toLowerCase();
+		if (message.contains("uidx_users_email_provider")) {
+			return new EmailTakenException();
+		}
+		if (message.contains("uidx_users_nickname")) {
+			return new NicknameTakenException();
+		}
+		return exception;
 	}
 
 	private void deleteVerificationTokenAfterCommit(String token) {
