@@ -61,7 +61,7 @@ public class SecurityConfig {
 		CorsConfiguration configuration = new CorsConfiguration();
 		configuration.setAllowedOrigins(csvValues(allowedOrigins));
 		configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-		configuration.setAllowedHeaders(List.of("Content-Type", "X-CSRF-Token"));
+		configuration.setAllowedHeaders(List.of("*"));
 		configuration.setAllowCredentials(true);
 		configuration.setMaxAge(3600L);
 
@@ -71,9 +71,21 @@ public class SecurityConfig {
 	}
 
 	private List<String> csvValues(String value) {
-		return Arrays.stream(value.split(","))
+		if (value == null) {
+			throw new IllegalStateException(
+				"app.cors.allowed-origins must be a non-empty list of explicit origins when credentials are allowed"
+			);
+		}
+
+		List<String> origins = Arrays.stream(value.split(","))
 			.map(String::trim)
 			.filter(origin -> !origin.isBlank())
 			.toList();
+		if (origins.isEmpty() || origins.contains("*")) {
+			throw new IllegalStateException(
+				"app.cors.allowed-origins must be a non-empty list of explicit origins when credentials are allowed"
+			);
+		}
+		return origins;
 	}
 }
