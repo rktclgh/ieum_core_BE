@@ -41,7 +41,7 @@ public class EmailVerificationService {
 			throw new EmailCodeRateLimitedException();
 		}
 		String code = codeGenerator.generate();
-		String codeHash = codeHasher.hash(code);
+		String codeHash = codeHasher.hash(email, code);
 		codeStore.saveSignupCode(email, codeHash, SIGNUP_CODE_TTL);
 		mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
 		return new SendEmailVerificationResponse(SIGNUP_CODE_TTL_SECONDS);
@@ -49,7 +49,7 @@ public class EmailVerificationService {
 
 	public VerifyEmailVerificationResponse verifySignupCode(VerifyEmailVerificationRequest request) {
 		String email = normalizeEmail(request.email());
-		String requestCodeHash = codeHasher.hash(request.code());
+		String requestCodeHash = codeHasher.hash(email, request.code());
 		String savedCodeHash = codeStore.findSignupCodeHash(email)
 			.orElseThrow(InvalidEmailVerificationCodeException::new);
 		if (!savedCodeHash.equals(requestCodeHash)) {

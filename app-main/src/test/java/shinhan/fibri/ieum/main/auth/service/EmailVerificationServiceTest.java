@@ -42,7 +42,7 @@ class EmailVerificationServiceTest {
 			rateLimiter
 		);
 		when(codeGenerator.generate()).thenReturn("123456");
-		when(codeHasher.hash("123456")).thenReturn("hashed-code");
+		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
 		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
 
 		SendEmailVerificationResponse response = service.sendSignupCode(
@@ -133,7 +133,7 @@ class EmailVerificationServiceTest {
 			rateLimiter
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("hashed-code"));
-		when(codeHasher.hash("123456")).thenReturn("hashed-code");
+		when(codeHasher.hash("user@example.com", "123456")).thenReturn("hashed-code");
 		when(tokenGenerator.generate()).thenReturn("verification-token");
 
 		VerifyEmailVerificationResponse response = service.verifySignupCode(
@@ -201,7 +201,7 @@ class EmailVerificationServiceTest {
 			rateLimiter
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("saved-code-hash"));
-		when(codeHasher.hash("000000")).thenReturn("request-code-hash");
+		when(codeHasher.hash("user@example.com", "000000")).thenReturn("request-code-hash");
 
 		assertThatThrownBy(() -> service.verifySignupCode(
 			new VerifyEmailVerificationRequest(" USER@example.COM ", "000000")

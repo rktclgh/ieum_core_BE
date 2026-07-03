@@ -10,10 +10,10 @@ import java.security.NoSuchAlgorithmException;
 public class Sha256VerificationCodeHasher implements VerificationCodeHasher {
 
 	@Override
-	public String hash(String code) {
+	public String hash(String email, String code) {
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
-			byte[] hash = digest.digest(code.getBytes(StandardCharsets.UTF_8));
+			byte[] hash = digest.digest((email + ":" + code).getBytes(StandardCharsets.UTF_8));
 			return toHex(hash);
 		} catch (NoSuchAlgorithmException exception) {
 			throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);

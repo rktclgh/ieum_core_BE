@@ -10,10 +10,20 @@ class Sha256VerificationCodeHasherTest {
 	void hashReturnsStableNonPlainTextHash() {
 		VerificationCodeHasher hasher = new Sha256VerificationCodeHasher();
 
-		String hash = hasher.hash("123456");
+		String hash = hasher.hash("user@example.com", "123456");
 
-		assertThat(hash).isEqualTo(hasher.hash("123456"));
+		assertThat(hash).isEqualTo(hasher.hash("user@example.com", "123456"));
 		assertThat(hash).isNotEqualTo("123456");
 		assertThat(hash).hasSize(64);
+	}
+
+	@Test
+	void hashUsesEmailContextForSameCode() {
+		VerificationCodeHasher hasher = new Sha256VerificationCodeHasher();
+
+		String userHash = hasher.hash("user@example.com", "123456");
+		String otherUserHash = hasher.hash("other@example.com", "123456");
+
+		assertThat(userHash).isNotEqualTo(otherUserHash);
 	}
 }
