@@ -20,6 +20,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-mail")
 	implementation("org.springframework.security:spring-security-crypto")
+	implementation("org.springframework.security:spring-security-oauth2-jose")
 	// WebSocket (SSE 자체는 webmvc 만으로 동작)
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
