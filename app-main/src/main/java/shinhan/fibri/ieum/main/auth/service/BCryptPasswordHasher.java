@@ -1,12 +1,14 @@
 package shinhan.fibri.ieum.main.auth.service;
 
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class BCryptPasswordHasher implements PasswordHasher {
 
-	private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+	private final PasswordEncoder encoder;
 
 	@Override
 	public String hash(String rawPassword) {
