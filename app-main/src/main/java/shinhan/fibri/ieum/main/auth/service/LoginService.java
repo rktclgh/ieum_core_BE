@@ -28,6 +28,9 @@ import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
 @RequiredArgsConstructor
 public class LoginService {
 
+	private static final String DUMMY_PASSWORD_HASH =
+		"$2a$10$N9qo8uLOickgx2ZMRZoMye.IjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
 	private final UserRepository userRepository;
 	private final PasswordHasher passwordHasher;
 	private final LoginLogRepository loginLogRepository;
@@ -40,7 +43,11 @@ public class LoginService {
 	public LoginResult login(LoginRequest request) {
 		String email = AuthEmailNormalizer.normalize(request.email());
 		User user = userRepository.findByEmailAndProviderAndDeletedAtIsNull(email, AuthProvider.email)
-			.orElseThrow(InvalidCredentialsException::new);
+			.orElse(null);
+		if (user == null) {
+			passwordHasher.matches(request.password(), DUMMY_PASSWORD_HASH);
+			throw new InvalidCredentialsException();
+		}
 		if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
 			throw new InvalidCredentialsException();
 		}

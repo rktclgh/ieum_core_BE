@@ -3,6 +3,8 @@ package shinhan.fibri.ieum.main.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -35,12 +37,14 @@ class LoginServiceTest {
 	@Test
 	void loginThrowsInvalidCredentialsWhenEmailDoesNotExist() {
 		UserRepository userRepository = mock(UserRepository.class);
-		LoginService service = service(userRepository);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		LoginService service = service(userRepository, passwordHasher);
 		when(userRepository.findByEmailAndProviderAndDeletedAtIsNull("user@example.com", AuthProvider.email))
 			.thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.login(new LoginRequest(" USER@example.COM ", "Passw@rd123")))
 			.isInstanceOf(InvalidCredentialsException.class);
+		verify(passwordHasher).matches(eq("Passw@rd123"), anyString());
 	}
 
 	@Test
