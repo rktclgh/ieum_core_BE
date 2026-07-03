@@ -24,7 +24,7 @@ public class AuthController {
 	private final EmailVerificationService emailVerificationService;
 	private final SignupService signupService;
 
-	@PostMapping("/email/send")
+	@PostMapping({"/email/send", "/email/send-code"})
 	public ResponseEntity<SendEmailVerificationResponse> sendEmailVerificationCode(
 		@Valid @RequestBody SendEmailVerificationRequest request
 	) {

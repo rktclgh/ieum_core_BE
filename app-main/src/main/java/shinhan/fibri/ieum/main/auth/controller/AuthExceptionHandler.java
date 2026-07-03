@@ -6,6 +6,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
@@ -34,6 +35,14 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleEmailTaken(EmailTakenException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("EMAIL_TAKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(EmailCodeRateLimitedException.class)
+	public ResponseEntity<AuthErrorResponse> handleEmailCodeRateLimited(
+		EmailCodeRateLimitedException exception
+	) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+			.body(new AuthErrorResponse("EMAIL_CODE_RATE_LIMITED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(NicknameTakenException.class)

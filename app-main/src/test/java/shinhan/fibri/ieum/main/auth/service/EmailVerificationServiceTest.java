@@ -1,10 +1,14 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
@@ -26,15 +30,20 @@ class EmailVerificationServiceTest {
 		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
 		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
 		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
 		EmailVerificationService service = new EmailVerificationService(
 			codeStore,
 			mailSender,
 			codeGenerator,
 			codeHasher,
-			tokenGenerator
+			tokenGenerator,
+			userRepository,
+			rateLimiter
 		);
 		when(codeGenerator.generate()).thenReturn("123456");
 		when(codeHasher.hash("123456")).thenReturn("hashed-code");
+		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(true);
 
 		SendEmailVerificationResponse response = service.sendSignupCode(
 			new SendEmailVerificationRequest(" USER@example.COM ")
@@ -46,18 +55,82 @@ class EmailVerificationServiceTest {
 	}
 
 	@Test
+	void sendSignupCodeThrowsWhenEmailIsAlreadyTaken() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator,
+			userRepository,
+			rateLimiter
+		);
+		when(userRepository.existsByEmailAndProviderAndDeletedAtIsNull("user@example.com", AuthProvider.email))
+			.thenReturn(true);
+
+		assertThatThrownBy(() -> service.sendSignupCode(
+			new SendEmailVerificationRequest(" USER@example.COM ")
+		)).isInstanceOf(EmailTakenException.class);
+
+		verify(rateLimiter, never()).tryConsumeSignupSend("user@example.com");
+		verify(codeGenerator, never()).generate();
+		verify(codeStore, never()).saveSignupCode("user@example.com", "hashed-code", Duration.ofSeconds(180));
+		verify(mailSender, never()).sendSignupCode("user@example.com", "123456", 180);
+	}
+
+	@Test
+	void sendSignupCodeThrowsWhenRateLimited() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator,
+			userRepository,
+			rateLimiter
+		);
+		when(rateLimiter.tryConsumeSignupSend("user@example.com")).thenReturn(false);
+
+		assertThatThrownBy(() -> service.sendSignupCode(
+			new SendEmailVerificationRequest(" USER@example.COM ")
+		)).isInstanceOf(EmailCodeRateLimitedException.class);
+
+		verify(codeGenerator, never()).generate();
+		verify(codeStore, never()).saveSignupCode("user@example.com", "hashed-code", Duration.ofSeconds(180));
+		verify(mailSender, never()).sendSignupCode("user@example.com", "123456", 180);
+	}
+
+	@Test
 	void verifySignupCodeNormalizesEmailDeletesCodeAndStoresVerificationToken() {
 		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
 		VerificationMailSender mailSender = mock(VerificationMailSender.class);
 		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
 		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
 		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
 		EmailVerificationService service = new EmailVerificationService(
 			codeStore,
 			mailSender,
 			codeGenerator,
 			codeHasher,
-			tokenGenerator
+			tokenGenerator,
+			userRepository,
+			rateLimiter
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("hashed-code"));
 		when(codeHasher.hash("123456")).thenReturn("hashed-code");
@@ -84,12 +157,16 @@ class EmailVerificationServiceTest {
 		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
 		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
 		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
 		EmailVerificationService service = new EmailVerificationService(
 			codeStore,
 			mailSender,
 			codeGenerator,
 			codeHasher,
-			tokenGenerator
+			tokenGenerator,
+			userRepository,
+			rateLimiter
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.empty());
 
@@ -112,12 +189,16 @@ class EmailVerificationServiceTest {
 		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
 		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
 		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		EmailVerificationRateLimiter rateLimiter = mock(EmailVerificationRateLimiter.class);
 		EmailVerificationService service = new EmailVerificationService(
 			codeStore,
 			mailSender,
 			codeGenerator,
 			codeHasher,
-			tokenGenerator
+			tokenGenerator,
+			userRepository,
+			rateLimiter
 		);
 		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("saved-code-hash"));
 		when(codeHasher.hash("000000")).thenReturn("request-code-hash");

@@ -2,10 +2,14 @@ package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
+import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
@@ -25,9 +29,17 @@ public class EmailVerificationService {
 	private final VerificationCodeGenerator codeGenerator;
 	private final VerificationCodeHasher codeHasher;
 	private final EmailVerificationTokenGenerator tokenGenerator;
+	private final UserRepository userRepository;
+	private final EmailVerificationRateLimiter rateLimiter;
 
 	public SendEmailVerificationResponse sendSignupCode(SendEmailVerificationRequest request) {
 		String email = normalizeEmail(request.email());
+		if (userRepository.existsByEmailAndProviderAndDeletedAtIsNull(email, AuthProvider.email)) {
+			throw new EmailTakenException();
+		}
+		if (!rateLimiter.tryConsumeSignupSend(email)) {
+			throw new EmailCodeRateLimitedException();
+		}
 		String code = codeGenerator.generate();
 		String codeHash = codeHasher.hash(code);
 		codeStore.saveSignupCode(email, codeHash, SIGNUP_CODE_TTL);

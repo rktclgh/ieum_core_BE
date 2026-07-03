@@ -15,6 +15,7 @@ import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
@@ -58,6 +59,58 @@ class AuthControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.expiresInSeconds", is(180)));
+	}
+
+	@Test
+	void sendEmailVerificationCodeSupportsSendCodeAlias() throws Exception {
+		when(emailVerificationService.sendSignupCode(any(SendEmailVerificationRequest.class)))
+			.thenReturn(new SendEmailVerificationResponse(180));
+
+		mockMvc.perform(post("/api/v1/auth/email/send-code")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.expiresInSeconds", is(180)));
+	}
+
+	@Test
+	void sendEmailVerificationCodeReturnsConflictWhenEmailIsTaken() throws Exception {
+		doThrow(new EmailTakenException())
+			.when(emailVerificationService)
+			.sendSignupCode(any(SendEmailVerificationRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/email/send")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("EMAIL_TAKEN")))
+			.andExpect(jsonPath("$.message", is("Email is already taken")));
+	}
+
+	@Test
+	void sendEmailVerificationCodeReturnsTooManyRequestsWhenRateLimited() throws Exception {
+		doThrow(new EmailCodeRateLimitedException())
+			.when(emailVerificationService)
+			.sendSignupCode(any(SendEmailVerificationRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/email/send")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(jsonPath("$.code", is("EMAIL_CODE_RATE_LIMITED")))
+			.andExpect(jsonPath("$.message", is("Email verification code request rate limit exceeded")));
 	}
 
 	@Test
