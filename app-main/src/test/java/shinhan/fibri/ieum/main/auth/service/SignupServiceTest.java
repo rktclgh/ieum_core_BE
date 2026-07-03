@@ -231,6 +231,41 @@ class SignupServiceTest {
 	}
 
 	@Test
+	void isEmailAvailableNormalizesEmailAndChecksEmailProviderUser() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(userRepository.existsByEmailAndProviderAndDeletedAtIsNull("user@example.com", AuthProvider.email))
+			.thenReturn(false);
+
+		assertThat(service.isEmailAvailable(" USER@example.COM ")).isTrue();
+	}
+
+	@Test
+	void isNicknameAvailableChecksActiveNickname() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(userRepository.existsByNicknameAndDeletedAtIsNull("nickname")).thenReturn(true);
+
+		assertThat(service.isNicknameAvailable("nickname")).isFalse();
+	}
+
+	@Test
 	void signupMapsEmailUniqueConstraintViolationToEmailTakenException() {
 		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
 		UserRepository userRepository = mock(UserRepository.class);

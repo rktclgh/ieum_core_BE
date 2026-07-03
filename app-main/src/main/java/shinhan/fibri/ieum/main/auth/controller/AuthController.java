@@ -7,6 +7,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import shinhan.fibri.ieum.main.auth.dto.CheckEmailDuplicateRequest;
+import shinhan.fibri.ieum.main.auth.dto.CheckNicknameDuplicateRequest;
+import shinhan.fibri.ieum.main.auth.dto.DuplicateCheckResponse;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
@@ -24,7 +27,7 @@ public class AuthController {
 	private final EmailVerificationService emailVerificationService;
 	private final SignupService signupService;
 
-	@PostMapping({"/email/send", "/email/send-code"})
+	@PostMapping("/email/send-code")
 	public ResponseEntity<SendEmailVerificationResponse> sendEmailVerificationCode(
 		@Valid @RequestBody SendEmailVerificationRequest request
 	) {
@@ -38,6 +41,20 @@ public class AuthController {
 	) {
 		VerifyEmailVerificationResponse response = emailVerificationService.verifySignupCode(request);
 		return ResponseEntity.ok(response);
+	}
+
+	@PostMapping("/email/check-duplicate")
+	public ResponseEntity<DuplicateCheckResponse> checkEmailDuplicate(
+		@Valid @RequestBody CheckEmailDuplicateRequest request
+	) {
+		return ResponseEntity.ok(new DuplicateCheckResponse(signupService.isEmailAvailable(request.email())));
+	}
+
+	@PostMapping("/nickname/check-duplicate")
+	public ResponseEntity<DuplicateCheckResponse> checkNicknameDuplicate(
+		@Valid @RequestBody CheckNicknameDuplicateRequest request
+	) {
+		return ResponseEntity.ok(new DuplicateCheckResponse(signupService.isNicknameAvailable(request.nickname())));
 	}
 
 	@PostMapping("/signup")

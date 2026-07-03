@@ -27,6 +27,15 @@ public class SignupService {
 	private final UserSettingsRepository userSettingsRepository;
 	private final PasswordHasher passwordHasher;
 
+	public boolean isEmailAvailable(String email) {
+		String normalizedEmail = AuthEmailNormalizer.normalize(email);
+		return !userRepository.existsByEmailAndProviderAndDeletedAtIsNull(normalizedEmail, AuthProvider.email);
+	}
+
+	public boolean isNicknameAvailable(String nickname) {
+		return !userRepository.existsByNicknameAndDeletedAtIsNull(nickname);
+	}
+
 	@Transactional
 	public SignupResponse signup(SignupRequest request) {
 		String email = AuthEmailNormalizer.normalize(request.email());

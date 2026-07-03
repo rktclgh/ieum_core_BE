@@ -48,22 +48,6 @@ class AuthControllerTest {
 		when(emailVerificationService.sendSignupCode(any(SendEmailVerificationRequest.class)))
 			.thenReturn(new SendEmailVerificationResponse(180));
 
-		mockMvc.perform(post("/api/v1/auth/email/send")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "USER@example.com"
-					}
-					"""))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.expiresInSeconds", is(180)));
-	}
-
-	@Test
-	void sendEmailVerificationCodeSupportsSendCodeAlias() throws Exception {
-		when(emailVerificationService.sendSignupCode(any(SendEmailVerificationRequest.class)))
-			.thenReturn(new SendEmailVerificationResponse(180));
-
 		mockMvc.perform(post("/api/v1/auth/email/send-code")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -76,12 +60,27 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void sendEmailVerificationCodeDoesNotSupportLegacySendPath() throws Exception {
+		when(emailVerificationService.sendSignupCode(any(SendEmailVerificationRequest.class)))
+			.thenReturn(new SendEmailVerificationResponse(180));
+
+		mockMvc.perform(post("/api/v1/auth/email/send")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isNotFound());
+	}
+
+	@Test
 	void sendEmailVerificationCodeReturnsConflictWhenEmailIsTaken() throws Exception {
 		doThrow(new EmailTakenException())
 			.when(emailVerificationService)
 			.sendSignupCode(any(SendEmailVerificationRequest.class));
 
-		mockMvc.perform(post("/api/v1/auth/email/send")
+		mockMvc.perform(post("/api/v1/auth/email/send-code")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -99,7 +98,7 @@ class AuthControllerTest {
 			.when(emailVerificationService)
 			.sendSignupCode(any(SendEmailVerificationRequest.class));
 
-		mockMvc.perform(post("/api/v1/auth/email/send")
+		mockMvc.perform(post("/api/v1/auth/email/send-code")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -109,6 +108,36 @@ class AuthControllerTest {
 			.andExpect(status().isTooManyRequests())
 			.andExpect(jsonPath("$.code", is("EMAIL_CODE_RATE_LIMITED")))
 			.andExpect(jsonPath("$.message", is("Email verification code request rate limit exceeded")));
+	}
+
+	@Test
+	void checkEmailDuplicateReturnsAvailability() throws Exception {
+		when(signupService.isEmailAvailable("USER@example.com")).thenReturn(true);
+
+		mockMvc.perform(post("/api/v1/auth/email/check-duplicate")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.available", is(true)));
+	}
+
+	@Test
+	void checkNicknameDuplicateReturnsAvailability() throws Exception {
+		when(signupService.isNicknameAvailable("nickname")).thenReturn(false);
+
+		mockMvc.perform(post("/api/v1/auth/nickname/check-duplicate")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "nickname"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.available", is(false)));
 	}
 
 	@Test
