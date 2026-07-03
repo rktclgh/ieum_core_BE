@@ -1,7 +1,9 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,6 +12,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
+import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
 import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
@@ -53,5 +56,34 @@ class RefreshServiceTest {
 		assertThat(result.refreshToken()).isEqualTo("new-refresh-token");
 		assertThat(result.csrfToken()).isEqualTo("new-csrf-token");
 		verify(sessionStore).rotateRefreshToken(session, "new-refresh-hash");
+	}
+
+	@Test
+	void refreshThrowsInvalidRefreshTokenWhenSessionIsSuspended() {
+		RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
+		Sha256TokenHasher tokenHasher = mock(Sha256TokenHasher.class);
+		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
+		AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+		RefreshService service = new RefreshService(
+			sessionStore,
+			tokenHasher,
+			tokenGenerator,
+			accessTokenIssuer
+		);
+		AuthSession session = new AuthSession(
+			"sid-1",
+			42L,
+			"refresh-hash",
+			null,
+			UserRole.user,
+			UserStatus.suspended,
+			OffsetDateTime.parse("2026-07-03T00:00Z")
+		);
+		when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
+		when(sessionStore.findByRefreshTokenHash("refresh-hash")).thenReturn(Optional.of(session));
+
+		assertThatThrownBy(() -> service.refresh("refresh-token"))
+			.isInstanceOf(InvalidRefreshTokenException.class);
+		verify(sessionStore, never()).rotateRefreshToken(session, "new-refresh-hash");
 	}
 }

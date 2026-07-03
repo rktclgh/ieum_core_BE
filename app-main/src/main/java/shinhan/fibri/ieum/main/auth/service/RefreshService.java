@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
 import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
@@ -23,6 +24,9 @@ public class RefreshService {
 		String refreshTokenHash = tokenHasher.hash(refreshToken);
 		AuthSession session = sessionStore.findByRefreshTokenHash(refreshTokenHash)
 			.orElseThrow(InvalidRefreshTokenException::new);
+		if (session.status() != UserStatus.active) {
+			throw new InvalidRefreshTokenException();
+		}
 
 		String newRefreshToken = tokenGenerator.generate();
 		String csrfToken = tokenGenerator.generate();
