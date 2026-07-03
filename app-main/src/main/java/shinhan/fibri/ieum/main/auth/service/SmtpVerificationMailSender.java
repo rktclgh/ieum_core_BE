@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.auth.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -20,6 +21,7 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 	}
 
 	@Override
+	@Async
 	public void sendSignupCode(String email, String code, int expiresInSeconds) {
 		SimpleMailMessage message = new SimpleMailMessage();
 		message.setFrom(fromAddress);

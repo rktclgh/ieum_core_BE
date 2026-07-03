@@ -3,6 +3,9 @@ package shinhan.fibri.ieum.main.auth.service;
 import org.junit.jupiter.api.Test;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.EnableAsync;
+import shinhan.fibri.ieum.MainApplication;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentCaptor.forClass;
@@ -28,5 +31,13 @@ class SmtpVerificationMailSenderTest {
 		assertThat(message.getTo()).containsExactly("user@example.com");
 		assertThat(message.getSubject()).contains("이메일 인증");
 		assertThat(message.getText()).contains("123456").contains("3분");
+	}
+
+	@Test
+	void sendSignupCodeRunsWithSpringAsyncEnabled() throws Exception {
+		assertThat(MainApplication.class.isAnnotationPresent(EnableAsync.class)).isTrue();
+		assertThat(SmtpVerificationMailSender.class
+			.getMethod("sendSignupCode", String.class, String.class, int.class)
+			.isAnnotationPresent(Async.class)).isTrue();
 	}
 }
