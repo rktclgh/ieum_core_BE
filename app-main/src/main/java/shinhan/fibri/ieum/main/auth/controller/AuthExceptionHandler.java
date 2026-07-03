@@ -8,10 +8,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.validation.ObjectError;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
+import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
+import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import java.util.Comparator;
 import java.util.List;
@@ -53,6 +56,24 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleNicknameTaken(NicknameTakenException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 			.body(new AuthErrorResponse("NICKNAME_TAKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidCredentialsException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidCredentials(InvalidCredentialsException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("INVALID_CREDENTIALS", exception.getMessage()));
+	}
+
+	@ExceptionHandler(EmailNotVerifiedException.class)
+	public ResponseEntity<AuthErrorResponse> handleEmailNotVerified(EmailNotVerifiedException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("EMAIL_NOT_VERIFIED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SuspendedUserException.class)
+	public ResponseEntity<AuthErrorResponse> handleSuspendedUser(SuspendedUserException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("SUSPENDED_USER", exception.getMessage()));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
