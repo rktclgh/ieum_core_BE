@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.main.auth.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.MissingRequestCookieException;
@@ -23,6 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 
 @RestControllerAdvice(assignableTypes = AuthController.class)
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class AuthExceptionHandler {
 
 	@ExceptionHandler(InvalidEmailVerificationCodeException.class)
