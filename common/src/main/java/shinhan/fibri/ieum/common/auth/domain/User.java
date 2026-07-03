@@ -8,6 +8,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcType;
+import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
+
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Locale;
@@ -35,26 +38,31 @@ public class User {
 	private LocalDate birthDate;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private AuthProvider provider;
 
 	@Column(name = "email_verified", nullable = false)
 	private boolean emailVerified;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private UserRole role;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private UserStatus status;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private UserGrade grade;
 
 	@Enumerated(EnumType.STRING)
-	@Column(length = 30)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(columnDefinition = "varchar(30)")
 	private GenderType gender;
 
 	@Column(name = "accepted_count", nullable = false)
