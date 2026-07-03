@@ -11,6 +11,7 @@ import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 
 import java.util.Locale;
 
@@ -27,9 +28,9 @@ public class SignupService {
 	public SignupResponse signup(SignupRequest request) {
 		String email = normalizeEmail(request.email());
 		String verifiedEmail = codeStore.findSignupVerificationEmail(request.emailVerificationToken())
-			.orElseThrow(() -> new IllegalArgumentException("Invalid email verification token"));
+			.orElseThrow(InvalidEmailVerificationTokenException::new);
 		if (!verifiedEmail.equals(email)) {
-			throw new IllegalArgumentException("Invalid email verification token");
+			throw new InvalidEmailVerificationTokenException();
 		}
 
 		User user = User.createEmailUser(

@@ -16,6 +16,7 @@ import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 
@@ -112,6 +113,28 @@ class AuthControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.userId", is(42)));
+	}
+
+	@Test
+	void signupReturnsBadRequestWhenVerificationTokenIsInvalid() throws Exception {
+		doThrow(new InvalidEmailVerificationTokenException())
+			.when(signupService)
+			.signup(any(SignupRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "password": "password123",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "emailVerificationToken": "invalid-token"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_EMAIL_VERIFICATION_TOKEN")))
+			.andExpect(jsonPath("$.message", is("Invalid email verification token")));
 	}
 
 	@TestConfiguration

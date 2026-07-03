@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 
 @RestControllerAdvice(assignableTypes = AuthController.class)
 public class AuthExceptionHandler {
@@ -16,5 +17,13 @@ public class AuthExceptionHandler {
 	) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
 			.body(new AuthErrorResponse("INVALID_EMAIL_VERIFICATION_CODE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidEmailVerificationTokenException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidEmailVerificationToken(
+		InvalidEmailVerificationTokenException exception
+	) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("INVALID_EMAIL_VERIFICATION_TOKEN", exception.getMessage()));
 	}
 }

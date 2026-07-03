@@ -10,11 +10,13 @@ import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 
 import java.time.LocalDate;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -105,5 +107,60 @@ class SignupServiceTest {
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
+	}
+
+	@Test
+	void signupThrowsWhenVerificationTokenIsExpired() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(codeStore.findSignupVerificationEmail("expired-token")).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.signup(new SignupRequest(
+			"user@example.com",
+			"password123",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			"expired-token"
+		))).isInstanceOf(InvalidEmailVerificationTokenException.class);
+
+		verify(userRepository, never()).save(any(User.class));
+		verify(userSettingsRepository, never()).save(any(UserSettings.class));
+		verify(codeStore, never()).deleteSignupVerificationToken("expired-token");
+	}
+
+	@Test
+	void signupThrowsWhenVerificationTokenEmailDoesNotMatchRequestEmail() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		UserRepository userRepository = mock(UserRepository.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SignupService service = new SignupService(
+			codeStore,
+			userRepository,
+			userSettingsRepository,
+			passwordHasher
+		);
+		when(codeStore.findSignupVerificationEmail("verification-token"))
+			.thenReturn(Optional.of("other@example.com"));
+
+		assertThatThrownBy(() -> service.signup(new SignupRequest(
+			"user@example.com",
+			"password123",
+			"nickname",
+			LocalDate.of(2000, 1, 1),
+			"verification-token"
+		))).isInstanceOf(InvalidEmailVerificationTokenException.class);
+
+		verify(userRepository, never()).save(any(User.class));
+		verify(userSettingsRepository, never()).save(any(UserSettings.class));
+		verify(codeStore, never()).deleteSignupVerificationToken("verification-token");
 	}
 }
