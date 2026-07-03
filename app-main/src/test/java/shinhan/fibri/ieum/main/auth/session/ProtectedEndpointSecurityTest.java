@@ -58,6 +58,22 @@ class ProtectedEndpointSecurityTest {
 			.andExpect(jsonPath("$.message", is("Access is denied")));
 	}
 
+	@Test
+	void adminEndpointAllowsAdminRole() throws Exception {
+		when(sessionTokenValidator.validate("admin-token"))
+			.thenReturn(Optional.of(new AuthenticatedUser(
+				1L,
+				"admin@example.com",
+				UserRole.admin,
+				UserStatus.active
+			)));
+
+		mockMvc.perform(get("/api/v1/admin/ping")
+				.cookie(new MockCookie("access_token", "admin-token")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$", is("admin-ok")));
+	}
+
 	@RestController
 	static class ProtectedController {
 
