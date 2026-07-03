@@ -9,12 +9,23 @@ import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
+import org.springframework.security.web.SecurityFilterChain;
 
 @SpringBootTest
 class MainApplicationTests {
 
+	@Autowired
+	private ApplicationContext applicationContext;
+
 	@Test
 	void contextLoads() {
+	}
+
+	@Test
+	void securityFilterChainIsConfigured() {
+		assertThat(applicationContext.getBean(SecurityFilterChain.class)).isNotNull();
 	}
 
 	@Test

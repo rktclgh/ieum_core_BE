@@ -34,6 +34,7 @@ import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
+import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -525,6 +526,12 @@ class AuthControllerTest {
 		@Primary
 		LogoutService logoutService() {
 			return mock(LogoutService.class);
+		}
+
+		@Bean
+		@Primary
+		SessionTokenValidator sessionTokenValidator() {
+			return mock(SessionTokenValidator.class);
 		}
 
 		@Bean
