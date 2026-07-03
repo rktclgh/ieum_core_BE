@@ -13,11 +13,13 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,6 +67,25 @@ class AuthControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.emailVerificationToken", is("verification-token")))
 			.andExpect(jsonPath("$.expiresInSeconds", is(1800)));
+	}
+
+	@Test
+	void verifyEmailVerificationCodeReturnsBadRequestWhenCodeIsInvalid() throws Exception {
+		doThrow(new InvalidEmailVerificationCodeException())
+			.when(emailVerificationService)
+			.verifySignupCode(any(VerifyEmailVerificationRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/email/verify")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "USER@example.com",
+					  "code": "000000"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_EMAIL_VERIFICATION_CODE")))
+			.andExpect(jsonPath("$.message", is("Invalid email verification code")));
 	}
 
 	@TestConfiguration

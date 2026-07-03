@@ -6,6 +6,7 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -38,9 +39,9 @@ public class EmailVerificationService {
 		String email = normalizeEmail(request.email());
 		String requestCodeHash = codeHasher.hash(request.code());
 		String savedCodeHash = codeStore.findSignupCodeHash(email)
-			.orElseThrow(() -> new IllegalArgumentException("Invalid email verification code"));
+			.orElseThrow(InvalidEmailVerificationCodeException::new);
 		if (!savedCodeHash.equals(requestCodeHash)) {
-			throw new IllegalArgumentException("Invalid email verification code");
+			throw new InvalidEmailVerificationCodeException();
 		}
 
 		String token = tokenGenerator.generate();

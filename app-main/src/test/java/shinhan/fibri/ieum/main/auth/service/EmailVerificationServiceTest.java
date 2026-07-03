@@ -5,11 +5,14 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
+import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 
 import java.time.Duration;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,6 +71,63 @@ class EmailVerificationServiceTest {
 		assertThat(response.expiresInSeconds()).isEqualTo(1800);
 		verify(codeStore).deleteSignupCode("user@example.com");
 		verify(codeStore).saveSignupVerificationToken(
+			"verification-token",
+			"user@example.com",
+			Duration.ofSeconds(1800)
+		);
+	}
+
+	@Test
+	void verifySignupCodeThrowsWhenCodeIsExpired() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator
+		);
+		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.verifySignupCode(
+			new VerifyEmailVerificationRequest(" USER@example.COM ", "123456")
+		)).isInstanceOf(InvalidEmailVerificationCodeException.class);
+
+		verify(codeStore, never()).deleteSignupCode("user@example.com");
+		verify(codeStore, never()).saveSignupVerificationToken(
+			"verification-token",
+			"user@example.com",
+			Duration.ofSeconds(1800)
+		);
+	}
+
+	@Test
+	void verifySignupCodeThrowsWhenCodeDoesNotMatch() {
+		EmailVerificationCodeStore codeStore = mock(EmailVerificationCodeStore.class);
+		VerificationMailSender mailSender = mock(VerificationMailSender.class);
+		VerificationCodeGenerator codeGenerator = mock(VerificationCodeGenerator.class);
+		VerificationCodeHasher codeHasher = mock(VerificationCodeHasher.class);
+		EmailVerificationTokenGenerator tokenGenerator = mock(EmailVerificationTokenGenerator.class);
+		EmailVerificationService service = new EmailVerificationService(
+			codeStore,
+			mailSender,
+			codeGenerator,
+			codeHasher,
+			tokenGenerator
+		);
+		when(codeStore.findSignupCodeHash("user@example.com")).thenReturn(Optional.of("saved-code-hash"));
+		when(codeHasher.hash("000000")).thenReturn("request-code-hash");
+
+		assertThatThrownBy(() -> service.verifySignupCode(
+			new VerifyEmailVerificationRequest(" USER@example.COM ", "000000")
+		)).isInstanceOf(InvalidEmailVerificationCodeException.class);
+
+		verify(codeStore, never()).deleteSignupCode("user@example.com");
+		verify(codeStore, never()).saveSignupVerificationToken(
 			"verification-token",
 			"user@example.com",
 			Duration.ofSeconds(1800)
