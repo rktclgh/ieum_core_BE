@@ -33,4 +33,47 @@ class UserTest {
 		assertThat(user.isPasswordResetRequired()).isFalse();
 		assertThat(user.getDeletedAt()).isNull();
 	}
+
+	@Test
+	void updateProfileChangesEditableBasicInfoOnly() {
+		User user = User.createEmailUser(
+				"user@example.com",
+				"hash",
+				"before",
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
+		);
+
+		user.updateProfile(
+				"after",
+				LocalDate.of(1996, 6, 21),
+				GenderType.male,
+				"US"
+		);
+
+		assertThat(user.getNickname()).isEqualTo("after");
+		assertThat(user.getBirthDate()).isEqualTo(LocalDate.of(1996, 6, 21));
+		assertThat(user.getGender()).isEqualTo(GenderType.male);
+		assertThat(user.getNationality()).isEqualTo("US");
+		assertThat(user.getEmail()).isEqualTo("user@example.com");
+		assertThat(user.getGrade()).isEqualTo(UserGrade.bronze);
+		assertThat(user.getAcceptedCount()).isZero();
+	}
+
+	@Test
+	void updateLastLocationStoresLongitudeLatitudeOrder() {
+		User user = User.createEmailUser(
+				"user@example.com",
+				"hash",
+				"nickname",
+				LocalDate.of(1995, 5, 20),
+				GenderType.female,
+				"KR"
+		);
+
+		user.updateLastLocation(127.0276, 37.4979);
+
+		assertThat(user.getLastLocation()).isEqualTo("POINT(127.0276 37.4979)");
+	}
 }

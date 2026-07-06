@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import org.hibernate.annotations.JdbcType;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
@@ -70,6 +71,9 @@ public class User {
 	@Column(length = 2)
 	private String nationality;
 
+	@Transient
+	private String lastLocation;
+
 	@Column(name = "accepted_count", nullable = false)
 	private int acceptedCount;
 
@@ -120,6 +124,22 @@ public class User {
 		this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
 	}
 
+	public void updateProfile(
+		String nickname,
+		LocalDate birthDate,
+		GenderType gender,
+		String nationality
+	) {
+		this.nickname = Objects.requireNonNull(nickname, "nickname must not be null");
+		this.birthDate = Objects.requireNonNull(birthDate, "birthDate must not be null");
+		this.gender = Objects.requireNonNull(gender, "gender must not be null");
+		this.nationality = Objects.requireNonNull(nationality, "nationality must not be null");
+	}
+
+	public void updateLastLocation(double longitude, double latitude) {
+		this.lastLocation = "POINT(" + longitude + " " + latitude + ")";
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -166,6 +186,10 @@ public class User {
 
 	public String getNationality() {
 		return nationality;
+	}
+
+	public String getLastLocation() {
+		return lastLocation;
 	}
 
 	public int getAcceptedCount() {
