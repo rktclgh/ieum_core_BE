@@ -31,6 +31,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.service.UserService;
@@ -80,6 +81,26 @@ class UserControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.settings.language", is("ko")));
+	}
+
+	@Test
+	void updateSettingsReturnsUpdatedSettings() throws Exception {
+		when(userService.updateSettings(any(AuthenticatedUser.class), any(UpdateUserSettingsRequest.class)))
+			.thenReturn(settingsResponse());
+
+		mockMvc.perform(patch("/api/v1/users/me/settings")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "cameraPermission": true,
+					  "notifyAll": true,
+					  "notifyRadiusKm": 10
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.notifyAll", is(true)))
+			.andExpect(jsonPath("$.notifyRadiusKm", is(5)));
 	}
 
 	private static RequestPostProcessor authenticated() {

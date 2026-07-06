@@ -18,7 +18,9 @@ import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
+import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 class UserServiceTest {
@@ -82,6 +84,27 @@ class UserServiceTest {
 		assertThat(response.birthDate()).isEqualTo(LocalDate.of(1995, 5, 20));
 		assertThat(response.gender()).isEqualTo("female");
 		assertThat(response.nationality()).isEqualTo("US");
+	}
+
+	@Test
+	void updateSettingsPreservesOmittedFieldsAndUpdatesProvidedFields() {
+		User user = user();
+		UserSettings settings = UserSettings.defaultFor(user);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userSettingsRepository.findById(42L)).thenReturn(Optional.of(settings));
+
+		UserSettingsResponse response = service.updateSettings(
+			principal(),
+			new UpdateUserSettingsRequest(null, true, false, null, false, null, 10)
+		);
+
+		assertThat(response.language()).isEqualTo("ko");
+		assertThat(response.cameraPermission()).isTrue();
+		assertThat(response.pushPermission()).isFalse();
+		assertThat(response.notifyAllEnabled()).isTrue();
+		assertThat(response.notifyMeeting()).isFalse();
+		assertThat(response.notifyQuestion()).isTrue();
+		assertThat(response.notifyRadiusKm()).isEqualTo(10);
 	}
 
 	@Test

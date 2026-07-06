@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
+import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.service.UserService;
 
 @RestController
@@ -34,5 +36,13 @@ public class UserController {
 		@Valid @RequestBody UpdateUserProfileRequest request
 	) {
 		return ResponseEntity.ok(userService.updateMe(principal, request));
+	}
+
+	@PatchMapping("/settings")
+	public ResponseEntity<UserSettingsResponse> updateSettings(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@Valid @RequestBody UpdateUserSettingsRequest request
+	) {
+		return ResponseEntity.ok(userService.updateSettings(principal, request));
 	}
 }
