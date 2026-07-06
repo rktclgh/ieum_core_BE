@@ -3,9 +3,11 @@ package shinhan.fibri.ieum.main.user.controller;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,6 +32,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
@@ -101,6 +104,22 @@ class UserControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.notifyAll", is(true)))
 			.andExpect(jsonPath("$.notifyRadiusKm", is(5)));
+	}
+
+	@Test
+	void updateLocationReturnsNoContent() throws Exception {
+		mockMvc.perform(put("/api/v1/users/me/location")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "longitude": 127.0276,
+					  "latitude": 37.4979
+					}
+					"""))
+			.andExpect(status().isNoContent());
+
+		verify(userService).updateLocation(any(AuthenticatedUser.class), any(UpdateUserLocationRequest.class));
 	}
 
 	private static RequestPostProcessor authenticated() {

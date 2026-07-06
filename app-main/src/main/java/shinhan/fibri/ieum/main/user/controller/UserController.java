@@ -6,10 +6,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
@@ -44,5 +46,14 @@ public class UserController {
 		@Valid @RequestBody UpdateUserSettingsRequest request
 	) {
 		return ResponseEntity.ok(userService.updateSettings(principal, request));
+	}
+
+	@PutMapping("/location")
+	public ResponseEntity<Void> updateLocation(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@Valid @RequestBody UpdateUserLocationRequest request
+	) {
+		userService.updateLocation(principal, request);
+		return ResponseEntity.noContent().build();
 	}
 }

@@ -11,6 +11,7 @@ import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
@@ -80,6 +81,12 @@ public class UserService {
 			request.notifyRadiusKm() == null ? settings.getNotifyRadiusKm() : request.notifyRadiusKm()
 		);
 		return UserSettingsResponse.from(settings);
+	}
+
+	@Transactional
+	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
+		User user = findActiveUser(principal.userId());
+		userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
 	}
 
 	private User findActiveUser(Long userId) {

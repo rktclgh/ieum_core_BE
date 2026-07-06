@@ -17,6 +17,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
@@ -105,6 +106,16 @@ class UserServiceTest {
 		assertThat(response.notifyMeeting()).isFalse();
 		assertThat(response.notifyQuestion()).isTrue();
 		assertThat(response.notifyRadiusKm()).isEqualTo(10);
+	}
+
+	@Test
+	void updateLocationStoresLongitudeLatitudeOrder() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+
+		service.updateLocation(principal(), new UpdateUserLocationRequest(127.0276, 37.4979));
+
+		verify(userRepository).updateLastLocation(42L, 127.0276, 37.4979);
 	}
 
 	@Test
