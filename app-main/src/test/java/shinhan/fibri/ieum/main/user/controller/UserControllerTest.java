@@ -3,7 +3,9 @@ package shinhan.fibri.ieum.main.user.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -57,6 +59,7 @@ class UserControllerTest {
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
+		reset(userService);
 	}
 
 	@Test
@@ -89,6 +92,54 @@ class UserControllerTest {
 					"""))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.settings.language", is("ko")));
+	}
+
+	@Test
+	void updateMeRejectsBlankNickname() throws Exception {
+		mockMvc.perform(patch("/api/v1/users/me")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "  "
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+
+		verify(userService, never()).updateMe(any(AuthenticatedUser.class), any(UpdateUserProfileRequest.class));
+	}
+
+	@Test
+	void updateMeRejectsProfanityNickname() throws Exception {
+		mockMvc.perform(patch("/api/v1/users/me")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "nickname": "씨발"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+
+		verify(userService, never()).updateMe(any(AuthenticatedUser.class), any(UpdateUserProfileRequest.class));
+	}
+
+	@Test
+	void updateMeRejectsFutureBirthDate() throws Exception {
+		mockMvc.perform(patch("/api/v1/users/me")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "birthDate": "2999-01-01"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+
+		verify(userService, never()).updateMe(any(AuthenticatedUser.class), any(UpdateUserProfileRequest.class));
 	}
 
 	@Test

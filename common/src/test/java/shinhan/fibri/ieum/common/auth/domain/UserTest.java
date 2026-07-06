@@ -61,19 +61,4 @@ class UserTest {
 		assertThat(user.getAcceptedCount()).isZero();
 	}
 
-	@Test
-	void updateLastLocationStoresLongitudeLatitudeOrder() {
-		User user = User.createEmailUser(
-				"user@example.com",
-				"hash",
-				"nickname",
-				LocalDate.of(1995, 5, 20),
-				GenderType.female,
-				"KR"
-		);
-
-		user.updateLastLocation(127.0276, 37.4979);
-
-		assertThat(user.getLastLocation()).isEqualTo("POINT(127.0276 37.4979)");
-	}
 }

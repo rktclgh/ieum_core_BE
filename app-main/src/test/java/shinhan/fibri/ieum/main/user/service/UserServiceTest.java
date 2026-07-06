@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
@@ -24,6 +26,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 class UserServiceTest {
@@ -92,6 +95,23 @@ class UserServiceTest {
 	}
 
 	@Test
+	void updateMeMapsDuplicateNicknameConstraintToConflictException() {
+		User user = user();
+		UserSettings settings = UserSettings.defaultFor(user);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userSettingsRepository.findById(42L)).thenReturn(Optional.of(settings));
+		when(userRepository.existsByNicknameAndDeletedAtIsNull("taken")).thenReturn(false);
+		doThrow(new DataIntegrityViolationException("uidx_users_nickname"))
+			.when(userRepository)
+			.flush();
+
+		assertThatThrownBy(() -> service.updateMe(
+			principal(),
+			new UpdateUserProfileRequest("taken", null, null, null)
+		)).isInstanceOf(NicknameAlreadyUsedException.class);
+	}
+
+	@Test
 	void updateSettingsPreservesOmittedFieldsAndUpdatesProvidedFields() {
 		User user = user();
 		UserSettings settings = UserSettings.defaultFor(user);
@@ -116,10 +136,23 @@ class UserServiceTest {
 	void updateLocationStoresLongitudeLatitudeOrder() {
 		User user = user();
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.updateLastLocation(42L, 127.0276, 37.4979)).thenReturn(1);
 
 		service.updateLocation(principal(), new UpdateUserLocationRequest(127.0276, 37.4979));
 
 		verify(userRepository).updateLastLocation(42L, 127.0276, 37.4979);
+	}
+
+	@Test
+	void updateLocationThrowsUserNotFoundWhenNoRowUpdated() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.updateLastLocation(42L, 127.0276, 37.4979)).thenReturn(0);
+
+		assertThatThrownBy(() -> service.updateLocation(
+			principal(),
+			new UpdateUserLocationRequest(127.0276, 37.4979)
+		)).isInstanceOf(UserNotFoundException.class);
 	}
 
 	@Test
@@ -131,6 +164,20 @@ class UserServiceTest {
 
 		assertThat(user.getDeletedAt()).isNotNull();
 		verify(userRepository, never()).delete(user);
+		verify(sessionStore).revokeAllSessionsOfUser(42L);
+	}
+
+	@Test
+	void withdrawKeepsSoftDeleteWhenSessionRevocationFails() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		doThrow(new IllegalStateException("redis unavailable"))
+			.when(sessionStore)
+			.revokeAllSessionsOfUser(42L);
+
+		service.withdraw(principal());
+
+		assertThat(user.getDeletedAt()).isNotNull();
 		verify(sessionStore).revokeAllSessionsOfUser(42L);
 	}
 

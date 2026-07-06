@@ -2,6 +2,9 @@ package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -27,6 +30,8 @@ import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 @Service
 @RequiredArgsConstructor
 public class UserService {
+
+	private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
 	private final UserRepository userRepository;
 	private final UserSettingsRepository userSettingsRepository;
@@ -56,12 +61,17 @@ public class UserService {
 		}
 
 		GenderType gender = request.gender() == null ? user.getGender() : parseGender(request.gender());
-		user.updateProfile(
-			nickname,
-			request.birthDate() == null ? user.getBirthDate() : request.birthDate(),
-			gender,
-			nationality
-		);
+		try {
+			user.updateProfile(
+				nickname,
+				request.birthDate() == null ? user.getBirthDate() : request.birthDate(),
+				gender,
+				nationality
+			);
+			userRepository.flush();
+		} catch (DataIntegrityViolationException exception) {
+			throw mapProfileUpdateConstraint(exception);
+		}
 		return UserMeResponse.of(user, settings);
 	}
 
@@ -91,7 +101,10 @@ public class UserService {
 	@Transactional
 	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
 		User user = findActiveUser(principal.userId());
-		userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
+		int updatedRows = userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
+		if (updatedRows == 0) {
+			throw new UserNotFoundException();
+		}
 	}
 
 	@Transactional
@@ -117,6 +130,14 @@ public class UserService {
 		}
 	}
 
+	private RuntimeException mapProfileUpdateConstraint(DataIntegrityViolationException exception) {
+		String message = String.valueOf(exception.getMostSpecificCause().getMessage()).toLowerCase();
+		if (message.contains("uidx_users_nickname")) {
+			return new NicknameAlreadyUsedException();
+		}
+		return exception;
+	}
+
 	private void validateNationality(String nationality) {
 		if (!countryRepository.existsByCodeAndIsActiveTrue(nationality)) {
 			throw new InvalidUserFieldException("nationality", "Nationality is not supported");
@@ -139,15 +160,23 @@ public class UserService {
 
 	private void revokeSessionsAfterCommit(Long userId) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			sessionStore.revokeAllSessionsOfUser(userId);
+			revokeSessionsLogOnly(userId);
 			return;
 		}
 
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				sessionStore.revokeAllSessionsOfUser(userId);
+				revokeSessionsLogOnly(userId);
 			}
 		});
+	}
+
+	private void revokeSessionsLogOnly(Long userId) {
+		try {
+			sessionStore.revokeAllSessionsOfUser(userId);
+		} catch (RuntimeException exception) {
+			log.warn("Failed to revoke sessions after user withdrawal. userId={}", userId, exception);
+		}
 	}
 }

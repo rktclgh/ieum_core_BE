@@ -1,9 +1,11 @@
 package shinhan.fibri.ieum.main.user.dto;
 
+import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
+import shinhan.fibri.ieum.main.auth.validation.NoProfanity;
 
 public record UpdateUserProfileRequest(
 	@Size(
@@ -11,8 +13,11 @@ public record UpdateUserProfileRequest(
 		max = AuthValidationRules.MAX_NICKNAME_LENGTH,
 		message = "Nickname must be between 2 and 50 characters"
 	)
+	@Pattern(regexp = "(?s).*\\S.*", message = "Nickname must not be blank")
+	@NoProfanity
 	String nickname,
 
+	@Past
 	LocalDate birthDate,
 
 	@Pattern(regexp = AuthValidationRules.GENDER_PATTERN, message = "Gender is not supported")
