@@ -1,8 +1,11 @@
 package shinhan.fibri.ieum.main.user.service;
 
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
@@ -11,6 +14,7 @@ import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
+import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
@@ -27,6 +31,7 @@ public class UserService {
 	private final UserRepository userRepository;
 	private final UserSettingsRepository userSettingsRepository;
 	private final CountryRepository countryRepository;
+	private final RedisAuthSessionStore sessionStore;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -89,6 +94,13 @@ public class UserService {
 		userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
 	}
 
+	@Transactional
+	public void withdraw(AuthenticatedUser principal) {
+		User user = findActiveUser(principal.userId());
+		user.markDeleted(OffsetDateTime.now());
+		revokeSessionsAfterCommit(user.getId());
+	}
+
 	private User findActiveUser(Long userId) {
 		return userRepository.findByIdAndDeletedAtIsNull(userId)
 			.orElseThrow(UserNotFoundException::new);
@@ -123,5 +135,19 @@ public class UserService {
 		} catch (IllegalArgumentException exception) {
 			throw new InvalidUserFieldException("gender", "Gender is not supported");
 		}
+	}
+
+	private void revokeSessionsAfterCommit(Long userId) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			sessionStore.revokeAllSessionsOfUser(userId);
+			return;
+		}
+
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				sessionStore.revokeAllSessionsOfUser(userId);
+			}
+		});
 	}
 }

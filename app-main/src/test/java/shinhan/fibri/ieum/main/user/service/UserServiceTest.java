@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,9 +18,10 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
-import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
+import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
+import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -29,10 +31,12 @@ class UserServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
 	private final CountryRepository countryRepository = mock(CountryRepository.class);
+	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 	private final UserService service = new UserService(
 		userRepository,
 		userSettingsRepository,
-		countryRepository
+		countryRepository,
+		sessionStore
 	);
 
 	@Test
@@ -116,6 +120,18 @@ class UserServiceTest {
 		service.updateLocation(principal(), new UpdateUserLocationRequest(127.0276, 37.4979));
 
 		verify(userRepository).updateLastLocation(42L, 127.0276, 37.4979);
+	}
+
+	@Test
+	void withdrawSoftDeletesUserAndRevokesSessions() {
+		User user = user();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+
+		service.withdraw(principal());
+
+		assertThat(user.getDeletedAt()).isNotNull();
+		verify(userRepository, never()).delete(user);
+		verify(sessionStore).revokeAllSessionsOfUser(42L);
 	}
 
 	@Test

@@ -1,10 +1,12 @@
 package shinhan.fibri.ieum.main.user.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -20,6 +22,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,6 +34,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
+import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
@@ -122,6 +127,18 @@ class UserControllerTest {
 		verify(userService).updateLocation(any(AuthenticatedUser.class), any(UpdateUserLocationRequest.class));
 	}
 
+	@Test
+	void withdrawExpiresAuthCookies() throws Exception {
+		mockMvc.perform(delete("/api/v1/users/me").with(authenticated()))
+			.andExpect(status().isNoContent())
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=").contains("Max-Age=0"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=").contains("Max-Age=0")));
+
+		verify(userService).withdraw(any(AuthenticatedUser.class));
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(
@@ -167,6 +184,12 @@ class UserControllerTest {
 		@Primary
 		SessionTokenValidator sessionTokenValidator() {
 			return mock(SessionTokenValidator.class);
+		}
+
+		@Bean
+		@Primary
+		AuthCookieWriter authCookieWriter() {
+			return new AuthCookieWriter(new AuthSessionProperties(true, "Lax", "", 1800, 1209600));
 		}
 
 		@Bean
