@@ -56,7 +56,7 @@ public class UserService {
 		}
 
 		String nationality = request.nationality() == null ? user.getNationality() : request.nationality();
-		if (request.nationality() != null) {
+		if (request.nationality() != null && !request.nationality().equals(user.getNationality())) {
 			validateNationality(request.nationality());
 		}
 
@@ -101,7 +101,9 @@ public class UserService {
 	@Transactional
 	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
 		User user = findActiveUser(principal.userId());
-		int updatedRows = userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
+	@Transactional
+	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
+		int updatedRows = userRepository.updateLastLocation(principal.userId(), request.longitude(), request.latitude());
 		if (updatedRows == 0) {
 			throw new UserNotFoundException();
 		}

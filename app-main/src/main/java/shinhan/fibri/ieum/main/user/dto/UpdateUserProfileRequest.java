@@ -18,6 +18,7 @@ public record UpdateUserProfileRequest(
 	String nickname,
 
 	@Past
+	@jakarta.validation.constraints.Past(message = "Birth date must be in the past")
 	LocalDate birthDate,
 
 	@Pattern(regexp = AuthValidationRules.GENDER_PATTERN, message = "Gender is not supported")
