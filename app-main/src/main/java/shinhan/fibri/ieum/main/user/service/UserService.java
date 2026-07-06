@@ -101,9 +101,7 @@ public class UserService {
 	@Transactional
 	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
 		User user = findActiveUser(principal.userId());
-	@Transactional
-	public void updateLocation(AuthenticatedUser principal, UpdateUserLocationRequest request) {
-		int updatedRows = userRepository.updateLastLocation(principal.userId(), request.longitude(), request.latitude());
+		int updatedRows = userRepository.updateLastLocation(user.getId(), request.longitude(), request.latitude());
 		if (updatedRows == 0) {
 			throw new UserNotFoundException();
 		}
