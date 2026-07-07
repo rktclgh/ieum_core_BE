@@ -19,8 +19,11 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeExcept
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSignupFieldException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import java.util.Comparator;
@@ -106,6 +109,28 @@ public class AuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleRefreshTokenReused(RefreshTokenReusedException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 			.body(new AuthErrorResponse("REFRESH_TOKEN_REUSED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidSocialTokenException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidSocialToken(InvalidSocialTokenException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("INVALID_SOCIAL_TOKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidSocialSignupTokenException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidSocialSignupToken(
+		InvalidSocialSignupTokenException exception
+	) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("INVALID_SOCIAL_SIGNUP_TOKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SocialAlreadyRegisteredException.class)
+	public ResponseEntity<AuthErrorResponse> handleSocialAlreadyRegistered(
+		SocialAlreadyRegisteredException exception
+	) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("SOCIAL_ALREADY_REGISTERED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidSignupFieldException.class)

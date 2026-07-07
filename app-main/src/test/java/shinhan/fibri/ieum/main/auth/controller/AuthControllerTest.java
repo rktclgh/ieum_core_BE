@@ -18,6 +18,10 @@ import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.SendEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
+import shinhan.fibri.ieum.main.auth.dto.SocialAuthRequest;
+import shinhan.fibri.ieum.main.auth.dto.SocialAuthResponse;
+import shinhan.fibri.ieum.main.auth.dto.SocialSignupRequest;
+import shinhan.fibri.ieum.main.auth.dto.SocialSignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailCodeRateLimitedException;
@@ -25,6 +29,8 @@ import shinhan.fibri.ieum.main.auth.exception.EmailDeliveryFailedException;
 import shinhan.fibri.ieum.main.auth.exception.EmailTakenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationCodeException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidEmailVerificationTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
@@ -33,6 +39,9 @@ import shinhan.fibri.ieum.main.auth.service.LogoutService;
 import shinhan.fibri.ieum.main.auth.service.RefreshResult;
 import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
+import shinhan.fibri.ieum.main.auth.service.SocialAuthResult;
+import shinhan.fibri.ieum.main.auth.service.SocialAuthService;
+import shinhan.fibri.ieum.main.auth.service.SocialSignupResult;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -68,6 +77,9 @@ class AuthControllerTest {
 
 	@Autowired
 	private LogoutService logoutService;
+
+	@Autowired
+	private SocialAuthService socialAuthService;
 
 	@Test
 	void sendEmailVerificationCodeReturnsExpirySeconds() throws Exception {
@@ -272,6 +284,131 @@ class AuthControllerTest {
 				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
 				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
+	}
+
+	@Test
+	void socialAuthExistingUserReturnsSummaryAndAuthCookies() throws Exception {
+		when(socialAuthService.start(any(SocialAuthRequest.class)))
+			.thenReturn(new SocialAuthResult(
+				SocialAuthResponse.existingUser(42L, UserRole.user),
+				"access-token",
+				"refresh-token",
+				"csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/social")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "provider": "google",
+					  "idToken": "id-token",
+					  "nonce": "nonce-1"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.isNewUser", is(false)))
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
+	}
+
+	@Test
+	void socialAuthNewUserReturnsSignupTokenWithoutAuthCookies() throws Exception {
+		when(socialAuthService.start(any(SocialAuthRequest.class)))
+			.thenReturn(new SocialAuthResult(
+				SocialAuthResponse.newUser("signup-token", 1800),
+				null,
+				null,
+				null
+			));
+
+		mockMvc.perform(post("/api/v1/auth/social")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "provider": "google",
+					  "idToken": "id-token"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.isNewUser", is(true)))
+			.andExpect(jsonPath("$.socialSignupToken", is("signup-token")))
+			.andExpect(jsonPath("$.expiresInSeconds", is(1800)))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).isEmpty());
+	}
+
+	@Test
+	void socialSignupReturnsCreatedUserSummaryAndAuthCookies() throws Exception {
+		when(socialAuthService.signup(any(SocialSignupRequest.class)))
+			.thenReturn(new SocialSignupResult(
+				new SocialSignupResponse(42L, UserRole.user),
+				"access-token",
+				"refresh-token",
+				"csrf-token"
+			));
+
+		mockMvc.perform(post("/api/v1/auth/social/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "socialSignupToken": "signup-token",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko"
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.userId", is(42)))
+			.andExpect(jsonPath("$.role", is("user")))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+				.anySatisfy(cookie -> assertThat(cookie).contains("access_token=access-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("refresh_token=refresh-token"))
+				.anySatisfy(cookie -> assertThat(cookie).contains("csrf_token=csrf-token")));
+	}
+
+	@Test
+	void socialAuthReturnsUnauthorizedWhenProviderTokenIsInvalid() throws Exception {
+		doThrow(new InvalidSocialTokenException())
+			.when(socialAuthService)
+			.start(any(SocialAuthRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/social")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "provider": "google",
+					  "idToken": "bad-token"
+					}
+					"""))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("INVALID_SOCIAL_TOKEN")));
+	}
+
+	@Test
+	void socialSignupReturnsBadRequestWhenSignupTokenIsInvalid() throws Exception {
+		doThrow(new InvalidSocialSignupTokenException())
+			.when(socialAuthService)
+			.signup(any(SocialSignupRequest.class));
+
+		mockMvc.perform(post("/api/v1/auth/social/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "socialSignupToken": "expired-token",
+					  "nickname": "nickname",
+					  "birthDate": "2000-01-01",
+					  "gender": "female",
+					  "nationality": "KR",
+					  "language": "ko"
+					}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_SOCIAL_SIGNUP_TOKEN")));
 	}
 
 	@Test
@@ -648,6 +785,12 @@ class AuthControllerTest {
 		@Primary
 		LogoutService logoutService() {
 			return mock(LogoutService.class);
+		}
+
+		@Bean
+		@Primary
+		SocialAuthService socialAuthService() {
+			return mock(SocialAuthService.class);
 		}
 
 		@Bean

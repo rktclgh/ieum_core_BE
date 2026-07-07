@@ -10,7 +10,10 @@ import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
+import shinhan.fibri.ieum.main.auth.exception.InvalidSocialTokenException;
 import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +96,39 @@ class AuthExceptionHandlerTest {
 		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
 			"REFRESH_TOKEN_REUSED",
 			"Refresh token was reused"
+		));
+	}
+
+	@Test
+	void handleInvalidSocialTokenReturnsUnauthorized() {
+		var response = handler.handleInvalidSocialToken(new InvalidSocialTokenException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"INVALID_SOCIAL_TOKEN",
+			"Invalid social token"
+		));
+	}
+
+	@Test
+	void handleInvalidSocialSignupTokenReturnsBadRequest() {
+		var response = handler.handleInvalidSocialSignupToken(new InvalidSocialSignupTokenException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"INVALID_SOCIAL_SIGNUP_TOKEN",
+			"Invalid social signup token"
+		));
+	}
+
+	@Test
+	void handleSocialAlreadyRegisteredReturnsConflict() {
+		var response = handler.handleSocialAlreadyRegistered(new SocialAlreadyRegisteredException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(409);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"SOCIAL_ALREADY_REGISTERED",
+			"Social account is already registered"
 		));
 	}
 
