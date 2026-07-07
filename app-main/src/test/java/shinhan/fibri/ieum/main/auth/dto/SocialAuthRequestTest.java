@@ -13,21 +13,27 @@ class SocialAuthRequestTest {
 
 	@Test
 	void googleRequestRequiresIdToken() {
-		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, "nonce-1");
+		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null, "nonce-1");
 
 		assertThat(validator.validate(request)).isEmpty();
 	}
 
 	@Test
 	void kakaoRequestRequiresCode() {
-		SocialAuthRequest request = new SocialAuthRequest("kakao", null, "authorization-code", null);
+		SocialAuthRequest request = new SocialAuthRequest(
+			"kakao",
+			null,
+			"authorization-code",
+			"http://localhost:3000/oauth/kakao/callback",
+			null
+		);
 
 		assertThat(validator.validate(request)).isEmpty();
 	}
 
 	@Test
 	void requestRejectsUnsupportedProvider() {
-		SocialAuthRequest request = new SocialAuthRequest("apple", "id-token", null, null);
+		SocialAuthRequest request = new SocialAuthRequest("apple", "id-token", null, null, null);
 
 		assertThat(validator.validate(request))
 			.anySatisfy(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("provider"));
@@ -35,7 +41,7 @@ class SocialAuthRequestTest {
 
 	@Test
 	void googleRequestRejectsBlankIdToken() {
-		SocialAuthRequest request = new SocialAuthRequest("google", " ", null, null);
+		SocialAuthRequest request = new SocialAuthRequest("google", " ", null, null, null);
 
 		assertThat(validator.validate(request))
 			.anySatisfy(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("googleIdTokenPresent"));
@@ -43,10 +49,18 @@ class SocialAuthRequestTest {
 
 	@Test
 	void kakaoRequestRejectsBlankCode() {
-		SocialAuthRequest request = new SocialAuthRequest("kakao", null, " ", null);
+		SocialAuthRequest request = new SocialAuthRequest("kakao", null, " ", "http://localhost:3000/oauth/kakao/callback", null);
 
 		assertThat(validator.validate(request))
 			.anySatisfy(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("kakaoCodePresent"));
+	}
+
+	@Test
+	void kakaoRequestRejectsBlankRedirectUri() {
+		SocialAuthRequest request = new SocialAuthRequest("kakao", null, "authorization-code", " ", null);
+
+		assertThat(validator.validate(request))
+			.anySatisfy(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("kakaoRedirectUriPresent"));
 	}
 
 	@Test

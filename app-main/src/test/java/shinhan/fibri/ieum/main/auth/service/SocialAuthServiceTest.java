@@ -55,7 +55,7 @@ class SocialAuthServiceTest {
 			mock(CountryRepository.class),
 			mock(PasswordHasher.class)
 		);
-		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null);
+		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null, null);
 		User user = socialUser(AuthProvider.google, "google-sub-123");
 		when(identityVerifier.verify(request)).thenReturn(new VerifiedSocialIdentity(
 			AuthProvider.google,
@@ -98,7 +98,7 @@ class SocialAuthServiceTest {
 			mock(CountryRepository.class),
 			mock(PasswordHasher.class)
 		);
-		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null);
+		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null, null);
 		VerifiedSocialIdentity identity = new VerifiedSocialIdentity(
 			AuthProvider.google,
 			"google-sub-123",
@@ -146,7 +146,7 @@ class SocialAuthServiceTest {
 			mock(CountryRepository.class),
 			mock(PasswordHasher.class)
 		);
-		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null);
+		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null, null);
 		User user = socialUser(AuthProvider.google, "google-sub-123");
 		ReflectionTestUtils.setField(user, "status", UserStatus.suspended);
 		when(identityVerifier.verify(request)).thenReturn(new VerifiedSocialIdentity(

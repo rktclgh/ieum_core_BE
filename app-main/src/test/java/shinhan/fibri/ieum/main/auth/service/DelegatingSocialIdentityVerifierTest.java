@@ -17,7 +17,7 @@ class DelegatingSocialIdentityVerifierTest {
 	void verifyDelegatesGoogleRequestToGoogleVerifier() {
 		GoogleSocialIdentityVerifier googleVerifier = mock(GoogleSocialIdentityVerifier.class);
 		DelegatingSocialIdentityVerifier verifier = new DelegatingSocialIdentityVerifier(googleVerifier);
-		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, "nonce-1");
+		SocialAuthRequest request = new SocialAuthRequest("google", "id-token", null, null, "nonce-1");
 		VerifiedSocialIdentity identity = new VerifiedSocialIdentity(
 			AuthProvider.google,
 			"google-sub-123",
@@ -35,7 +35,13 @@ class DelegatingSocialIdentityVerifierTest {
 		GoogleSocialIdentityVerifier googleVerifier = mock(GoogleSocialIdentityVerifier.class);
 		DelegatingSocialIdentityVerifier verifier = new DelegatingSocialIdentityVerifier(googleVerifier);
 
-		assertThatThrownBy(() -> verifier.verify(new SocialAuthRequest("kakao", null, "code", null)))
+		assertThatThrownBy(() -> verifier.verify(new SocialAuthRequest(
+				"kakao",
+				null,
+				"code",
+				"http://localhost:3000/oauth/kakao/callback",
+				null
+			)))
 			.isInstanceOf(InvalidSocialTokenException.class);
 	}
 }

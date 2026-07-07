@@ -13,6 +13,8 @@ public record SocialAuthRequest(
 
 	String code,
 
+	String redirectUri,
+
 	String nonce
 ) {
 
@@ -24,6 +26,11 @@ public record SocialAuthRequest(
 	@AssertTrue
 	public boolean isKakaoCodePresent() {
 		return !"kakao".equals(provider) || hasText(code);
+	}
+
+	@AssertTrue
+	public boolean isKakaoRedirectUriPresent() {
+		return !"kakao".equals(provider) || hasText(redirectUri);
 	}
 
 	private boolean hasText(String value) {
