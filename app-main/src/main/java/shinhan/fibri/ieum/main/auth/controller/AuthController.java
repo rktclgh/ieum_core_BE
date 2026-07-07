@@ -21,6 +21,8 @@ import shinhan.fibri.ieum.main.auth.dto.SignupRequest;
 import shinhan.fibri.ieum.main.auth.dto.SignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.SocialAuthRequest;
 import shinhan.fibri.ieum.main.auth.dto.SocialAuthResponse;
+import shinhan.fibri.ieum.main.auth.dto.SocialSignupRequest;
+import shinhan.fibri.ieum.main.auth.dto.SocialSignupResponse;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationRequest;
 import shinhan.fibri.ieum.main.auth.dto.VerifyEmailVerificationResponse;
 import shinhan.fibri.ieum.main.auth.service.EmailVerificationService;
@@ -32,6 +34,7 @@ import shinhan.fibri.ieum.main.auth.service.RefreshService;
 import shinhan.fibri.ieum.main.auth.service.SignupService;
 import shinhan.fibri.ieum.main.auth.service.SocialAuthResult;
 import shinhan.fibri.ieum.main.auth.service.SocialAuthService;
+import shinhan.fibri.ieum.main.auth.service.SocialSignupResult;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -114,6 +117,21 @@ public class AuthController {
 			);
 		}
 		return ResponseEntity.ok(result.response());
+	}
+
+	@PostMapping("/social/signup")
+	public ResponseEntity<SocialSignupResponse> socialSignup(
+		@Valid @RequestBody SocialSignupRequest request,
+		HttpServletResponse response
+	) {
+		SocialSignupResult result = socialAuthService.signup(request);
+		authCookieWriter.writeLoginCookies(
+			response,
+			result.accessToken(),
+			result.refreshToken(),
+			result.csrfToken()
+		);
+		return ResponseEntity.status(HttpStatus.CREATED).body(result.response());
 	}
 
 	@PostMapping("/refresh")

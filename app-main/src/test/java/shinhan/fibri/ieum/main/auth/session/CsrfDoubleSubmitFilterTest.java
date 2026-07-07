@@ -73,6 +73,19 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
+	void doFilterSkipsSocialSignupBootstrapEndpoint() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/social/signup");
+		request.setServletPath("/api/v1/auth/social/signup");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
 	void doFilterProtectsCookieBackedAuthEndpoints() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/logout");
