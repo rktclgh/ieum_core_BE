@@ -23,6 +23,7 @@ import shinhan.fibri.ieum.main.auth.dto.SocialSignupResponse;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSignupFieldException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.repository.LoginLogRepository;
 import shinhan.fibri.ieum.main.auth.session.IssuedAuthSession;
@@ -156,6 +157,9 @@ public class SocialAuthService {
 		String message = String.valueOf(exception.getMostSpecificCause().getMessage()).toLowerCase();
 		if (message.contains("uidx_users_nickname")) {
 			return new NicknameTakenException();
+		}
+		if (message.contains("uidx_users_provider_uid")) {
+			return new SocialAlreadyRegisteredException();
 		}
 		return exception;
 	}

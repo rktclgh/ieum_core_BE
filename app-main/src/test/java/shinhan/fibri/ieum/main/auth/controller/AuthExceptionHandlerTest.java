@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidRefreshTokenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSocialTokenException;
 import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,6 +118,17 @@ class AuthExceptionHandlerTest {
 		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
 			"INVALID_SOCIAL_SIGNUP_TOKEN",
 			"Invalid social signup token"
+		));
+	}
+
+	@Test
+	void handleSocialAlreadyRegisteredReturnsConflict() {
+		var response = handler.handleSocialAlreadyRegistered(new SocialAlreadyRegisteredException());
+
+		assertThat(response.getStatusCode().value()).isEqualTo(409);
+		assertThat(response.getBody()).isEqualTo(new AuthErrorResponse(
+			"SOCIAL_ALREADY_REGISTERED",
+			"Social account is already registered"
 		));
 	}
 

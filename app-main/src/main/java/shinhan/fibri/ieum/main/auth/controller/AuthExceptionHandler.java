@@ -23,6 +23,7 @@ import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSocialTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 import shinhan.fibri.ieum.main.auth.exception.RefreshTokenReusedException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 import java.util.Comparator;
@@ -122,6 +123,14 @@ public class AuthExceptionHandler {
 	) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
 			.body(new AuthErrorResponse("INVALID_SOCIAL_SIGNUP_TOKEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SocialAlreadyRegisteredException.class)
+	public ResponseEntity<AuthErrorResponse> handleSocialAlreadyRegistered(
+		SocialAlreadyRegisteredException exception
+	) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("SOCIAL_ALREADY_REGISTERED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(InvalidSignupFieldException.class)

@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -28,6 +29,7 @@ import shinhan.fibri.ieum.main.auth.dto.SocialSignupRequest;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSignupFieldException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidSocialSignupTokenException;
 import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
+import shinhan.fibri.ieum.main.auth.exception.SocialAlreadyRegisteredException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.repository.LoginLogRepository;
 import shinhan.fibri.ieum.main.auth.session.IssuedAuthSession;
@@ -258,6 +260,43 @@ class SocialAuthServiceTest {
 
 		assertThatThrownBy(() -> service.signup(validSocialSignupRequest()))
 			.isInstanceOf(NicknameTakenException.class);
+	}
+
+	@Test
+	void signupMapsProviderUidConstraintToSocialAlreadyRegistered() {
+		UserRepository userRepository = mock(UserRepository.class);
+		SocialSignupTokenStore signupTokenStore = mock(SocialSignupTokenStore.class);
+		CountryRepository countryRepository = mock(CountryRepository.class);
+		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		UserSettingsRepository userSettingsRepository = mock(UserSettingsRepository.class);
+		SocialAuthService service = new SocialAuthService(
+			mock(SocialIdentityVerifier.class),
+			userRepository,
+			mock(LoginLogRepository.class),
+			mock(SessionIssuer.class),
+			signupTokenStore,
+			tokenGenerator,
+			userSettingsRepository,
+			countryRepository,
+			passwordHasher
+		);
+		when(signupTokenStore.find("signup-token")).thenReturn(Optional.of(new SocialSignupIdentity(
+			AuthProvider.google,
+			"google-sub-123",
+			"social@example.com",
+			true
+		)));
+		when(countryRepository.existsByCodeAndIsActiveTrue("KR")).thenReturn(true);
+		when(tokenGenerator.generate()).thenReturn("random-password");
+		when(passwordHasher.hash("random-password")).thenReturn("hashed-random-password");
+		when(userRepository.save(any(User.class)))
+			.thenThrow(new DataIntegrityViolationException("uidx_users_provider_uid"));
+
+		assertThatThrownBy(() -> service.signup(validSocialSignupRequest()))
+			.isInstanceOf(SocialAlreadyRegisteredException.class);
+		verify(userSettingsRepository, never()).save(any());
+		verify(signupTokenStore, never()).delete(any());
 	}
 
 	@Test
