@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.auth.service;
 
+import java.util.List;
 import java.util.Set;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -29,14 +30,15 @@ public class KakaoSocialIdentityVerifier {
 	}
 
 	public VerifiedSocialIdentity verify(String code, String redirectUri) {
-		if (!allowedRedirectUris.contains(redirectUri)) {
+		if (redirectUri == null || !allowedRedirectUris.contains(redirectUri)) {
 			throw new InvalidSocialTokenException();
 		}
 		Jwt jwt = decode(tokenClient.exchangeCode(code, redirectUri));
 		if (!ISSUER.equals(jwt.getClaimAsString("iss"))) {
 			throw new InvalidSocialTokenException();
 		}
-		if (!jwt.getAudience().contains(restApiKey)) {
+		List<String> audience = jwt.getAudience();
+		if (audience == null || !audience.contains(restApiKey)) {
 			throw new InvalidSocialTokenException();
 		}
 		String subject = jwt.getSubject();

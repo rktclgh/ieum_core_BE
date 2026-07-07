@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.auth.service;
 
+import java.util.List;
 import java.util.Set;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -24,10 +25,12 @@ public class GoogleSocialIdentityVerifier {
 
 	public VerifiedSocialIdentity verify(String idToken, String nonce) {
 		Jwt jwt = decode(idToken);
-		if (!ALLOWED_ISSUERS.contains(jwt.getClaimAsString("iss"))) {
+		String issuer = jwt.getClaimAsString("iss");
+		if (issuer == null || !ALLOWED_ISSUERS.contains(issuer)) {
 			throw new InvalidSocialTokenException();
 		}
-		if (!jwt.getAudience().contains(clientId)) {
+		List<String> audience = jwt.getAudience();
+		if (audience == null || !audience.contains(clientId)) {
 			throw new InvalidSocialTokenException();
 		}
 		if (nonce != null && !nonce.equals(jwt.getClaimAsString("nonce"))) {

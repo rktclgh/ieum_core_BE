@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.auth.service;
 
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -154,14 +155,25 @@ public class SocialAuthService {
 	}
 
 	private RuntimeException mapDuplicateConstraint(DataIntegrityViolationException exception) {
-		String message = String.valueOf(exception.getMostSpecificCause().getMessage()).toLowerCase();
-		if (message.contains("uidx_users_nickname")) {
+		String constraintName = constraintName(exception);
+		if (containsConstraint(constraintName, "uidx_users_nickname")) {
 			return new NicknameTakenException();
 		}
-		if (message.contains("uidx_users_provider_uid")) {
+		if (containsConstraint(constraintName, "uidx_users_provider_uid")) {
 			return new SocialAlreadyRegisteredException();
 		}
 		return exception;
+	}
+
+	private String constraintName(DataIntegrityViolationException exception) {
+		if (exception.getCause() instanceof ConstraintViolationException constraintViolation) {
+			return constraintViolation.getConstraintName();
+		}
+		return String.valueOf(exception.getMostSpecificCause().getMessage()).toLowerCase();
+	}
+
+	private boolean containsConstraint(String constraintName, String expectedConstraintName) {
+		return constraintName != null && constraintName.contains(expectedConstraintName);
 	}
 
 	private void deleteSignupTokenAfterCommit(String token) {

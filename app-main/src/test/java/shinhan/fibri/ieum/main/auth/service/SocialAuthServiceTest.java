@@ -8,9 +8,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Optional;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -291,12 +293,46 @@ class SocialAuthServiceTest {
 		when(tokenGenerator.generate()).thenReturn("random-password");
 		when(passwordHasher.hash("random-password")).thenReturn("hashed-random-password");
 		when(userRepository.save(any(User.class)))
-			.thenThrow(new DataIntegrityViolationException("uidx_users_provider_uid"));
+			.thenThrow(dataIntegrityViolation("uidx_users_provider_uid"));
 
 		assertThatThrownBy(() -> service.signup(validSocialSignupRequest()))
 			.isInstanceOf(SocialAlreadyRegisteredException.class);
 		verify(userSettingsRepository, never()).save(any());
 		verify(signupTokenStore, never()).delete(any());
+	}
+
+	@Test
+	void signupMapsNicknameConstraintToNicknameTaken() {
+		UserRepository userRepository = mock(UserRepository.class);
+		SocialSignupTokenStore signupTokenStore = mock(SocialSignupTokenStore.class);
+		CountryRepository countryRepository = mock(CountryRepository.class);
+		OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
+		PasswordHasher passwordHasher = mock(PasswordHasher.class);
+		SocialAuthService service = new SocialAuthService(
+			mock(SocialIdentityVerifier.class),
+			userRepository,
+			mock(LoginLogRepository.class),
+			mock(SessionIssuer.class),
+			signupTokenStore,
+			tokenGenerator,
+			mock(UserSettingsRepository.class),
+			countryRepository,
+			passwordHasher
+		);
+		when(signupTokenStore.find("signup-token")).thenReturn(Optional.of(new SocialSignupIdentity(
+			AuthProvider.google,
+			"google-sub-123",
+			"social@example.com",
+			true
+		)));
+		when(countryRepository.existsByCodeAndIsActiveTrue("KR")).thenReturn(true);
+		when(tokenGenerator.generate()).thenReturn("random-password");
+		when(passwordHasher.hash("random-password")).thenReturn("hashed-random-password");
+		when(userRepository.save(any(User.class)))
+			.thenThrow(dataIntegrityViolation("uidx_users_nickname"));
+
+		assertThatThrownBy(() -> service.signup(validSocialSignupRequest()))
+			.isInstanceOf(NicknameTakenException.class);
 	}
 
 	@Test
@@ -352,6 +388,17 @@ class SocialAuthServiceTest {
 			"female",
 			"KR",
 			"ko"
+		);
+	}
+
+	private DataIntegrityViolationException dataIntegrityViolation(String constraintName) {
+		return new DataIntegrityViolationException(
+			"could not execute statement",
+			new ConstraintViolationException(
+				"duplicate key",
+				new SQLException("duplicate key"),
+				constraintName
+			)
 		);
 	}
 }

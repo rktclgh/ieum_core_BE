@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,12 +15,7 @@ public class RedisSocialSignupTokenStore implements SocialSignupTokenStore {
 	private final StringRedisTemplate redisTemplate;
 	private final ObjectMapper objectMapper;
 
-	@Autowired
-	public RedisSocialSignupTokenStore(StringRedisTemplate redisTemplate) {
-		this(redisTemplate, new ObjectMapper());
-	}
-
-	RedisSocialSignupTokenStore(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+	public RedisSocialSignupTokenStore(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
 		this.redisTemplate = redisTemplate;
 		this.objectMapper = objectMapper;
 	}

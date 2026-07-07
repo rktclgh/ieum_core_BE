@@ -71,6 +71,9 @@ public class SocialAuthConfig {
 	}
 
 	private Set<String> commaSeparatedSet(String value) {
+		if (value == null) {
+			return Set.of();
+		}
 		return Arrays.stream(value.split(","))
 			.map(String::trim)
 			.filter(item -> !item.isBlank())

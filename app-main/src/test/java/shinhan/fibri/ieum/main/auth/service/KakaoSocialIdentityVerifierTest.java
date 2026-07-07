@@ -52,6 +52,14 @@ class KakaoSocialIdentityVerifierTest {
 	}
 
 	@Test
+	void verifyRejectsNullRedirectUri() {
+		KakaoSocialIdentityVerifier verifier = verifier(mock(KakaoTokenClient.class), mock(JwtDecoder.class));
+
+		assertThatThrownBy(() -> verifier.verify("authorization-code", null))
+			.isInstanceOf(InvalidSocialTokenException.class);
+	}
+
+	@Test
 	void verifyRejectsTokenExchangeFailure() {
 		KakaoTokenClient tokenClient = mock(KakaoTokenClient.class);
 		KakaoSocialIdentityVerifier verifier = verifier(tokenClient, mock(JwtDecoder.class));
@@ -84,6 +92,23 @@ class KakaoSocialIdentityVerifierTest {
 			.thenReturn("id-token");
 		when(jwtDecoder.decode("id-token")).thenReturn(kakaoJwt(builder -> builder
 			.audience(List.of("other-client-id"))
+			.subject("kakao-sub-123")
+			.claim("email", "social@example.com")
+		));
+
+		assertThatThrownBy(() -> verifier.verify("authorization-code", "http://localhost:3000/oauth/kakao/callback"))
+			.isInstanceOf(InvalidSocialTokenException.class);
+	}
+
+	@Test
+	void verifyRejectsMissingAudience() {
+		KakaoTokenClient tokenClient = mock(KakaoTokenClient.class);
+		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
+		KakaoSocialIdentityVerifier verifier = verifier(tokenClient, jwtDecoder);
+		when(tokenClient.exchangeCode("authorization-code", "http://localhost:3000/oauth/kakao/callback"))
+			.thenReturn("id-token");
+		when(jwtDecoder.decode("id-token")).thenReturn(kakaoJwt(builder -> builder
+			.claims(claims -> claims.remove("aud"))
 			.subject("kakao-sub-123")
 			.claim("email", "social@example.com")
 		));

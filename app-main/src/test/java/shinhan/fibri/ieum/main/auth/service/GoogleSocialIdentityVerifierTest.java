@@ -63,10 +63,40 @@ class GoogleSocialIdentityVerifierTest {
 	}
 
 	@Test
+	void verifyRejectsMissingIssuer() {
+		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
+		when(jwtDecoder.decode("id-token")).thenReturn(googleJwt(builder -> builder
+			.claims(claims -> claims.remove("iss"))
+			.subject("google-sub-123")
+			.claim("email", "social@example.com")
+			.claim("email_verified", true)
+		));
+		GoogleSocialIdentityVerifier verifier = new GoogleSocialIdentityVerifier(jwtDecoder, "google-client-id");
+
+		assertThatThrownBy(() -> verifier.verify("id-token", null))
+			.isInstanceOf(InvalidSocialTokenException.class);
+	}
+
+	@Test
 	void verifyRejectsWrongAudience() {
 		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
 		when(jwtDecoder.decode("id-token")).thenReturn(googleJwt(builder -> builder
 			.audience(List.of("other-client-id"))
+			.subject("google-sub-123")
+			.claim("email", "social@example.com")
+			.claim("email_verified", true)
+		));
+		GoogleSocialIdentityVerifier verifier = new GoogleSocialIdentityVerifier(jwtDecoder, "google-client-id");
+
+		assertThatThrownBy(() -> verifier.verify("id-token", null))
+			.isInstanceOf(InvalidSocialTokenException.class);
+	}
+
+	@Test
+	void verifyRejectsMissingAudience() {
+		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
+		when(jwtDecoder.decode("id-token")).thenReturn(googleJwt(builder -> builder
+			.claims(claims -> claims.remove("aud"))
 			.subject("google-sub-123")
 			.claim("email", "social@example.com")
 			.claim("email_verified", true)
