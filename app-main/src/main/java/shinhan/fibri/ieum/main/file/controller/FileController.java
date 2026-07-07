@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.file.dto.FileCompleteResponse;
 import shinhan.fibri.ieum.main.file.dto.FilePresignRequest;
@@ -46,17 +47,22 @@ public class FileController {
 	}
 
 	@GetMapping("/{fileId}")
-	public ResponseEntity<byte[]> stream(
+	public ResponseEntity<StreamingResponseBody> stream(
 		@AuthenticationPrincipal AuthenticatedUser principal,
 		@PathVariable UUID fileId,
 		@RequestParam(name = "v", required = false) String variant
 	) {
 		FileStreamResponse response = fileService.stream(principal, fileId, variant);
+		StreamingResponseBody body = outputStream -> {
+			try (var inputStream = response.body()) {
+				inputStream.transferTo(outputStream);
+			}
+		};
 		return ResponseEntity.ok()
 			.contentType(MediaType.parseMediaType(response.contentType()))
 			.contentLength(response.contentLength())
 			.header(HttpHeaders.CACHE_CONTROL, IMMUTABLE_IMAGE_CACHE)
 			.header("X-Content-Type-Options", "nosniff")
-			.body(response.bytes());
+			.body(body);
 	}
 }

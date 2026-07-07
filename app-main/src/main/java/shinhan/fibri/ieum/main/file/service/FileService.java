@@ -1,10 +1,11 @@
 package shinhan.fibri.ieum.main.file.service;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
@@ -19,28 +20,31 @@ import shinhan.fibri.ieum.main.file.rendition.ImageRenditionGenerator;
 import shinhan.fibri.ieum.main.file.storage.FileObjectMetadata;
 import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.file.storage.StoredFileObject;
+import shinhan.fibri.ieum.main.file.storage.StoredFileStream;
 
 @Service
 public class FileService {
 
 	private final FileRepository fileRepository;
+	private final FileTransactionalOps transactionalOps;
 	private final FileStorage storage;
 	private final ImageRenditionGenerator renditionGenerator;
 	private final FileProperties properties;
 
 	public FileService(
 		FileRepository fileRepository,
+		FileTransactionalOps transactionalOps,
 		FileStorage storage,
 		ImageRenditionGenerator renditionGenerator,
 		FileProperties properties
 	) {
 		this.fileRepository = fileRepository;
+		this.transactionalOps = transactionalOps;
 		this.storage = storage;
 		this.renditionGenerator = renditionGenerator;
 		this.properties = properties;
 	}
 
-	@Transactional
 	public FilePresignResponse createPresign(AuthenticatedUser principal, FilePresignRequest request) {
 		String contentType = validateOriginContentType(request.contentType());
 		Long sizeBytes = validateSizeBytes(request.sizeBytes());
@@ -58,10 +62,8 @@ public class FileService {
 		return new FilePresignResponse(file.getFileId(), uploadUrl);
 	}
 
-	@Transactional
 	public FileCompleteResponse complete(AuthenticatedUser principal, UUID fileId) {
-		File file = fileRepository.findByFileIdAndUploaderId(fileId, principal.userId())
-			.orElseThrow(FileNotFoundException::new);
+		File file = transactionalOps.loadOwned(fileId, principal.userId());
 		if (file.isUploaded()) {
 			return new FileCompleteResponse(file.getFileId());
 		}
@@ -79,34 +81,39 @@ public class FileService {
 			properties.finalPrefix(),
 			tmpKey
 		);
-		storage.copy(tmpKey, finalKey);
-		StoredFileObject origin = storage.get(finalKey);
-		for (FileRendition rendition : renditionGenerator.generate(origin, properties)) {
+		StoredFileObject origin = readOrigin(tmpKey, contentType, sizeBytes);
+		var renditions = renditionGenerator.generate(origin, properties);
+		storage.put(finalKey, contentType, origin.bytes());
+		for (FileRendition rendition : renditions) {
 			storage.put(
 				FileObjectKeys.variantKey(finalKey, rendition.variant()),
 				rendition.contentType(),
 				rendition.bytes()
 			);
 		}
-		file.promoteKey(finalKey);
-		file.markUploaded(OffsetDateTime.now(), contentType, sizeBytes);
-		fileRepository.save(file);
+		transactionalOps.finalizeUpload(file.getFileId(), finalKey, OffsetDateTime.now(), contentType, sizeBytes);
 		storage.delete(tmpKey);
 
 		return new FileCompleteResponse(file.getFileId());
 	}
 
-	@Transactional(readOnly = true)
 	public FileStreamResponse stream(AuthenticatedUser principal, UUID fileId, String variant) {
-		File file = fileRepository.findById(fileId)
-			.filter(File::isUploaded)
-			.orElseThrow(FileNotFoundException::new);
+		File file = transactionalOps.loadUploaded(fileId);
 		FileVariant fileVariant = FileVariant.from(variant);
 		String key = FileObjectKeys.variantKey(file.getS3Key(), fileVariant);
-		StoredFileObject object = storage.get(key);
+		StoredFileStream object = storage.get(key);
 		validateStreamContentType(object.contentType());
 
-		return new FileStreamResponse(object.contentType(), object.sizeBytes(), object.bytes());
+		return new FileStreamResponse(object.contentType(), object.sizeBytes(), object.body());
+	}
+
+	private StoredFileObject readOrigin(String key, String contentType, Long sizeBytes) {
+		StoredFileStream stream = storage.get(key);
+		try (var body = stream.body()) {
+			return new StoredFileObject(key, contentType, sizeBytes, body.readAllBytes());
+		} catch (IOException exception) {
+			throw new UncheckedIOException("Failed to read uploaded file", exception);
+		}
 	}
 
 	private String validateOriginContentType(String contentType) {

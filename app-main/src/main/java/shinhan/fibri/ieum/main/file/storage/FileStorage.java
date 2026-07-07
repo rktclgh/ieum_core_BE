@@ -11,7 +11,7 @@ public interface FileStorage {
 
 	void copy(String sourceKey, String destinationKey);
 
-	StoredFileObject get(String key);
+	StoredFileStream get(String key);
 
 	void put(String key, String contentType, byte[] bytes);
 

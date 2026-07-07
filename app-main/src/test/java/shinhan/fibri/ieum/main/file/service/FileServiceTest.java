@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -32,6 +33,7 @@ import shinhan.fibri.ieum.main.file.rendition.ImageRenditionGenerator;
 import shinhan.fibri.ieum.main.file.storage.FileObjectMetadata;
 import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.file.storage.StoredFileObject;
+import shinhan.fibri.ieum.main.file.storage.StoredFileStream;
 
 class FileServiceTest {
 
@@ -47,7 +49,8 @@ class FileServiceTest {
 			320,
 			80
 	);
-	private final FileService service = new FileService(fileRepository, storage, renditionGenerator, properties);
+	private final FileTransactionalOps transactionalOps = new FileTransactionalOps(fileRepository);
+	private final FileService service = new FileService(fileRepository, transactionalOps, storage, renditionGenerator, properties);
 
 	@Test
 	void presignCreatesPendingFileAndPutUploadUrl() {
@@ -83,28 +86,52 @@ class FileServiceTest {
 	}
 
 	@Test
-	void completePromotesOriginGeneratesRenditionsAndDeletesTmp() {
+	void completePromotesOriginGeneratesRenditionsAndDeletesTmpAfterSavingDbState() {
 		UUID fileId = UUID.fromString("22222222-2222-2222-2222-222222222222");
 		File file = File.pending(fileId, 42L, "tmp/42/meeting/" + fileId + "/original.jpg", "image/jpeg", 1024L);
 		when(fileRepository.findByFileIdAndUploaderId(fileId, 42L)).thenReturn(Optional.of(file));
-		when(fileRepository.save(any(File.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
+		when(fileRepository.save(any(File.class))).thenAnswer(invocation -> {
+			storage.events.add("save");
+			return invocation.getArgument(0);
+		});
 		storage.metadata = new FileObjectMetadata("image/jpeg", 900L);
 
 		FileCompleteResponse response = service.complete(principal(), fileId);
 
 		assertThat(response.fileId()).isEqualTo(fileId);
-		assertThat(storage.copied).containsExactly("tmp/42/meeting/" + fileId + "/original.jpg->final/42/meeting/" + fileId + "/original.jpg");
-		assertThat(renditionGenerator.generatedFrom).containsExactly("final/42/meeting/" + fileId + "/original.jpg");
+		assertThat(storage.getKeys).containsExactly("tmp/42/meeting/" + fileId + "/original.jpg");
+		assertThat(renditionGenerator.generatedFrom).containsExactly("tmp/42/meeting/" + fileId + "/original.jpg");
 		assertThat(storage.putKeys).containsExactly(
+				"final/42/meeting/" + fileId + "/original.jpg",
 				"final/42/meeting/" + fileId + "/display.webp",
 				"final/42/meeting/" + fileId + "/thumb.webp"
 		);
 		assertThat(storage.deleted).containsExactly("tmp/42/meeting/" + fileId + "/original.jpg");
+		assertThat(storage.events).containsSubsequence("put:final/42/meeting/" + fileId + "/thumb.webp", "save", "delete:tmp/42/meeting/" + fileId + "/original.jpg");
 		assertThat(file.getS3Key()).isEqualTo("final/42/meeting/" + fileId + "/original.jpg");
 		assertThat(file.getContentType()).isEqualTo("image/jpeg");
 		assertThat(file.getSizeBytes()).isEqualTo(900L);
 		assertThat(file.isUploaded()).isTrue();
 		verify(fileRepository).save(file);
+	}
+
+	@Test
+	void completeKeepsPendingFileAndTmpWhenRenditionGenerationFails() {
+		UUID fileId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+		File file = File.pending(fileId, 42L, "tmp/42/meeting/" + fileId + "/original.jpg", "image/jpeg", 1024L);
+		when(fileRepository.findByFileIdAndUploaderId(fileId, 42L)).thenReturn(Optional.of(file));
+		storage.metadata = new FileObjectMetadata("image/jpeg", 900L);
+		renditionGenerator.fail = true;
+
+		assertThatThrownBy(() -> service.complete(principal(), fileId))
+			.isInstanceOf(IllegalStateException.class);
+
+		assertThat(file.getS3Key()).isEqualTo("tmp/42/meeting/" + fileId + "/original.jpg");
+		assertThat(file.isUploaded()).isFalse();
+		assertThat(storage.putKeys).isEmpty();
+		assertThat(storage.deleted).isEmpty();
+		verify(fileRepository, never()).save(file);
 	}
 
 	@Test
@@ -140,13 +167,16 @@ class FileServiceTest {
 
 		private final List<String> presigned = new ArrayList<>();
 		private final List<String> copied = new ArrayList<>();
+		private final List<String> getKeys = new ArrayList<>();
 		private final List<String> putKeys = new ArrayList<>();
 		private final List<String> deleted = new ArrayList<>();
+		private final List<String> events = new ArrayList<>();
 		private FileObjectMetadata metadata = new FileObjectMetadata("image/jpeg", 1024L);
 
 		@Override
 		public URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl) {
 			presigned.add(key);
+			events.add("presign:" + key);
 			return URI.create("https://storage.example/" + key);
 		}
 
@@ -158,30 +188,39 @@ class FileServiceTest {
 		@Override
 		public void copy(String sourceKey, String destinationKey) {
 			copied.add(sourceKey + "->" + destinationKey);
+			events.add("copy:" + sourceKey + "->" + destinationKey);
 		}
 
 		@Override
-		public StoredFileObject get(String key) {
-			return new StoredFileObject(key, "image/jpeg", 900L, new byte[] {1, 2, 3});
+		public StoredFileStream get(String key) {
+			getKeys.add(key);
+			events.add("get:" + key);
+			return new StoredFileStream(key, "image/jpeg", 900L, new ByteArrayInputStream(new byte[] {1, 2, 3}));
 		}
 
 		@Override
 		public void put(String key, String contentType, byte[] bytes) {
 			putKeys.add(key);
+			events.add("put:" + key);
 		}
 
 		@Override
 		public void delete(String key) {
 			deleted.add(key);
+			events.add("delete:" + key);
 		}
 	}
 
 	private static class FakeImageRenditionGenerator implements ImageRenditionGenerator {
 
 		private final List<String> generatedFrom = new ArrayList<>();
+		private boolean fail;
 
 		@Override
 		public List<FileRendition> generate(StoredFileObject origin, FileProperties properties) {
+			if (fail) {
+				throw new IllegalStateException("rendition failed");
+			}
 			generatedFrom.add(origin.key());
 			return List.of(
 					new FileRendition(FileVariant.DISPLAY, "image/webp", new byte[] {4, 5, 6}),

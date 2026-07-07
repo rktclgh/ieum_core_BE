@@ -2,7 +2,8 @@ package shinhan.fibri.ieum.main.file.storage;
 
 import java.net.URI;
 import java.time.Duration;
-import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
@@ -63,16 +64,16 @@ public class S3FileStorage implements FileStorage {
 	}
 
 	@Override
-	public StoredFileObject get(String key) {
-		ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(GetObjectRequest.builder()
+	public StoredFileStream get(String key) {
+		ResponseInputStream<GetObjectResponse> response = s3Client.getObject(GetObjectRequest.builder()
 			.bucket(bucket)
 			.key(key)
-			.build());
-		return new StoredFileObject(
+			.build(), ResponseTransformer.toInputStream());
+		return new StoredFileStream(
 			key,
 			response.response().contentType(),
 			response.response().contentLength(),
-			response.asByteArray()
+			response
 		);
 	}
 

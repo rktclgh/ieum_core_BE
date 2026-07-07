@@ -8,12 +8,15 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -96,9 +99,9 @@ class FileControllerTest {
 	void streamFileReturnsImageBytesAndHardeningHeaders() throws Exception {
 		UUID fileId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 		when(fileService.stream(any(AuthenticatedUser.class), eq(fileId), eq("thumb")))
-			.thenReturn(new FileStreamResponse("image/webp", 3L, new byte[] {1, 2, 3}));
+			.thenReturn(new FileStreamResponse("image/webp", 3L, new ByteArrayInputStream(new byte[] {1, 2, 3})));
 
-		mockMvc.perform(get("/api/v1/files/{fileId}", fileId)
+		var result = mockMvc.perform(get("/api/v1/files/{fileId}", fileId)
 				.param("v", "thumb")
 				.with(authenticated()))
 			.andExpect(status().isOk())
@@ -106,6 +109,11 @@ class FileControllerTest {
 			.andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 3L))
 			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable"))
 			.andExpect(header().string("X-Content-Type-Options", "nosniff"))
+			.andExpect(request().asyncStarted())
+			.andReturn();
+
+		mockMvc.perform(asyncDispatch(result))
+			.andExpect(status().isOk())
 			.andExpect(content().bytes(new byte[] {1, 2, 3}));
 	}
 
