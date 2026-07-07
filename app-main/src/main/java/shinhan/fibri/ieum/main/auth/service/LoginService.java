@@ -1,12 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
@@ -19,11 +15,8 @@ import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
 import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.repository.LoginLogRepository;
-import shinhan.fibri.ieum.main.auth.session.AccessTokenIssuer;
-import shinhan.fibri.ieum.main.auth.session.AuthSession;
-import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
-import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
-import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
+import shinhan.fibri.ieum.main.auth.session.IssuedAuthSession;
+import shinhan.fibri.ieum.main.auth.session.SessionIssuer;
 
 @Service
 @RequiredArgsConstructor
@@ -35,10 +28,7 @@ public class LoginService {
 	private final UserRepository userRepository;
 	private final PasswordHasher passwordHasher;
 	private final LoginLogRepository loginLogRepository;
-	private final OpaqueTokenGenerator tokenGenerator;
-	private final Sha256TokenHasher tokenHasher;
-	private final AccessTokenIssuer accessTokenIssuer;
-	private final RedisAuthSessionStore sessionStore;
+	private final SessionIssuer sessionIssuer;
 
 	@Transactional
 	public LoginResult login(LoginRequest request) {
@@ -61,41 +51,13 @@ public class LoginService {
 
 		loginLogRepository.save(LoginLog.emailLogin(user));
 
-		String sessionId = tokenGenerator.generate();
-		String refreshToken = tokenGenerator.generate();
-		String csrfToken = tokenGenerator.generate();
-		String refreshTokenHash = tokenHasher.hash(refreshToken);
-		String accessToken = accessTokenIssuer.issue(user.getId(), sessionId, user.getEmail(), user.getRole());
-		AuthSession session = new AuthSession(
-			sessionId,
-			user.getId(),
-			user.getEmail(),
-			refreshTokenHash,
-			null,
-			user.getRole(),
-			user.getStatus(),
-			OffsetDateTime.now(ZoneOffset.UTC)
-		);
-		writeSessionAfterCommit(session);
+		IssuedAuthSession issuedSession = sessionIssuer.issue(user);
 
 		return new LoginResult(
 			new LoginResponse(user.getId(), user.getRole(), user.isPasswordResetRequired()),
-			accessToken,
-			refreshToken,
-			csrfToken
+			issuedSession.accessToken(),
+			issuedSession.refreshToken(),
+			issuedSession.csrfToken()
 		);
-	}
-
-	private void writeSessionAfterCommit(AuthSession session) {
-		if (TransactionSynchronizationManager.isSynchronizationActive()) {
-			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-				@Override
-				public void afterCommit() {
-					sessionStore.create(session);
-				}
-			});
-			return;
-		}
-		sessionStore.create(session);
 	}
 }
