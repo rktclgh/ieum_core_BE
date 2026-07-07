@@ -4,18 +4,27 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
-@RequiredArgsConstructor
 public class RedisSocialSignupTokenStore implements SocialSignupTokenStore {
 
 	private static final String SIGNUP_KEY_PREFIX = "auth:social:signup:";
 
 	private final StringRedisTemplate redisTemplate;
 	private final ObjectMapper objectMapper;
+
+	@Autowired
+	public RedisSocialSignupTokenStore(StringRedisTemplate redisTemplate) {
+		this(redisTemplate, new ObjectMapper());
+	}
+
+	RedisSocialSignupTokenStore(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+		this.redisTemplate = redisTemplate;
+		this.objectMapper = objectMapper;
+	}
 
 	@Override
 	public void save(String token, SocialSignupIdentity identity, Duration ttl) {
