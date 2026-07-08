@@ -24,7 +24,10 @@ import shinhan.fibri.ieum.common.friend.domain.FriendshipStatus;
 import shinhan.fibri.ieum.common.friend.repository.FriendshipRepository;
 import shinhan.fibri.ieum.main.friend.exception.AlreadyFriendsException;
 import shinhan.fibri.ieum.main.friend.exception.BlockedFriendshipException;
+import shinhan.fibri.ieum.main.friend.exception.CannotAcceptOwnFriendRequestException;
 import shinhan.fibri.ieum.main.friend.exception.FriendRequestExistsException;
+import shinhan.fibri.ieum.main.friend.exception.FriendshipNotFoundException;
+import shinhan.fibri.ieum.main.friend.exception.SelfFriendActionException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendRequestException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -181,6 +184,201 @@ class FriendServiceTest {
 
 		verify(friendshipRepository, never()).save(any());
 		verify(friendRequestNotifier, never()).notifyRequested(any(), any());
+	}
+
+	@Test
+	void acceptFriendRequestAcceptsPendingRequestWhenCurrentUserIsAddressee() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.acceptFriendRequest(principal(42L), 77L);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.accepted);
+	}
+
+	@Test
+	void acceptFriendRequestThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+	}
+
+	@Test
+	void acceptFriendRequestThrowsUserNotFoundWhenTargetUserIsMissingOrDeleted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+	}
+
+	@Test
+	void acceptFriendRequestRejectsSelfAction() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 42L))
+			.isInstanceOf(SelfFriendActionException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+	}
+
+	@Test
+	void acceptFriendRequestThrowsFriendshipNotFoundWhenRelationDoesNotExist() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+	}
+
+	@Test
+	void acceptFriendRequestRejectsOwnSentPendingRequest() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(currentUser, targetUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(CannotAcceptOwnFriendRequestException.class);
+
+		assertThat(friendship.getStatus()).isEqualTo(FriendshipStatus.pending);
+	}
+
+	@Test
+	void acceptFriendRequestThrowsFriendshipNotFoundWhenAlreadyAccepted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		friendship.accept();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+	}
+
+	@Test
+	void acceptFriendRequestRejectsBlockedFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.blocked(targetUser, currentUser, targetUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.acceptFriendRequest(principal(42L), 77L))
+			.isInstanceOf(BlockedFriendshipException.class);
+	}
+
+	@Test
+	void deleteFriendshipDeletesPendingRelation() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.deleteFriendship(principal(42L), 77L);
+
+		verify(friendshipRepository).delete(friendship);
+	}
+
+	@Test
+	void deleteFriendshipDeletesAcceptedRelation() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.request(targetUser, currentUser);
+		friendship.accept();
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		service.deleteFriendship(principal(42L), 77L);
+
+		verify(friendshipRepository).delete(friendship);
+	}
+
+	@Test
+	void deleteFriendshipThrowsUserNotFoundWhenCurrentUserIsMissingOrDeleted() {
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void deleteFriendshipThrowsUserNotFoundWhenTargetUserIsMissingOrDeleted() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void deleteFriendshipRejectsSelfAction() {
+		User currentUser = user(42L, "current@example.com", "current");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+
+		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 42L))
+			.isInstanceOf(SelfFriendActionException.class);
+
+		verify(friendshipRepository, never()).findByUserPair(any(), any());
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void deleteFriendshipThrowsFriendshipNotFoundWhenRelationDoesNotExist() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 77L))
+			.isInstanceOf(FriendshipNotFoundException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
+	}
+
+	@Test
+	void deleteFriendshipRejectsBlockedFriendship() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		Friendship friendship = Friendship.blocked(currentUser, targetUser, currentUser);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.of(friendship));
+
+		assertThatThrownBy(() -> service.deleteFriendship(principal(42L), 77L))
+			.isInstanceOf(BlockedFriendshipException.class);
+
+		verify(friendshipRepository, never()).delete(any(Friendship.class));
 	}
 
 	private AuthenticatedUser principal(Long userId) {

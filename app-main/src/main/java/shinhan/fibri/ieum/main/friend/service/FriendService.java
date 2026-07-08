@@ -13,7 +13,10 @@ import shinhan.fibri.ieum.common.friend.domain.FriendshipStatus;
 import shinhan.fibri.ieum.common.friend.repository.FriendshipRepository;
 import shinhan.fibri.ieum.main.friend.exception.AlreadyFriendsException;
 import shinhan.fibri.ieum.main.friend.exception.BlockedFriendshipException;
+import shinhan.fibri.ieum.main.friend.exception.CannotAcceptOwnFriendRequestException;
 import shinhan.fibri.ieum.main.friend.exception.FriendRequestExistsException;
+import shinhan.fibri.ieum.main.friend.exception.FriendshipNotFoundException;
+import shinhan.fibri.ieum.main.friend.exception.SelfFriendActionException;
 import shinhan.fibri.ieum.main.friend.exception.SelfFriendRequestException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -38,6 +41,53 @@ public class FriendService {
 
 		friendshipRepository.save(Friendship.request(requester, addressee));
 		notifyFriendRequestAfterCommit(requester.getId(), addressee.getId());
+	}
+
+	@Transactional
+	public void acceptFriendRequest(AuthenticatedUser principal, Long targetUserId) {
+		User currentUser = findActiveUser(principal.userId());
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfFriendActionException();
+		}
+		User targetUser = findActiveUser(targetUserId);
+
+		Friendship friendship = friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+			.orElseThrow(FriendshipNotFoundException::new);
+
+		if (friendship.getStatus() == FriendshipStatus.blocked) {
+			throw new BlockedFriendshipException();
+		}
+		if (friendship.getStatus() != FriendshipStatus.pending) {
+			throw new FriendshipNotFoundException();
+		}
+		if (friendship.getAddressee().getId().equals(currentUser.getId())) {
+			friendship.accept();
+			return;
+		}
+		if (friendship.getRequester().getId().equals(currentUser.getId())) {
+			throw new CannotAcceptOwnFriendRequestException();
+		}
+		throw new FriendshipNotFoundException();
+	}
+
+	@Transactional
+	public void deleteFriendship(AuthenticatedUser principal, Long targetUserId) {
+		User currentUser = findActiveUser(principal.userId());
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfFriendActionException();
+		}
+		User targetUser = findActiveUser(targetUserId);
+
+		Friendship friendship = friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+			.orElseThrow(FriendshipNotFoundException::new);
+
+		if (friendship.getStatus() == FriendshipStatus.blocked) {
+			throw new BlockedFriendshipException();
+		}
+		if (friendship.getStatus() != FriendshipStatus.pending && friendship.getStatus() != FriendshipStatus.accepted) {
+			throw new FriendshipNotFoundException();
+		}
+		friendshipRepository.delete(friendship);
 	}
 
 	private User findActiveUser(Long userId) {
