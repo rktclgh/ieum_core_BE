@@ -1,7 +1,12 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -9,12 +14,20 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
+import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
+import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -23,10 +36,12 @@ import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 @RequiredArgsConstructor
 public class ChatService {
 
+	private static final int DEFAULT_MESSAGE_PAGE_SIZE = 50;
+	private static final int MAX_MESSAGE_PAGE_SIZE = 50;
+
 	private final UserRepository userRepository;
 	private final ChatRoomRepository chatRoomRepository;
 	private final ChatMemberRepository chatMemberRepository;
-	@SuppressWarnings("unused")
 	private final MessageRepository messageRepository;
 	private final FriendService friendService;
 
@@ -50,6 +65,69 @@ public class ChatService {
 		return ChatRoomResponse.from(room);
 	}
 
+	@Transactional(readOnly = true)
+	public List<ChatRoomSummaryResponse> listRooms(AuthenticatedUser principal, RoomType roomType) {
+		List<ChatRoom> rooms = chatRoomRepository.findActiveRoomsByUserId(principal.userId(), roomType);
+		if (rooms.isEmpty()) {
+			return List.of();
+		}
+		List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
+		Map<Long, ChatMember> membersByRoomId = chatMemberRepository
+			.findActiveByUserIdAndRoomIds(principal.userId(), roomIds)
+			.stream()
+			.collect(Collectors.toMap(member -> member.getRoom().getId(), Function.identity()));
+		Map<Long, Long> unreadByRoomId = messageRepository.countUnreadByRoomIds(principal.userId(), roomIds)
+			.stream()
+			.collect(Collectors.toMap(
+				MessageRepository.RoomUnreadCount::getRoomId,
+				MessageRepository.RoomUnreadCount::getUnreadCount
+			));
+		Map<Long, Message> lastMessageByRoomId = messageRepository.findLastMessagesByRoomIds(roomIds)
+			.stream()
+			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
+
+		return rooms.stream()
+			.filter(room -> membersByRoomId.containsKey(room.getId()))
+			.map(room -> ChatRoomSummaryResponse.from(
+				room,
+				membersByRoomId.get(room.getId()),
+				unreadByRoomId.getOrDefault(room.getId(), 0L),
+				lastMessageByRoomId.get(room.getId())
+			))
+			.sorted(roomSummaryComparator())
+			.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public ChatRoomDetailResponse getRoom(AuthenticatedUser principal, Long roomId) {
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(ChatRoomNotFoundException::new);
+		ChatMember currentMember = findActiveMember(roomId, principal.userId());
+		return ChatRoomDetailResponse.from(room, currentMember, chatMemberRepository.findByRoom_Id(roomId));
+	}
+
+	@Transactional(readOnly = true)
+	public ChatCursorPage<ChatMessageResponse> listMessages(
+		AuthenticatedUser principal,
+		Long roomId,
+		String cursor,
+		Integer size
+	) {
+		findActiveMember(roomId, principal.userId());
+		int pageSize = normalizeMessagePageSize(size);
+		ChatMessageCursor decodedCursor = ChatMessageCursor.decode(cursor);
+		List<Message> messages = messageRepository.findMessagesBeforeCursor(
+			roomId,
+			decodedCursor == null ? null : decodedCursor.createdAt(),
+			decodedCursor == null ? null : decodedCursor.messageId(),
+			PageRequest.of(0, pageSize + 1)
+		);
+		boolean hasNext = messages.size() > pageSize;
+		List<Message> pageItems = messages.stream().limit(pageSize).toList();
+		String nextCursor = hasNext ? ChatMessageCursor.encode(pageItems.getLast()) : null;
+		return new ChatCursorPage<>(pageItems.stream().map(ChatMessageResponse::from).toList(), nextCursor);
+	}
+
 	private ChatRoom createDirectRoom(User currentUser, User friend) {
 		return chatRoomRepository.saveAndFlush(ChatRoom.direct(currentUser.getId(), friend.getId()));
 	}
@@ -70,5 +148,30 @@ public class ChatService {
 	private User findActiveUser(Long userId) {
 		return userRepository.findByIdAndDeletedAtIsNull(userId)
 			.orElseThrow(UserNotFoundException::new);
+	}
+
+	private ChatMember findActiveMember(Long roomId, Long userId) {
+		return chatMemberRepository.findActiveByRoomIdAndUserId(roomId, userId)
+			.orElseThrow(NotRoomMemberException::new);
+	}
+
+	private int normalizeMessagePageSize(Integer size) {
+		if (size == null) {
+			return DEFAULT_MESSAGE_PAGE_SIZE;
+		}
+		if (size < 1) {
+			throw new IllegalArgumentException("size must be positive");
+		}
+		return Math.min(size, MAX_MESSAGE_PAGE_SIZE);
+	}
+
+	private Comparator<ChatRoomSummaryResponse> roomSummaryComparator() {
+		return Comparator
+			.comparing(ChatRoomSummaryResponse::pinned).reversed()
+			.thenComparing(
+				response -> response.lastMessage() == null ? null : response.lastMessage().createdAt(),
+				Comparator.nullsLast(Comparator.reverseOrder())
+			)
+			.thenComparing(ChatRoomSummaryResponse::roomId, Comparator.reverseOrder());
 	}
 }

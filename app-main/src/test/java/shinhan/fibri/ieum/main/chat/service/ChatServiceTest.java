@@ -21,12 +21,15 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.ChatRoom;
+import shinhan.fibri.ieum.common.chat.domain.Message;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -141,6 +144,105 @@ class ChatServiceTest {
 			.isInstanceOf(BlockedChatException.class);
 	}
 
+	@Test
+	void listRoomsCombinesMembershipUnreadAndLastMessageThenSortsPinnedFirst() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom normalRoom = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatRoom pinnedRoom = room(ChatRoom.question(10L, 42L, 88L), 200L);
+		ChatMember normalMember = ChatMember.join(normalRoom, me);
+		ChatMember pinnedMember = ChatMember.join(pinnedRoom, me);
+		pinnedMember.setPinned(true, OffsetDateTime.parse("2026-07-08T12:00:00+09:00"));
+		Message normalLast = message(501L, normalRoom, friend, "normal", "2026-07-08T11:00:00+09:00");
+		Message pinnedLast = message(502L, pinnedRoom, me, "pinned", "2026-07-08T10:00:00+09:00");
+		when(chatRoomRepository.findActiveRoomsByUserId(42L, null)).thenReturn(List.of(normalRoom, pinnedRoom));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L, 200L)))
+			.thenReturn(List.of(normalMember, pinnedMember));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
+			.thenReturn(List.of(unread(100L, 3L)));
+		when(messageRepository.findLastMessagesByRoomIds(List.of(100L, 200L)))
+			.thenReturn(List.of(normalLast, pinnedLast));
+
+		var response = service.listRooms(principal(42L), null);
+
+		assertThat(response)
+			.extracting(room -> room.roomId())
+			.containsExactly(200L, 100L);
+		assertThat(response.get(0).pinned()).isTrue();
+		assertThat(response.get(0).lastMessage().content()).isEqualTo("pinned");
+		assertThat(response.get(1).unreadCount()).isEqualTo(3L);
+	}
+
+	@Test
+	void getRoomRequiresActiveMembershipAndReturnsMembers() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		ChatMember friendMember = ChatMember.join(room, friend);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
+		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(meMember, friendMember));
+
+		var response = service.getRoom(principal(42L), 100L);
+
+		assertThat(response.roomId()).isEqualTo(100L);
+		assertThat(response.members())
+			.extracting(member -> member.userId())
+			.containsExactlyInAnyOrder(42L, 77L);
+	}
+
+	@Test
+	void getRoomThrowsWhenRoomDoesNotExist() {
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.getRoom(principal(42L), 100L))
+			.isInstanceOf(ChatRoomNotFoundException.class);
+	}
+
+	@Test
+	void getRoomThrowsWhenPrincipalIsNotActiveMember() {
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.getRoom(principal(42L), 100L))
+			.isInstanceOf(NotRoomMemberException.class);
+	}
+
+	@Test
+	void listMessagesUsesLookaheadAndNextCursor() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		Message newest = message(503L, room, friend, "newest", "2026-07-08T12:00:00+09:00");
+		Message next = message(502L, room, me, "next", "2026-07-08T11:00:00+09:00");
+		Message lookahead = message(501L, room, friend, "lookahead", "2026-07-08T10:00:00+09:00");
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
+		when(messageRepository.findMessagesBeforeCursor(
+			org.mockito.Mockito.eq(100L),
+			org.mockito.Mockito.isNull(),
+			org.mockito.Mockito.isNull(),
+			any()
+		)).thenReturn(List.of(newest, next, lookahead));
+
+		var response = service.listMessages(principal(42L), 100L, null, 2);
+
+		assertThat(response.items())
+			.extracting(message -> message.messageId())
+			.containsExactly(503L, 502L);
+		assertThat(ChatMessageCursor.decode(response.nextCursor()).messageId()).isEqualTo(502L);
+	}
+
+	@Test
+	void listMessagesRequiresActiveMembership() {
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.listMessages(principal(42L), 100L, null, 50))
+			.isInstanceOf(NotRoomMemberException.class);
+	}
+
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
 	}
@@ -156,6 +258,31 @@ class ChatServiceTest {
 		);
 		setField(user, "id", id);
 		return user;
+	}
+
+	private ChatRoom room(ChatRoom room, Long id) {
+		setField(room, "id", id);
+		return room;
+	}
+
+	private Message message(Long id, ChatRoom room, User sender, String content, String createdAt) {
+		Message message = Message.text(room, sender, content, OffsetDateTime.parse(createdAt));
+		setField(message, "id", id);
+		return message;
+	}
+
+	private MessageRepository.RoomUnreadCount unread(Long roomId, Long count) {
+		return new MessageRepository.RoomUnreadCount() {
+			@Override
+			public Long getRoomId() {
+				return roomId;
+			}
+
+			@Override
+			public Long getUnreadCount() {
+				return count;
+			}
+		};
 	}
 
 	private void setField(Object target, String fieldName, Object value) {
