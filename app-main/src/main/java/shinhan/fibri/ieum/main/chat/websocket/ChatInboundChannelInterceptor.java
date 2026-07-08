@@ -3,7 +3,7 @@ package shinhan.fibri.ieum.main.chat.websocket;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -17,7 +17,6 @@ import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.chat.service.ChatMessageRateLimiter;
 
 @Component
-@RequiredArgsConstructor
 public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)$");
@@ -27,6 +26,18 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 	private final RedisAuthSessionStore sessionStore;
 	private final ChatMessageRateLimiter rateLimiter;
 	private final ChatWebSocketErrorSender errorSender;
+
+	public ChatInboundChannelInterceptor(
+		ChatMemberRepository chatMemberRepository,
+		RedisAuthSessionStore sessionStore,
+		ChatMessageRateLimiter rateLimiter,
+		@Lazy ChatWebSocketErrorSender errorSender
+	) {
+		this.chatMemberRepository = chatMemberRepository;
+		this.sessionStore = sessionStore;
+		this.rateLimiter = rateLimiter;
+		this.errorSender = errorSender;
+	}
 
 	@Override
 	public Message<?> preSend(Message<?> message, MessageChannel channel) {

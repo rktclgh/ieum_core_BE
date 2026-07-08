@@ -14,6 +14,7 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import shinhan.fibri.ieum.main.chat.websocket.ChatInboundChannelInterceptor;
+import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeHandler;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeInterceptor;
 
 @Configuration
@@ -22,15 +23,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	private final List<String> allowedOriginPatterns;
 	private final ChatWebSocketHandshakeInterceptor handshakeInterceptor;
+	private final ChatWebSocketHandshakeHandler handshakeHandler;
 	private final ChatInboundChannelInterceptor inboundChannelInterceptor;
 
 	public WebSocketConfig(
 		@Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins,
 		ChatWebSocketHandshakeInterceptor handshakeInterceptor,
+		ChatWebSocketHandshakeHandler handshakeHandler,
 		ChatInboundChannelInterceptor inboundChannelInterceptor
 	) {
 		this.allowedOriginPatterns = csvValues(allowedOrigins);
 		this.handshakeInterceptor = handshakeInterceptor;
+		this.handshakeHandler = handshakeHandler;
 		this.inboundChannelInterceptor = inboundChannelInterceptor;
 	}
 
@@ -38,6 +42,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 	public void registerStompEndpoints(StompEndpointRegistry registry) {
 		registry.addEndpoint("/ws")
 			.addInterceptors(handshakeInterceptor)
+			.setHandshakeHandler(handshakeHandler)
 			.setAllowedOriginPatterns(allowedOriginPatterns.toArray(String[]::new));
 	}
 

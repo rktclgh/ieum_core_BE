@@ -12,15 +12,18 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.StompWebSocketEndpointRegistration;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import shinhan.fibri.ieum.main.chat.websocket.ChatInboundChannelInterceptor;
+import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeHandler;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeInterceptor;
 
 class WebSocketConfigTest {
 
 	private final ChatWebSocketHandshakeInterceptor handshakeInterceptor = org.mockito.Mockito.mock(ChatWebSocketHandshakeInterceptor.class);
+	private final ChatWebSocketHandshakeHandler handshakeHandler = org.mockito.Mockito.mock(ChatWebSocketHandshakeHandler.class);
 	private final ChatInboundChannelInterceptor inboundChannelInterceptor = org.mockito.Mockito.mock(ChatInboundChannelInterceptor.class);
 	private final WebSocketConfig config = new WebSocketConfig(
 		"http://localhost:3000, https://ieum.rktclgh.site",
 		handshakeInterceptor,
+		handshakeHandler,
 		inboundChannelInterceptor
 	);
 
@@ -42,9 +45,11 @@ class WebSocketConfigTest {
 		StompWebSocketEndpointRegistration registration = org.mockito.Mockito.mock(StompWebSocketEndpointRegistration.class);
 		when(registry.addEndpoint("/ws")).thenReturn(registration);
 		when(registration.addInterceptors(handshakeInterceptor)).thenReturn(registration);
+		when(registration.setHandshakeHandler(handshakeHandler)).thenReturn(registration);
 
 		assertThatCode(() -> config.registerStompEndpoints(registry)).doesNotThrowAnyException();
 		verify(registration).addInterceptors(handshakeInterceptor);
+		verify(registration).setHandshakeHandler(handshakeHandler);
 		verify(registration).setAllowedOriginPatterns("http://localhost:3000", "https://ieum.rktclgh.site");
 	}
 }
