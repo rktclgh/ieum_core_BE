@@ -98,12 +98,16 @@ public class QuestionImageCleanupService {
 	}
 
 	private void deleteS3ObjectsLogOnly(String s3Key) {
+		deleteSingleS3ObjectLogOnly(s3Key);
+		deleteSingleS3ObjectLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.DISPLAY));
+		deleteSingleS3ObjectLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.THUMB));
+	}
+
+	private void deleteSingleS3ObjectLogOnly(String key) {
 		try {
-			fileStorage.delete(s3Key);
-			fileStorage.delete(FileObjectKeys.variantKey(s3Key, FileVariant.DISPLAY));
-			fileStorage.delete(FileObjectKeys.variantKey(s3Key, FileVariant.THUMB));
+			fileStorage.delete(key);
 		} catch (RuntimeException exception) {
-			log.warn("Failed to delete unreferenced question image file objects. s3Key={}", s3Key, exception);
+			log.warn("Failed to delete unreferenced question image file object. key={}", key, exception);
 		}
 	}
 }
