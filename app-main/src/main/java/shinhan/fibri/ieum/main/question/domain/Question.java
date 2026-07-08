@@ -56,10 +56,10 @@ public class Question {
 
 	public void update(String title, String content) {
 		if (title != null) {
-			this.title = Objects.requireNonNull(title, "title must not be null");
+			this.title = title;
 		}
 		if (content != null) {
-			this.content = Objects.requireNonNull(content, "content must not be null");
+			this.content = content;
 		}
 	}
 

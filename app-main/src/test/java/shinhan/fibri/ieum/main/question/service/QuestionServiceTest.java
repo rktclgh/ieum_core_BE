@@ -218,6 +218,27 @@ class QuestionServiceTest {
 		verify(imageCleanupService).cleanRemovedImagesAfterCommit(List.of(oldImage));
 	}
 
+	@Test
+	void updatePreservesContentWhenOnlyTitleIsProvided() {
+		UUID profileId = UUID.fromString("00000000-0000-0000-0000-000000000104");
+		Question question = Question.create(100L, 42L, "title", "original content");
+		setId(question, 200L);
+		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
+		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
+
+		QuestionDetailResponse response = service.update(
+			principal(),
+			200L,
+			new QuestionUpdateRequest("updated title", null, null)
+		);
+
+		assertThat(response.title()).isEqualTo("updated title");
+		assertThat(response.content()).isEqualTo("original content");
+		verify(questionImageRepository, never()).deleteByQuestionId(any());
+		verify(imageCleanupService, never()).cleanRemovedImagesAfterCommit(any());
+	}
+
 	private AuthenticatedUser principal() {
 		return new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
 	}
