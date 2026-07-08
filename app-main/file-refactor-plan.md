@@ -159,6 +159,67 @@ head(tmpKey) → get(tmpKey) [원본 바이트 1회 확보] → 렌더링(로컬
 ## 후속 과제 (이번 PR 범위 밖, 트래킹만)
 
 - pending row(`uploaded_at IS NULL`) DB 청소 잡 — complete 안 부른 이탈 건
-- `stream`에서 S3 content-type이 null인 경우 방어(기본값 처리)
 - 렌더링 입력 픽셀 상한(OOM 방지)
 - 동시 `complete()` 레이스로 인한 중복 S3 작업(손상 없음, 낭비만 — 필요 시 락 고려)
+
+---
+
+# PR 전 추가 수정 (2차 리뷰에서 발견 — 2026-07-07)
+
+1차 리팩토링(위 4개 항목)은 문서대로 정확히 반영됨을 코드로 확인했다(`FileTransactionalOps` 분리, complete 순서, afterCommit 삭제, `StreamingResponseBody`). 다만 리팩토링 과정에서 **새로 생긴 리소스 누수 1건**과 **원래 있던 상태코드 버그 1건**을 발견했다. 아래 🔴 2건은 PR 전 필수 수정.
+
+## 🔴 A. S3 스트림 커넥션 누수 (스트리밍 전환 회귀 — 최우선)
+
+**문제**: S3 `InputStream`(=HTTP 커넥션)이 `FileService.stream`에서 열리는데, 닫는 책임은 `FileController`의 `StreamingResponseBody` 람다에 있다. 스트림을 연 뒤~람다 실행 전 사이에 예외가 나면 스트림이 영영 안 닫혀 **S3 클라이언트 커넥션 풀이 고갈**된다(서서히 앱 hang).
+
+던지는 지점 2곳:
+- `FileService.stream` ([FileService.java:104-105](src/main/java/shinhan/fibri/ieum/main/file/service/FileService.java)): `storage.get(key)`로 스트림을 연 직후 `validateStreamContentType(...)`가 throw하면 `object.body()`가 안 닫힘.
+- `FileController.stream` ([FileController.java:62](src/main/java/shinhan/fibri/ieum/main/file/controller/FileController.java)): `MediaType.parseMediaType(response.contentType())`가 throw하면 `body(body)` 람다(스트림 닫는 유일한 곳)가 아예 실행 안 됨.
+
+**트리거**: S3 객체 content-type이 null/이상값이면 매 요청 커넥션 1개씩 누수 → 수백 요청 후 고갈.
+
+**수정 방향(택1, 권장 순)**:
+1. **S3 GET을 `StreamingResponseBody` 람다 안에서 열기**. 서비스는 `s3Key` + variant + (미리 확보한) content-type/length 메타만 반환하고, 실제 `storage.get`은 람다 안에서 열고 try-with-resources로 닫는다. content-type/length는 GET 스트림 대신 **`head`로 먼저** 확보(검증도 head 결과로 수행) → 헤더 조립이 스트림 오픈보다 앞서므로 parseMediaType가 던져도 누수 없음.
+2. 최소 방어: `FileService.stream`에서 `storage.get` 후 검증을 try/catch로 감싸 실패 시 `object.body().close()`. + 컨트롤러 `parseMediaType`을 스트림 오픈 전에 계산.
+
+→ **1안 권장**. 부수 효과로 null content-type(아래 C)도 head 단계에서 함께 방어 가능.
+
+## 🔴 B. 파일 API 클라이언트 에러가 전부 HTTP 500
+
+**문제**: `InvalidFileRequestException`·`FileNotFoundException`에 매핑 핸들러가 없다. 둘 다 `@ResponseStatus` 없는 `RuntimeException`이라 `GlobalExceptionHandler`의 `Exception.class` 폴백([GlobalExceptionHandler.java:53-58](../config/GlobalExceptionHandler.java) 위치는 `shinhan.fibri.ieum.config`)에 걸려 **전부 500**으로 나간다.
+
+- `GET /files/{id}?v=foo` → 500 (400이어야)
+- `GET /files/{id}` 없는/미완료 파일 → 500 (404여야)
+- presign 잘못된 contentType/size → 500 (400이어야)
+- complete on 남의/없는 파일 → 500 (404여야)
+
+`FileControllerTest`는 `isOk()`만 검증(에러 경로 테스트 0개)이라 안 잡혔다.
+
+**수정 방향**:
+- `main/file/controller/FileExceptionHandler.java`(`@RestControllerAdvice`) 신규:
+  - `InvalidFileRequestException` → `400 BAD_REQUEST`
+  - `FileNotFoundException` → `404 NOT_FOUND`
+  - (선택) `UncheckedIOException` 등 스토리지/렌더 실패 → `502 BAD_GATEWAY` 또는 `500` 명시
+- 에러 응답 바디는 기존 `AuthErrorResponse` 포맷과 일관되게.
+- **에러 경로 테스트 추가**: 잘못된 variant→400, 없는 파일→404, presign 검증 실패→400.
+
+## 🟡 C. null content-type 방어
+
+`head`/`get`의 content-type이 null이면 `FileObjectKeys.normalize`가 던짐 → (A와 겹쳐) 누수+500. origin은 presign에서 content-type을 서명하므로 대체로 채워지지만, 방어적으로 기본값(`application/octet-stream`) 처리하거나 A의 1안(head 선검증)으로 흡수.
+
+## 🟡 D. `purpose` 값 화이트리스트
+
+현재 `FileObjectKeys.cleanPurpose`는 형식 검증(`[a-z][a-z0-9_-]{0,39}`)만이라 `purpose=banana`도 통과해 임의 폴더 생성 가능(경로 traversal은 아님 — `/`·`.` 차단됨). 알려진 목적 집합(profile/meeting/chat/question/answer)으로 좁힐지 결정.
+
+## 🟡 E. `FileStorage.copy` 死코드
+
+complete가 copy 대신 `put(finalKey, origin.bytes())`를 쓰므로 `copy`는 미사용. 인터페이스/구현에서 정리 가능(당장 해롭진 않음).
+
+## 추가 체크리스트
+
+- [x] A. 스트림 누수 제거(GET을 람다 안에서 열거나, 검증 실패 시 close + parseMediaType 선계산)
+- [x] B. `FileExceptionHandler` 추가(400/404 매핑) + 에러 경로 테스트
+- [x] C. null content-type 방어(또는 A의 head 선검증으로 흡수)
+- [x] D. `purpose` 값 화이트리스트 결정/적용
+- [x] E. `FileStorage.copy` 死코드 정리
+- [x] `:app-main:test` 재통과(에러 경로 테스트 포함)
