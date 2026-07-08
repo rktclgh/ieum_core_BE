@@ -5,6 +5,15 @@ import java.io.InputStream;
 public record FileStreamResponse(
 	String contentType,
 	Long contentLength,
-	InputStream body
+	BodySupplier bodySupplier
 ) {
+
+	public InputStream body() {
+		return bodySupplier.open();
+	}
+
+	@FunctionalInterface
+	public interface BodySupplier {
+		InputStream open();
+	}
 }

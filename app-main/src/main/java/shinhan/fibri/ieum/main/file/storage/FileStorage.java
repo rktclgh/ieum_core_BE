@@ -9,8 +9,6 @@ public interface FileStorage {
 
 	FileObjectMetadata head(String key);
 
-	void copy(String sourceKey, String destinationKey);
-
 	StoredFileStream get(String key);
 
 	void put(String key, String contentType, byte[] bytes);

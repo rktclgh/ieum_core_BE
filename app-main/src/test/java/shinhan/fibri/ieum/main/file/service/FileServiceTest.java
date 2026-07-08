@@ -26,6 +26,7 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.file.dto.FileCompleteResponse;
 import shinhan.fibri.ieum.main.file.dto.FilePresignRequest;
 import shinhan.fibri.ieum.main.file.dto.FilePresignResponse;
+import shinhan.fibri.ieum.main.file.dto.FileStreamResponse;
 import shinhan.fibri.ieum.main.file.exception.FileNotFoundException;
 import shinhan.fibri.ieum.main.file.exception.InvalidFileRequestException;
 import shinhan.fibri.ieum.main.file.rendition.FileRendition;
@@ -144,7 +145,6 @@ class FileServiceTest {
 		FileCompleteResponse response = service.complete(principal(), fileId);
 
 		assertThat(response.fileId()).isEqualTo(fileId);
-		assertThat(storage.copied).isEmpty();
 		assertThat(storage.putKeys).isEmpty();
 		assertThat(storage.deleted).isEmpty();
 		verify(fileRepository, never()).save(any(File.class));
@@ -159,6 +159,39 @@ class FileServiceTest {
 			.isInstanceOf(FileNotFoundException.class);
 	}
 
+	@Test
+	void streamUsesHeadMetadataAndOpensBodyLazily() throws Exception {
+		UUID fileId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+		File file = File.pending(fileId, 42L, "final/42/meeting/" + fileId + "/original.png", "image/png", 2048L);
+		file.markUploaded(OffsetDateTime.parse("2026-07-07T00:00:00Z"), "image/png", 2048L);
+		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
+		storage.metadata = new FileObjectMetadata("image/webp", 3L);
+
+		FileStreamResponse response = service.stream(principal(), fileId, "thumb");
+
+		assertThat(response.contentType()).isEqualTo("image/webp");
+		assertThat(response.contentLength()).isEqualTo(3L);
+		assertThat(storage.headKeys).containsExactly("final/42/meeting/" + fileId + "/thumb.webp");
+		assertThat(storage.getKeys).isEmpty();
+
+		assertThat(response.body().readAllBytes()).containsExactly(1, 2, 3);
+		assertThat(storage.getKeys).containsExactly("final/42/meeting/" + fileId + "/thumb.webp");
+	}
+
+	@Test
+	void streamRejectsInvalidHeadMetadataBeforeOpeningBody() {
+		UUID fileId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+		File file = File.pending(fileId, 42L, "final/42/meeting/" + fileId + "/original.png", "image/png", 2048L);
+		file.markUploaded(OffsetDateTime.parse("2026-07-07T00:00:00Z"), "image/png", 2048L);
+		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
+		storage.metadata = new FileObjectMetadata(null, 3L);
+
+		assertThatThrownBy(() -> service.stream(principal(), fileId, "thumb"))
+			.isInstanceOf(InvalidFileRequestException.class);
+
+		assertThat(storage.getKeys).isEmpty();
+	}
+
 	private AuthenticatedUser principal() {
 		return new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
 	}
@@ -166,7 +199,7 @@ class FileServiceTest {
 	private static class FakeFileStorage implements FileStorage {
 
 		private final List<String> presigned = new ArrayList<>();
-		private final List<String> copied = new ArrayList<>();
+		private final List<String> headKeys = new ArrayList<>();
 		private final List<String> getKeys = new ArrayList<>();
 		private final List<String> putKeys = new ArrayList<>();
 		private final List<String> deleted = new ArrayList<>();
@@ -182,13 +215,9 @@ class FileServiceTest {
 
 		@Override
 		public FileObjectMetadata head(String key) {
+			headKeys.add(key);
+			events.add("head:" + key);
 			return metadata;
-		}
-
-		@Override
-		public void copy(String sourceKey, String destinationKey) {
-			copied.add(sourceKey + "->" + destinationKey);
-			events.add("copy:" + sourceKey + "->" + destinationKey);
 		}
 
 		@Override

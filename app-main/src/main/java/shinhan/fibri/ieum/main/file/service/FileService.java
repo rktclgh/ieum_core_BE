@@ -101,10 +101,11 @@ public class FileService {
 		File file = transactionalOps.loadUploaded(fileId);
 		FileVariant fileVariant = FileVariant.from(variant);
 		String key = FileObjectKeys.variantKey(file.getS3Key(), fileVariant);
-		StoredFileStream object = storage.get(key);
-		validateStreamContentType(object.contentType());
+		FileObjectMetadata metadata = storage.head(key);
+		String contentType = validateStreamContentType(metadata.contentType());
+		Long sizeBytes = validateStreamSizeBytes(metadata.sizeBytes());
 
-		return new FileStreamResponse(object.contentType(), object.sizeBytes(), object.body());
+		return new FileStreamResponse(contentType, sizeBytes, () -> storage.get(key).body());
 	}
 
 	private StoredFileObject readOrigin(String key, String contentType, Long sizeBytes) {
@@ -134,10 +135,18 @@ public class FileService {
 		return sizeBytes;
 	}
 
-	private void validateStreamContentType(String contentType) {
+	private String validateStreamContentType(String contentType) {
 		String normalized = FileObjectKeys.normalize(contentType);
 		if (!"image/jpeg".equals(normalized) && !"image/png".equals(normalized) && !"image/webp".equals(normalized)) {
 			throw new InvalidFileRequestException("Only jpeg, png, and webp images can be streamed");
 		}
+		return normalized;
+	}
+
+	private Long validateStreamSizeBytes(Long sizeBytes) {
+		if (sizeBytes == null || sizeBytes <= 0) {
+			throw new InvalidFileRequestException("sizeBytes must be positive");
+		}
+		return sizeBytes;
 	}
 }

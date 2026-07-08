@@ -6,7 +6,6 @@ import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -51,16 +50,6 @@ public class S3FileStorage implements FileStorage {
 			.key(key)
 			.build());
 		return new FileObjectMetadata(response.contentType(), response.contentLength());
-	}
-
-	@Override
-	public void copy(String sourceKey, String destinationKey) {
-		s3Client.copyObject(CopyObjectRequest.builder()
-			.sourceBucket(bucket)
-			.sourceKey(sourceKey)
-			.destinationBucket(bucket)
-			.destinationKey(destinationKey)
-			.build());
 	}
 
 	@Override
