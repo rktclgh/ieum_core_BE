@@ -8,10 +8,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +35,20 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
+import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomMemberResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
+import java.util.List;
 
 @WebMvcTest(ChatController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -72,6 +82,83 @@ class ChatControllerTest {
 			.andExpect(jsonPath("$.questionId").doesNotExist());
 
 		verify(chatService).createDirectRoom(any(AuthenticatedUser.class), eq(77L));
+	}
+
+	@Test
+	void listRoomsReturnsRooms() throws Exception {
+		when(chatService.listRooms(any(AuthenticatedUser.class), eq(RoomType.direct)))
+			.thenReturn(List.of(new ChatRoomSummaryResponse(
+				100L,
+				RoomType.direct,
+				null,
+				null,
+				true,
+				true,
+				3L,
+				new ChatMessageResponse(
+					501L,
+					100L,
+					77L,
+					"friend",
+					"hello",
+					null,
+					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
+				)
+			)));
+
+		mockMvc.perform(get("/api/v1/chat/rooms")
+				.param("type", "direct")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].roomId", is(100)))
+			.andExpect(jsonPath("$[0].roomType", is("direct")))
+			.andExpect(jsonPath("$[0].pinned", is(true)))
+			.andExpect(jsonPath("$[0].unreadCount", is(3)))
+			.andExpect(jsonPath("$[0].lastMessage.content", is("hello")));
+	}
+
+	@Test
+	void getRoomReturnsDetail() throws Exception {
+		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
+			.thenReturn(new ChatRoomDetailResponse(
+				100L,
+				RoomType.direct,
+				null,
+				null,
+				false,
+				true,
+				List.of(new ChatRoomMemberResponse(77L, "friend", null))
+			));
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.roomId", is(100)))
+			.andExpect(jsonPath("$.members[0].userId", is(77)));
+	}
+
+	@Test
+	void listMessagesReturnsCursorPage() throws Exception {
+		when(chatService.listMessages(any(AuthenticatedUser.class), eq(100L), eq("cursor"), eq(2)))
+			.thenReturn(new ChatCursorPage<>(
+				List.of(new ChatMessageResponse(
+					501L,
+					100L,
+					77L,
+					"friend",
+					"hello",
+					null,
+					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
+				)),
+				"next"
+			));
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}/messages", 100L)
+				.param("cursor", "cursor")
+				.param("size", "2")
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].messageId", is(501)))
+			.andExpect(jsonPath("$.nextCursor", is("next")));
 	}
 
 	@Test
@@ -135,6 +222,26 @@ class ChatControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("USER_NOT_FOUND")));
+	}
+
+	@Test
+	void mapsRoomNotFoundToNotFound() throws Exception {
+		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
+			.thenThrow(new ChatRoomNotFoundException());
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("ROOM_NOT_FOUND")));
+	}
+
+	@Test
+	void mapsNotRoomMemberToForbidden() throws Exception {
+		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
+			.thenThrow(new NotRoomMemberException());
+
+		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_ROOM_MEMBER")));
 	}
 
 	private static RequestPostProcessor authenticated() {

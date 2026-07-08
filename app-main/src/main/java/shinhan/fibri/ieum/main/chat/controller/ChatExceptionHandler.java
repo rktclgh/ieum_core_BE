@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
+import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -47,9 +49,27 @@ public class ChatExceptionHandler {
 			.body(new AuthErrorResponse("BLOCKED", exception.getMessage()));
 	}
 
+	@ExceptionHandler(NotRoomMemberException.class)
+	public ResponseEntity<AuthErrorResponse> handleNotRoomMember(NotRoomMemberException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("NOT_ROOM_MEMBER", exception.getMessage()));
+	}
+
 	@ExceptionHandler(UserNotFoundException.class)
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(UserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ChatRoomNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleChatRoomNotFound(ChatRoomNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("ROOM_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(IllegalArgumentException.class)
+	public ResponseEntity<AuthErrorResponse> handleIllegalArgument(IllegalArgumentException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("VALIDATION_FAILED", exception.getMessage()));
 	}
 }
