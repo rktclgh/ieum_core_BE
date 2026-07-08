@@ -37,6 +37,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
+import shinhan.fibri.ieum.main.pin.exception.InvalidPinRequestException;
 import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.AuthorSummary;
 import shinhan.fibri.ieum.main.question.dto.CursorPage;
@@ -143,6 +144,27 @@ class QuestionControllerTest {
 		mockMvc.perform(get("/api/v1/questions/999").with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("QUESTION_NOT_FOUND")));
+	}
+
+	@Test
+	void invalidCursorMapsToInvalidCursor() throws Exception {
+		when(questionService.listMine(any(AuthenticatedUser.class), eq("bad"), eq(20)))
+			.thenThrow(new InvalidPinRequestException("INVALID_CURSOR", "cursor", "Invalid cursor"));
+
+		mockMvc.perform(get("/api/v1/questions/me")
+				.param("cursor", "bad")
+			.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_CURSOR")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("cursor")));
+	}
+
+	@Test
+	void invalidPathVariableMapsToValidationFailed() throws Exception {
+		mockMvc.perform(get("/api/v1/questions/not-a-number").with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("questionId")));
 	}
 
 	private static RequestPostProcessor authenticated() {

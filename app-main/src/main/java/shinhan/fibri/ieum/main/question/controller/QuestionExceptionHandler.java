@@ -6,11 +6,14 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindException;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.pin.exception.InvalidPinRequestException;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
@@ -41,14 +44,37 @@ public class QuestionExceptionHandler {
 			));
 	}
 
-	@ExceptionHandler(IllegalArgumentException.class)
-	public ResponseEntity<AuthErrorResponse> handleIllegalArgument(IllegalArgumentException exception) {
+	@ExceptionHandler(InvalidPinRequestException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidPinRequest(InvalidPinRequestException exception) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-			.body(new AuthErrorResponse("INVALID_CURSOR", exception.getMessage()));
+			.body(new AuthErrorResponse(
+				exception.code(),
+				exception.getMessage(),
+				List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage()))
+			));
+	}
+
+	@ExceptionHandler(BindException.class)
+	public ResponseEntity<AuthErrorResponse> handleBindException(BindException exception) {
+		return validationFailure(toFieldErrors(exception));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<AuthErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
+		return validationFailure(toFieldErrors(exception));
+	}
+
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<AuthErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+		return validationFailure(List.of(new AuthErrorResponse.FieldError(exception.getName(), "Invalid value")));
+	}
+
+	private ResponseEntity<AuthErrorResponse> validationFailure(List<AuthErrorResponse.FieldError> fieldErrors) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", fieldErrors));
+	}
+
+	private List<AuthErrorResponse.FieldError> toFieldErrors(BindException exception) {
 		List<AuthErrorResponse.FieldError> fieldErrors = exception.getBindingResult()
 			.getFieldErrors()
 			.stream()
@@ -68,8 +94,7 @@ public class QuestionExceptionHandler {
 			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
 			.toList();
 
-		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-			.body(new AuthErrorResponse("VALIDATION_FAILED", "Request validation failed", validationErrors));
+		return validationErrors;
 	}
 
 	private AuthErrorResponse.FieldError toGlobalError(ObjectError error) {
