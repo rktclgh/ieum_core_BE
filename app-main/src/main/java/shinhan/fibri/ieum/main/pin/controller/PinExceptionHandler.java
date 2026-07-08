@@ -44,12 +44,16 @@ public class PinExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleMethodValidation(HandlerMethodValidationException exception) {
 		List<AuthErrorResponse.FieldError> fieldErrors = exception.getParameterValidationResults()
 			.stream()
-			.flatMap(result -> result.getResolvableErrors()
-				.stream()
-				.map(error -> new AuthErrorResponse.FieldError(
-					result.getMethodParameter().getParameterName(),
-					error.getDefaultMessage()
-				)))
+			.flatMap(result -> {
+				String field = result.getMethodParameter().getParameterName();
+				String safeField = field == null ? "parameter" : field;
+				return result.getResolvableErrors()
+					.stream()
+					.map(error -> new AuthErrorResponse.FieldError(
+						safeField,
+						error.getDefaultMessage()
+					));
+			})
 			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
 			.toList();
 		return validationFailure(fieldErrors);
