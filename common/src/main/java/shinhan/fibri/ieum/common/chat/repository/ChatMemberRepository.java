@@ -1,0 +1,30 @@
+package shinhan.fibri.ieum.common.chat.repository;
+
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import shinhan.fibri.ieum.common.chat.domain.ChatMember;
+import shinhan.fibri.ieum.common.chat.domain.ChatMemberId;
+
+public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemberId> {
+
+	@Query("""
+		SELECT member
+		FROM ChatMember member
+		JOIN FETCH member.room
+		JOIN FETCH member.user
+		WHERE member.room.id = :roomId
+		  AND member.user.id = :userId
+		  AND member.leftAt IS NULL
+		""")
+	Optional<ChatMember> findActiveByRoomIdAndUserId(
+		@Param("roomId") Long roomId,
+		@Param("userId") Long userId
+	);
+
+	boolean existsByRoom_IdAndUser_IdAndLeftAtIsNull(Long roomId, Long userId);
+
+	List<ChatMember> findByRoom_Id(Long roomId);
+}
