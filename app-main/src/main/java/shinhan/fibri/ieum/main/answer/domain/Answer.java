@@ -27,7 +27,12 @@ public class Answer {
 	@Column(name = "is_ai", nullable = false)
 	private boolean ai;
 
-	@Column(nullable = false)
+	// 운영 DB의 answers.content는 text NOT NULL(길이 제한 없음) → JPA 기본 length=255 metadata가
+	// CreateAnswerRequest의 @Size(max=5000)과 어긋나지 않도록 실제 컬럼 타입과 동일하게 명시한다.
+	// content/imageFileIds 중 하나만 있어도 되지만 DB가 NOT NULL이라 서비스에서 null을 빈 문자열로
+	// 정규화해 넣는다(AnswerService.requireContentOrImages) — 엔티티를 nullable로 바꾸면 실제 NOT NULL
+	// 제약 위반으로 insert가 실패하므로 nullable=false는 유지한다.
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String content;
 
 	@Column(name = "is_accepted", nullable = false)
