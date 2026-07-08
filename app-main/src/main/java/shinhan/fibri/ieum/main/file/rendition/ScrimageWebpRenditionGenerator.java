@@ -31,7 +31,7 @@ public class ScrimageWebpRenditionGenerator implements ImageRenditionGenerator {
 					image.bound(properties.thumbMaxPx(), properties.thumbMaxPx()).bytes(writer)
 				)
 			);
-		} catch (IOException exception) {
+		} catch (IOException | RuntimeException exception) {
 			throw new InvalidFileRequestException("Image bytes could not be rendered");
 		}
 	}

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import shinhan.fibri.ieum.main.file.service.FileProperties;
 import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.file.storage.S3FileStorage;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -36,9 +37,24 @@ public class FileConfig {
 	}
 
 	@Bean
-	S3Client s3Client(@Value("${aws.region:${AWS_REGION:ap-northeast-2}}") String region) {
+	S3Client s3Client(
+		@Value("${aws.region:${AWS_REGION:ap-northeast-2}}") String region,
+		@Value("${aws.s3.api-call-timeout-seconds:${AWS_S3_API_CALL_TIMEOUT_SECONDS:10}}") long apiCallTimeoutSeconds,
+		@Value("${aws.s3.api-call-attempt-timeout-seconds:${AWS_S3_API_CALL_ATTEMPT_TIMEOUT_SECONDS:3}}") long apiCallAttemptTimeoutSeconds
+	) {
 		return S3Client.builder()
 			.region(Region.of(region))
+			.overrideConfiguration(s3ClientOverrideConfiguration(apiCallTimeoutSeconds, apiCallAttemptTimeoutSeconds))
+			.build();
+	}
+
+	static ClientOverrideConfiguration s3ClientOverrideConfiguration(
+		long apiCallTimeoutSeconds,
+		long apiCallAttemptTimeoutSeconds
+	) {
+		return ClientOverrideConfiguration.builder()
+			.apiCallTimeout(Duration.ofSeconds(apiCallTimeoutSeconds))
+			.apiCallAttemptTimeout(Duration.ofSeconds(apiCallAttemptTimeoutSeconds))
 			.build();
 	}
 

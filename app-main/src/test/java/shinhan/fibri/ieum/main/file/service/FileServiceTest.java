@@ -136,6 +136,23 @@ class FileServiceTest {
 	}
 
 	@Test
+	void completeDoesNotFailWhenTmpDeleteFailsAfterUploadFinalized() {
+		UUID fileId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+		File file = File.pending(fileId, 42L, "tmp/42/meeting/" + fileId + "/original.jpg", "image/jpeg", 1024L);
+		when(fileRepository.findByFileIdAndUploaderId(fileId, 42L)).thenReturn(Optional.of(file));
+		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
+		when(fileRepository.save(any(File.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		storage.metadata = new FileObjectMetadata("image/jpeg", 900L);
+		storage.failDelete = true;
+
+		FileCompleteResponse response = service.complete(principal(), fileId);
+
+		assertThat(response.fileId()).isEqualTo(fileId);
+		assertThat(file.isUploaded()).isTrue();
+		assertThat(storage.deleted).containsExactly("tmp/42/meeting/" + fileId + "/original.jpg");
+	}
+
+	@Test
 	void completeIsIdempotentWhenFileAlreadyUploaded() {
 		UUID fileId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 		File file = File.pending(fileId, 42L, "final/42/meeting/" + fileId + "/original.png", "image/png", 2048L);
@@ -205,6 +222,7 @@ class FileServiceTest {
 		private final List<String> deleted = new ArrayList<>();
 		private final List<String> events = new ArrayList<>();
 		private FileObjectMetadata metadata = new FileObjectMetadata("image/jpeg", 1024L);
+		private boolean failDelete;
 
 		@Override
 		public URI createPresignedPutUrl(String key, String contentType, Long sizeBytes, Duration ttl) {
@@ -237,6 +255,9 @@ class FileServiceTest {
 		public void delete(String key) {
 			deleted.add(key);
 			events.add("delete:" + key);
+			if (failDelete) {
+				throw new IllegalStateException("delete failed");
+			}
 		}
 	}
 

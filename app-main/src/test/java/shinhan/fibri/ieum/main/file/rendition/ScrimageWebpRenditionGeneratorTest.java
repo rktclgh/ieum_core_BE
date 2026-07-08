@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.file.rendition;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.awt.Color;
 import java.awt.image.BufferedImage;
@@ -9,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.main.file.exception.InvalidFileRequestException;
 import shinhan.fibri.ieum.main.file.service.FileProperties;
 import shinhan.fibri.ieum.main.file.service.FileVariant;
 import shinhan.fibri.ieum.main.file.storage.StoredFileObject;
@@ -42,6 +44,20 @@ class ScrimageWebpRenditionGeneratorTest {
 			assertThat(rendition.contentType()).isEqualTo("image/webp");
 			assertThat(rendition.bytes()).isNotEmpty();
 		});
+	}
+
+	@Test
+	void rejectsInvalidImageBytesAsInvalidFileRequest() {
+		StoredFileObject origin = new StoredFileObject(
+				"final/42/file/original.png",
+				"image/png",
+				3L,
+				new byte[] {1, 2, 3}
+		);
+
+		assertThatThrownBy(() -> new ScrimageWebpRenditionGenerator().generate(origin, properties))
+			.isInstanceOf(InvalidFileRequestException.class)
+			.hasMessage("Image bytes could not be rendered");
 	}
 
 	private byte[] pngBytes() throws Exception {

@@ -5,6 +5,8 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.file.domain.File;
@@ -24,6 +26,8 @@ import shinhan.fibri.ieum.main.file.storage.StoredFileStream;
 
 @Service
 public class FileService {
+
+	private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
 	private final FileRepository fileRepository;
 	private final FileTransactionalOps transactionalOps;
@@ -92,7 +96,7 @@ public class FileService {
 			);
 		}
 		transactionalOps.finalizeUpload(file.getFileId(), finalKey, OffsetDateTime.now(), contentType, sizeBytes);
-		storage.delete(tmpKey);
+		deleteTmpLogOnly(tmpKey);
 
 		return new FileCompleteResponse(file.getFileId());
 	}
@@ -148,5 +152,13 @@ public class FileService {
 			throw new InvalidFileRequestException("sizeBytes must be positive");
 		}
 		return sizeBytes;
+	}
+
+	private void deleteTmpLogOnly(String tmpKey) {
+		try {
+			storage.delete(tmpKey);
+		} catch (RuntimeException exception) {
+			log.warn("Failed to delete tmp file after upload completion. tmpKey={}", tmpKey, exception);
+		}
 	}
 }

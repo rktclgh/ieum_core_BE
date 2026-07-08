@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.main.file.storage;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.Objects;
+import shinhan.fibri.ieum.main.file.exception.FileNotFoundException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -11,7 +13,9 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
@@ -22,8 +26,11 @@ public class S3FileStorage implements FileStorage {
 	private final String bucket;
 
 	public S3FileStorage(S3Client s3Client, S3Presigner s3Presigner, String bucket) {
-		this.s3Client = s3Client;
-		this.s3Presigner = s3Presigner;
+		this.s3Client = Objects.requireNonNull(s3Client, "s3Client must not be null");
+		this.s3Presigner = Objects.requireNonNull(s3Presigner, "s3Presigner must not be null");
+		if (bucket == null || bucket.isBlank()) {
+			throw new IllegalArgumentException("S3 bucket is required");
+		}
 		this.bucket = bucket;
 	}
 
@@ -45,25 +52,37 @@ public class S3FileStorage implements FileStorage {
 
 	@Override
 	public FileObjectMetadata head(String key) {
-		HeadObjectResponse response = s3Client.headObject(HeadObjectRequest.builder()
-			.bucket(bucket)
-			.key(key)
-			.build());
-		return new FileObjectMetadata(response.contentType(), response.contentLength());
+		try {
+			HeadObjectResponse response = s3Client.headObject(HeadObjectRequest.builder()
+				.bucket(bucket)
+				.key(key)
+				.build());
+			return new FileObjectMetadata(response.contentType(), response.contentLength());
+		} catch (NoSuchKeyException exception) {
+			throw new FileNotFoundException();
+		} catch (S3Exception exception) {
+			throw mapNotFound(exception);
+		}
 	}
 
 	@Override
 	public StoredFileStream get(String key) {
-		ResponseInputStream<GetObjectResponse> response = s3Client.getObject(GetObjectRequest.builder()
-			.bucket(bucket)
-			.key(key)
-			.build(), ResponseTransformer.toInputStream());
-		return new StoredFileStream(
-			key,
-			response.response().contentType(),
-			response.response().contentLength(),
-			response
-		);
+		try {
+			ResponseInputStream<GetObjectResponse> response = s3Client.getObject(GetObjectRequest.builder()
+				.bucket(bucket)
+				.key(key)
+				.build(), ResponseTransformer.toInputStream());
+			return new StoredFileStream(
+				key,
+				response.response().contentType(),
+				response.response().contentLength(),
+				response
+			);
+		} catch (NoSuchKeyException exception) {
+			throw new FileNotFoundException();
+		} catch (S3Exception exception) {
+			throw mapNotFound(exception);
+		}
 	}
 
 	@Override
@@ -85,5 +104,12 @@ public class S3FileStorage implements FileStorage {
 			.bucket(bucket)
 			.key(key)
 			.build());
+	}
+
+	private RuntimeException mapNotFound(S3Exception exception) {
+		if (exception.statusCode() == 404) {
+			return new FileNotFoundException();
+		}
+		return exception;
 	}
 }
