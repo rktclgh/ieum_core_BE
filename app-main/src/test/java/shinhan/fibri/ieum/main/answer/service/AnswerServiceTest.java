@@ -121,6 +121,61 @@ class AnswerServiceTest {
 	}
 
 	@Test
+	void createRejectsBlankContentWithNoImages() {
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		when(questionRepository.existsById(200L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.create(
+			principal(),
+			200L,
+			new CreateAnswerRequest("   ", List.of())
+		)).isInstanceOf(InvalidAnswerRequestException.class)
+			.hasMessage("content or imageFileIds is required");
+
+		verify(fileRepository, never()).findByFileIdAndUploaderId(any(), any());
+		verify(answerRepository, never()).save(any());
+	}
+
+	@Test
+	void createRejectsNullContentWithNullImages() {
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		when(questionRepository.existsById(200L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.create(
+			principal(),
+			200L,
+			new CreateAnswerRequest(null, null)
+		)).isInstanceOf(InvalidAnswerRequestException.class)
+			.hasMessage("content or imageFileIds is required");
+
+		verify(answerRepository, never()).save(any());
+	}
+
+	@Test
+	void createAllowsImagesOnlyAndStoresEmptyContent() {
+		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000006");
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L))
+			.thenReturn(Optional.of(uploadedFile(imageId, 42L)));
+		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
+			Answer answer = invocation.getArgument(0);
+			setId(answer, 301L);
+			return answer;
+		});
+
+		var response = service.create(principal(), 200L, new CreateAnswerRequest(null, List.of(imageId)));
+
+		assertThat(response.answerId()).isEqualTo(301L);
+		ArgumentCaptor<Answer> answerCaptor = ArgumentCaptor.forClass(Answer.class);
+		verify(answerRepository).save(answerCaptor.capture());
+		assertThat(answerCaptor.getValue().getContent()).isEmpty();
+	}
+
+	@Test
 	void createRejectsDuplicateImageIds() {
 		UUID imageId = UUID.fromString("00000000-0000-0000-0000-000000000004");
 		Question question = Question.create(100L, 99L, "title", "question");

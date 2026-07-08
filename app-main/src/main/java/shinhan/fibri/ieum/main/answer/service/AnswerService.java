@@ -41,10 +41,11 @@ public class AnswerService {
 		if (!questionRepository.existsById(questionId)) {
 			throw new QuestionNotFoundException();
 		}
+		String content = requireContentOrImages(request);
 		List<UUID> imageFileIds = normalizeImageFileIds(request.imageFileIds());
 		List<File> files = validateImages(imageFileIds, principal.userId());
 
-		Answer answer = answerRepository.save(Answer.createHuman(questionId, principal.userId(), request.content()));
+		Answer answer = answerRepository.save(Answer.createHuman(questionId, principal.userId(), content));
 		List<AnswerImage> images = new ArrayList<>();
 		for (int index = 0; index < files.size(); index++) {
 			images.add(AnswerImage.link(answer.getId(), files.get(index).getFileId(), index));
@@ -75,6 +76,21 @@ public class AnswerService {
 			userRepository.findByIdAndDeletedAtIsNull(answer.getAuthorId())
 				.ifPresent(User::recordAcceptedAnswer);
 		}
+	}
+
+	// content와 imageFileIds는 각각 선택이지만 최소 하나는 있어야 한다(설계 보강 2026-07-03).
+	// 앱 전체 컨벤션(QUESTION/FRIEND 등)과 통일해 422가 아닌 400 VALIDATION_FAILED로 응답한다.
+	private String requireContentOrImages(CreateAnswerRequest request) {
+		boolean hasContent = request.content() != null && !request.content().isBlank();
+		boolean hasImages = request.imageFileIds() != null && !request.imageFileIds().isEmpty();
+		if (!hasContent && !hasImages) {
+			throw new InvalidAnswerRequestException(
+				"VALIDATION_FAILED",
+				"content",
+				"content or imageFileIds is required"
+			);
+		}
+		return request.content() == null ? "" : request.content();
 	}
 
 	private List<UUID> normalizeImageFileIds(List<UUID> imageFileIds) {

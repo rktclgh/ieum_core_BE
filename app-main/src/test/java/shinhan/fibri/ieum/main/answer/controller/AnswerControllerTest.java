@@ -87,7 +87,10 @@ class AnswerControllerTest {
 	}
 
 	@Test
-	void blankAnswerContentMapsToValidationFailed() throws Exception {
+	void blankContentAndEmptyImagesMapsToValidationFailed() throws Exception {
+		when(answerService.create(any(AuthenticatedUser.class), eq(200L), any(CreateAnswerRequest.class)))
+			.thenThrow(new InvalidAnswerRequestException("VALIDATION_FAILED", "content", "content or imageFileIds is required"));
+
 		mockMvc.perform(post("/api/v1/questions/200/answer")
 				.with(authenticated())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -100,6 +103,23 @@ class AnswerControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
 			.andExpect(jsonPath("$.fieldErrors[0].field", is("content")));
+	}
+
+	@Test
+	void createAnswerAllowsImagesOnlyWithoutContent() throws Exception {
+		when(answerService.create(any(AuthenticatedUser.class), eq(200L), any(CreateAnswerRequest.class)))
+			.thenReturn(new CreateAnswerResponse(301L));
+
+		mockMvc.perform(post("/api/v1/questions/200/answer")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "imageFileIds": ["00000000-0000-0000-0000-000000000001"]
+					}
+					"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.answerId", is(301)));
 	}
 
 	@Test
