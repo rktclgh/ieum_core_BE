@@ -13,6 +13,11 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -41,12 +46,27 @@ class ChatServiceTest {
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final MessageRepository messageRepository = org.mockito.Mockito.mock(MessageRepository.class);
 	private final FriendService friendService = org.mockito.Mockito.mock(FriendService.class);
+	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
+		@Override
+		public TransactionStatus getTransaction(TransactionDefinition definition) {
+			return new SimpleTransactionStatus();
+		}
+
+		@Override
+		public void commit(TransactionStatus status) {
+		}
+
+		@Override
+		public void rollback(TransactionStatus status) {
+		}
+	};
 	private final ChatService service = new ChatService(
 		userRepository,
 		chatRoomRepository,
 		chatMemberRepository,
 		messageRepository,
-		friendService
+		friendService,
+		transactionManager
 	);
 
 	@Test
@@ -98,6 +118,30 @@ class ChatServiceTest {
 		assertThat(meMember.getLeftAt()).isNull();
 		assertThat(friendMember.getLeftAt()).isNull();
 		verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+	}
+
+	@Test
+	void createDirectRoomRetriesAndRestoresMembersWhenRoomKeyRaceOccurs() {
+		User me = user(42L, "me@example.com", "me");
+		User friend = user(77L, "friend@example.com", "friend");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(friend));
+		when(friendService.areFriends(42L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomRepository.findByRoomKey("d:42:77"))
+			.thenReturn(Optional.empty())
+			.thenReturn(Optional.of(room));
+		when(chatRoomRepository.saveAndFlush(any(ChatRoom.class)))
+			.thenThrow(new DataIntegrityViolationException("uidx_chat_rooms_room_key"));
+		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(meMember));
+
+		var response = service.createDirectRoom(principal(42L), 77L);
+
+		assertThat(response.roomId()).isEqualTo(100L);
+		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
+		verify(chatMemberRepository).save(any(ChatMember.class));
 	}
 
 	@Test

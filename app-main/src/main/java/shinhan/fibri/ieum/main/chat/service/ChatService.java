@@ -2,13 +2,19 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -44,9 +50,26 @@ public class ChatService {
 	private final ChatMemberRepository chatMemberRepository;
 	private final MessageRepository messageRepository;
 	private final FriendService friendService;
+	private final PlatformTransactionManager transactionManager;
 
-	@Transactional
 	public ChatRoomResponse createDirectRoom(AuthenticatedUser principal, Long friendId) {
+		try {
+			return createDirectRoomInNewTransaction(principal, friendId);
+		} catch (DataIntegrityViolationException exception) {
+			if (!isChatRoomConstraintViolation(exception)) {
+				throw exception;
+			}
+			return createDirectRoomInNewTransaction(principal, friendId);
+		}
+	}
+
+	private ChatRoomResponse createDirectRoomInNewTransaction(AuthenticatedUser principal, Long friendId) {
+		TransactionTemplate template = new TransactionTemplate(transactionManager);
+		template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return template.execute(status -> createDirectRoomInTransaction(principal, friendId));
+	}
+
+	private ChatRoomResponse createDirectRoomInTransaction(AuthenticatedUser principal, Long friendId) {
 		User currentUser = findActiveUser(principal.userId());
 		if (currentUser.getId().equals(friendId)) {
 			throw new SelfChatRoomException();
@@ -60,7 +83,7 @@ public class ChatService {
 		}
 
 		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
-			.orElseGet(() -> createDirectRoom(currentUser, friend));
+			.orElseGet(() -> insertDirectRoom(currentUser, friend));
 		restoreDirectMembers(room, currentUser, friend);
 		return ChatRoomResponse.from(room);
 	}
@@ -148,7 +171,7 @@ public class ChatService {
 		findActiveMember(roomId, principal.userId()).leave(java.time.OffsetDateTime.now());
 	}
 
-	private ChatRoom createDirectRoom(User currentUser, User friend) {
+	private ChatRoom insertDirectRoom(User currentUser, User friend) {
 		return chatRoomRepository.saveAndFlush(ChatRoom.direct(currentUser.getId(), friend.getId()));
 	}
 
@@ -193,5 +216,22 @@ public class ChatService {
 				Comparator.nullsLast(Comparator.reverseOrder())
 			)
 			.thenComparing(ChatRoomSummaryResponse::roomId, Comparator.reverseOrder());
+	}
+
+	private boolean isChatRoomConstraintViolation(DataIntegrityViolationException exception) {
+		String constraint = constraintName(exception);
+		if (constraint == null) {
+			return false;
+		}
+		String normalized = constraint.toLowerCase(Locale.ROOT);
+		return normalized.contains("uidx_chat_rooms_room_key")
+			|| normalized.contains("chat_rooms_room_key");
+	}
+
+	private String constraintName(DataIntegrityViolationException exception) {
+		if (exception.getCause() instanceof ConstraintViolationException constraintViolation) {
+			return constraintViolation.getConstraintName();
+		}
+		return exception.getMessage();
 	}
 }
