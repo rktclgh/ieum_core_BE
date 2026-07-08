@@ -74,7 +74,7 @@ class AnswerControllerTest {
 					}
 					"""))
 			.andExpect(status().isCreated())
-			.andExpect(header().string(HttpHeaders.LOCATION, "/api/v1/answers/300"))
+			.andExpect(header().doesNotExist(HttpHeaders.LOCATION))
 			.andExpect(jsonPath("$.answerId", is(300)));
 	}
 
