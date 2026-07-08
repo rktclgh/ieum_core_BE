@@ -103,11 +103,10 @@ public class QuestionService {
 	@Transactional(readOnly = true)
 	public CursorPage<MyQuestionItem> listMine(AuthenticatedUser principal, String cursor, int size) {
 		int requestedSize = Math.max(1, Math.min(size, 50));
-		List<MyQuestionItemProjection> rows = questionRepository.findMine(
-			principal.userId(),
-			PinCursor.decode(cursor),
-			requestedSize + 1
-		);
+		Long cursorId = PinCursor.decode(cursor);
+		List<MyQuestionItemProjection> rows = cursorId == null
+			? questionRepository.findMineFirstPage(principal.userId(), requestedSize + 1)
+			: questionRepository.findMineAfterCursor(principal.userId(), cursorId, requestedSize + 1);
 		String nextCursor = null;
 		if (rows.size() > requestedSize) {
 			nextCursor = PinCursor.encode(rows.get(requestedSize).getQuestionId());

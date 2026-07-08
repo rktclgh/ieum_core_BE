@@ -140,7 +140,7 @@ class QuestionServiceTest {
 	@Test
 	void listMineUsesThumbnailUrlAndNextCursorFromLookahead() {
 		UUID thumbnail = UUID.fromString("00000000-0000-0000-0000-000000000021");
-		when(questionRepository.findMine(42L, null, 2)).thenReturn(List.of(
+		when(questionRepository.findMineFirstPage(42L, 2)).thenReturn(List.of(
 			new MineProjection(300L, "newer", false, thumbnail, 1, OffsetDateTime.parse("2026-07-08T10:00:00Z")),
 			new MineProjection(200L, "older", true, null, 0, OffsetDateTime.parse("2026-07-07T10:00:00Z"))
 		));
@@ -150,6 +150,19 @@ class QuestionServiceTest {
 		assertThat(page.items()).hasSize(1);
 		assertThat(page.items().get(0).thumbnailUrl()).isEqualTo("/api/v1/files/%s?v=thumb".formatted(thumbnail));
 		assertThat(page.nextCursor()).isEqualTo("MjAw");
+	}
+
+	@Test
+	void listMineUsesDecodedCursorQueryWhenCursorIsPresent() {
+		when(questionRepository.findMineAfterCursor(42L, 200L, 2)).thenReturn(List.of(
+			new MineProjection(100L, "older", false, null, 0, OffsetDateTime.parse("2026-07-06T10:00:00Z"))
+		));
+
+		var page = service.listMine(principal(), "MjAw", 1);
+
+		assertThat(page.items()).hasSize(1);
+		assertThat(page.items().get(0).questionId()).isEqualTo(100L);
+		assertThat(page.nextCursor()).isNull();
 	}
 
 	@Test

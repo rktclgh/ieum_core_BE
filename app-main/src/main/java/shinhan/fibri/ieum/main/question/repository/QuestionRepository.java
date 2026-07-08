@@ -46,13 +46,40 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			    LIMIT 1
 			) first_image ON true
 			WHERE q.author_id = :authorId
-			  AND (:cursor IS NULL OR q.question_id < :cursor)
 			ORDER BY q.question_id DESC
 			LIMIT :limit
 			""",
 		nativeQuery = true
 	)
-	List<MyQuestionItemProjection> findMine(
+	List<MyQuestionItemProjection> findMineFirstPage(
+		@Param("authorId") Long authorId,
+		@Param("limit") int limit
+	);
+
+	@Query(
+		value = """
+			SELECT q.question_id AS questionId,
+			       q.title AS title,
+			       q.is_resolved AS resolved,
+			       first_image.file_id AS thumbnailFileId,
+			       CAST((SELECT COUNT(*) FROM answers a WHERE a.question_id = q.question_id) AS int) AS answerCount,
+			       q.created_at AS createdAt
+			FROM questions q
+			LEFT JOIN LATERAL (
+			    SELECT qi.file_id
+			    FROM question_images qi
+			    WHERE qi.question_id = q.question_id
+			    ORDER BY qi.sort_order
+			    LIMIT 1
+			) first_image ON true
+			WHERE q.author_id = :authorId
+			  AND q.question_id < :cursor
+			ORDER BY q.question_id DESC
+			LIMIT :limit
+			""",
+		nativeQuery = true
+	)
+	List<MyQuestionItemProjection> findMineAfterCursor(
 		@Param("authorId") Long authorId,
 		@Param("cursor") Long cursor,
 		@Param("limit") int limit
