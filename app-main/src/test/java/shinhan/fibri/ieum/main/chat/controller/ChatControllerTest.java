@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -159,6 +160,55 @@ class ChatControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].messageId", is(501)))
 			.andExpect(jsonPath("$.nextCursor", is("next")));
+	}
+
+	@Test
+	void markReadReturnsNoContent() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/read", 100L).with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatService).markRead(any(AuthenticatedUser.class), eq(100L));
+	}
+
+	@Test
+	void setPinnedReturnsNoContent() throws Exception {
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/pin", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"pinned\":true}")
+				.with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatService).setPinned(any(AuthenticatedUser.class), eq(100L), eq(true));
+	}
+
+	@Test
+	void setNotifyReturnsNoContent() throws Exception {
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/notify", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"enabled\":false}")
+				.with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatService).setNotifyEnabled(any(AuthenticatedUser.class), eq(100L), eq(false));
+	}
+
+	@Test
+	void leaveRoomReturnsNoContent() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/{roomId}/leave", 100L).with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(chatService).leaveRoom(any(AuthenticatedUser.class), eq(100L));
+	}
+
+	@Test
+	void setPinnedValidatesPinned() throws Exception {
+		mockMvc.perform(put("/api/v1/chat/rooms/{roomId}/pin", 100L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("pinned")));
 	}
 
 	@Test

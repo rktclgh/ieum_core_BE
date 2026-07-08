@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,6 +21,8 @@ import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomSummaryResponse;
 import shinhan.fibri.ieum.main.chat.dto.DirectRoomRequest;
+import shinhan.fibri.ieum.main.chat.dto.NotifyRoomRequest;
+import shinhan.fibri.ieum.main.chat.dto.PinRoomRequest;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 
 @RestController
@@ -61,5 +64,43 @@ public class ChatController {
 		@RequestParam(required = false) Integer size
 	) {
 		return ResponseEntity.ok(chatService.listMessages(principal, roomId, cursor, size));
+	}
+
+	@PostMapping("/rooms/{roomId}/read")
+	public ResponseEntity<Void> markRead(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long roomId
+	) {
+		chatService.markRead(principal, roomId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@PutMapping("/rooms/{roomId}/pin")
+	public ResponseEntity<Void> setPinned(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long roomId,
+		@Valid @RequestBody PinRoomRequest request
+	) {
+		chatService.setPinned(principal, roomId, request.pinned());
+		return ResponseEntity.noContent().build();
+	}
+
+	@PutMapping("/rooms/{roomId}/notify")
+	public ResponseEntity<Void> setNotify(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long roomId,
+		@Valid @RequestBody NotifyRoomRequest request
+	) {
+		chatService.setNotifyEnabled(principal, roomId, request.enabled());
+		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping("/rooms/{roomId}/leave")
+	public ResponseEntity<Void> leaveRoom(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long roomId
+	) {
+		chatService.leaveRoom(principal, roomId);
+		return ResponseEntity.noContent().build();
 	}
 }

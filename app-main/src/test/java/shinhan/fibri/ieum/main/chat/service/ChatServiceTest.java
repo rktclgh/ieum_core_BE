@@ -243,6 +243,56 @@ class ChatServiceTest {
 			.isInstanceOf(NotRoomMemberException.class);
 	}
 
+	@Test
+	void markRoomReadUpdatesLastReadAt() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		service.markRead(principal(42L), 100L);
+
+		assertThat(member.getLastReadAt()).isNotNull();
+	}
+
+	@Test
+	void setPinnedUpdatesPinnedAt() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		service.setPinned(principal(42L), 100L, true);
+		assertThat(member.getPinnedAt()).isNotNull();
+
+		service.setPinned(principal(42L), 100L, false);
+		assertThat(member.getPinnedAt()).isNull();
+	}
+
+	@Test
+	void setNotifyEnabledUpdatesNotifyFlag() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		service.setNotifyEnabled(principal(42L), 100L, false);
+
+		assertThat(member.isNotifyEnabled()).isFalse();
+	}
+
+	@Test
+	void leaveRoomSetsLeftAt() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember member = ChatMember.join(room, me);
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
+
+		service.leaveRoom(principal(42L), 100L);
+
+		assertThat(member.getLeftAt()).isNotNull();
+	}
+
 	private AuthenticatedUser principal(Long userId) {
 		return new AuthenticatedUser(userId, "user" + userId + "@example.com", UserRole.user, UserStatus.active);
 	}

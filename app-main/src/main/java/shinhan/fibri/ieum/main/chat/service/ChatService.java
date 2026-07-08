@@ -128,6 +128,26 @@ public class ChatService {
 		return new ChatCursorPage<>(pageItems.stream().map(ChatMessageResponse::from).toList(), nextCursor);
 	}
 
+	@Transactional
+	public void markRead(AuthenticatedUser principal, Long roomId) {
+		findActiveMember(roomId, principal.userId()).markRead(java.time.OffsetDateTime.now());
+	}
+
+	@Transactional
+	public void setPinned(AuthenticatedUser principal, Long roomId, boolean pinned) {
+		findActiveMember(roomId, principal.userId()).setPinned(pinned, java.time.OffsetDateTime.now());
+	}
+
+	@Transactional
+	public void setNotifyEnabled(AuthenticatedUser principal, Long roomId, boolean enabled) {
+		findActiveMember(roomId, principal.userId()).setNotifyEnabled(enabled);
+	}
+
+	@Transactional
+	public void leaveRoom(AuthenticatedUser principal, Long roomId) {
+		findActiveMember(roomId, principal.userId()).leave(java.time.OffsetDateTime.now());
+	}
+
 	private ChatRoom createDirectRoom(User currentUser, User friend) {
 		return chatRoomRepository.saveAndFlush(ChatRoom.direct(currentUser.getId(), friend.getId()));
 	}
