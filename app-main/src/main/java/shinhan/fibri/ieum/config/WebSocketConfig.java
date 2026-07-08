@@ -13,6 +13,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import shinhan.fibri.ieum.main.chat.websocket.ChatInboundChannelInterceptor;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeInterceptor;
 
 @Configuration
@@ -21,13 +22,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	private final List<String> allowedOriginPatterns;
 	private final ChatWebSocketHandshakeInterceptor handshakeInterceptor;
+	private final ChatInboundChannelInterceptor inboundChannelInterceptor;
 
 	public WebSocketConfig(
 		@Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins,
-		ChatWebSocketHandshakeInterceptor handshakeInterceptor
+		ChatWebSocketHandshakeInterceptor handshakeInterceptor,
+		ChatInboundChannelInterceptor inboundChannelInterceptor
 	) {
 		this.allowedOriginPatterns = csvValues(allowedOrigins);
 		this.handshakeInterceptor = handshakeInterceptor;
+		this.inboundChannelInterceptor = inboundChannelInterceptor;
 	}
 
 	@Override
@@ -63,6 +67,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	@Override
 	public void configureClientInboundChannel(ChannelRegistration registration) {
+		registration.interceptors(inboundChannelInterceptor);
 		registration.taskExecutor()
 			.corePoolSize(4)
 			.maxPoolSize(8)

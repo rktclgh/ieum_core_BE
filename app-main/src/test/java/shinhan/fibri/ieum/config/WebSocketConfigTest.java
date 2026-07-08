@@ -11,14 +11,17 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.StompWebSocketEndpointRegistration;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import shinhan.fibri.ieum.main.chat.websocket.ChatInboundChannelInterceptor;
 import shinhan.fibri.ieum.main.chat.websocket.ChatWebSocketHandshakeInterceptor;
 
 class WebSocketConfigTest {
 
 	private final ChatWebSocketHandshakeInterceptor handshakeInterceptor = org.mockito.Mockito.mock(ChatWebSocketHandshakeInterceptor.class);
+	private final ChatInboundChannelInterceptor inboundChannelInterceptor = org.mockito.Mockito.mock(ChatInboundChannelInterceptor.class);
 	private final WebSocketConfig config = new WebSocketConfig(
 		"http://localhost:3000, https://ieum.rktclgh.site",
-		handshakeInterceptor
+		handshakeInterceptor,
+		inboundChannelInterceptor
 	);
 
 	@Test
