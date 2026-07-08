@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -124,6 +125,24 @@ class FriendshipRepositoryTest {
 			.isTrue();
 		assertThat(friendshipRepository.existsBlockedByUserPair(first.getId(), acceptedUser.getId()))
 			.isFalse();
+	}
+
+	@Test
+	void findAcceptedByUserIdExcludesSoftDeletedFriend() {
+		User me = persist(user("me-active@example.com", "me-active"));
+		User activeFriend = persist(user("active-friend@example.com", "active-friend"));
+		User deletedFriend = persist(user("deleted-friend@example.com", "deleted-friend"));
+		deletedFriend.markDeleted(OffsetDateTime.now());
+		Friendship acceptedActive = Friendship.request(me, activeFriend);
+		acceptedActive.accept();
+		Friendship acceptedDeleted = Friendship.request(me, deletedFriend);
+		acceptedDeleted.accept();
+		friendshipRepository.save(acceptedActive);
+		friendshipRepository.save(acceptedDeleted);
+
+		assertThat(friendshipRepository.findAcceptedByUserId(me.getId()))
+			.extracting(friendship -> friendship.otherUser(me.getId()).getId())
+			.containsExactly(activeFriend.getId());
 	}
 
 	private User user(String email, String nickname) {

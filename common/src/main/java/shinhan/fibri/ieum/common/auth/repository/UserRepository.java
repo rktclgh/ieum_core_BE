@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.common.auth.repository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -31,7 +32,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 		  AND u.deletedAt IS NULL
 		ORDER BY u.nickname ASC, u.id ASC
 		""")
-	List<User> searchActiveUsersByNickname(@Param("nickname") String nickname);
+	List<User> searchActiveUsersByNickname(@Param("nickname") String nickname, Pageable pageable);
 
 	@Modifying
 	@Query(

@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -17,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -315,7 +317,7 @@ class UserServiceTest {
 		User stranger = user(9L, "nick-stranger", "KR");
 		setLastActiveAt(friend, OffsetDateTime.parse("2026-07-07T01:00:00Z"));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
-		when(userRepository.searchActiveUsersByNickname("nick"))
+		when(userRepository.searchActiveUsersByNickname(eq("nick"), any(Pageable.class)))
 			.thenReturn(List.of(currentUser, friend, blocked, stranger));
 		when(friendService.hasBlockBetween(42L, 7L)).thenReturn(false);
 		when(friendService.hasBlockBetween(42L, 8L)).thenReturn(true);
@@ -338,7 +340,7 @@ class UserServiceTest {
 		assertThatThrownBy(() -> service.searchUsers(principal(), "  "))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("nickname is required");
-		verify(userRepository, never()).searchActiveUsersByNickname(any());
+		verify(userRepository, never()).searchActiveUsersByNickname(any(), any());
 	}
 
 	@Test

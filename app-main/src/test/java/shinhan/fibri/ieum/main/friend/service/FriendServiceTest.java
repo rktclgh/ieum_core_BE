@@ -14,6 +14,10 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
@@ -43,10 +47,25 @@ class FriendServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final FriendshipRepository friendshipRepository = mock(FriendshipRepository.class);
 	private final FriendRequestNotifier friendRequestNotifier = mock(FriendRequestNotifier.class);
+	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
+		@Override
+		public TransactionStatus getTransaction(TransactionDefinition definition) {
+			return new SimpleTransactionStatus();
+		}
+
+		@Override
+		public void commit(TransactionStatus status) {
+		}
+
+		@Override
+		public void rollback(TransactionStatus status) {
+		}
+	};
 	private final FriendService service = new FriendService(
 		userRepository,
 		friendshipRepository,
-		friendRequestNotifier
+		friendRequestNotifier,
+		transactionManager
 	);
 
 	@Test
@@ -62,6 +81,22 @@ class FriendServiceTest {
 
 		verify(friendshipRepository).save(any(Friendship.class));
 		verify(friendRequestNotifier).notifyRequested(42L, 77L);
+	}
+
+	@Test
+	void requestFriendMapsFriendPairConstraintRaceToRequestExists() {
+		User currentUser = user(42L, "current@example.com", "current");
+		User targetUser = user(77L, "target@example.com", "target");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(targetUser));
+		when(friendshipRepository.findByUserPair(42L, 77L)).thenReturn(Optional.empty());
+		when(friendshipRepository.save(any(Friendship.class)))
+			.thenThrow(new DataIntegrityViolationException("uidx_friend_pair"));
+
+		assertThatThrownBy(() -> service.requestFriend(principal(42L), 77L))
+			.isInstanceOf(FriendRequestExistsException.class);
+
+		verify(friendRequestNotifier, never()).notifyRequested(any(), any());
 	}
 
 	@Test

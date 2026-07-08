@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -41,6 +42,7 @@ import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 public class UserService {
 
 	private static final Logger log = LoggerFactory.getLogger(UserService.class);
+	private static final int USER_SEARCH_LIMIT = 30;
 
 	private final UserRepository userRepository;
 	private final UserSettingsRepository userSettingsRepository;
@@ -156,7 +158,7 @@ public class UserService {
 			throw new IllegalArgumentException("nickname is required");
 		}
 		User currentUser = findActiveUser(principal.userId());
-		return userRepository.searchActiveUsersByNickname(nickname.trim()).stream()
+		return userRepository.searchActiveUsersByNickname(nickname.trim(), PageRequest.of(0, USER_SEARCH_LIMIT)).stream()
 			.filter(target -> !target.getId().equals(currentUser.getId()))
 			.filter(target -> !friendService.hasBlockBetween(currentUser.getId(), target.getId()))
 			.map(target -> UserSearchResponse.from(

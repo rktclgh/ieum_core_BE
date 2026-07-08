@@ -4,11 +4,14 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -35,6 +38,7 @@ public class FriendService {
 	private final UserRepository userRepository;
 	private final FriendshipRepository friendshipRepository;
 	private final FriendRequestNotifier friendRequestNotifier;
+	private final PlatformTransactionManager transactionManager;
 
 	@Transactional(readOnly = true)
 	public List<FriendResponse> listFriends(AuthenticatedUser principal) {
@@ -97,7 +101,15 @@ public class FriendService {
 		friendshipRepository.findByUserPair(requester.getId(), addressee.getId())
 			.ifPresent(this::rejectExistingFriendship);
 
-		friendshipRepository.save(Friendship.request(requester, addressee));
+		try {
+			friendshipRepository.save(Friendship.request(requester, addressee));
+		} catch (DataIntegrityViolationException exception) {
+			// 사전 조회와 INSERT 사이의 동시 요청 레이스 → uidx_friend_pair 충돌
+			if (isFriendPairConstraintViolation(exception)) {
+				throw new FriendRequestExistsException();
+			}
+			throw exception;
+		}
 		notifyFriendRequestAfterCommit(requester.getId(), addressee.getId());
 	}
 
@@ -148,19 +160,17 @@ public class FriendService {
 		friendshipRepository.delete(friendship);
 	}
 
-	@Transactional
+	// 차단은 pair 1행 upsert다. INSERT 충돌은 Postgres가 트랜잭션을 abort시키므로 같은 트랜잭션 내
+	// 복구가 불가능하다 → 트랜잭션 밖에서 새 트랜잭션으로 1회 재시도(재시도 시 커밋된 행을 재조회해 UPDATE).
 	public void blockUser(AuthenticatedUser principal, Long targetUserId) {
-		User currentUser = findActiveUser(principal.userId());
-		if (currentUser.getId().equals(targetUserId)) {
-			throw new SelfFriendActionException();
+		try {
+			blockInNewTransaction(principal, targetUserId);
+		} catch (DataIntegrityViolationException exception) {
+			if (!isFriendPairConstraintViolation(exception)) {
+				throw exception;
+			}
+			blockInNewTransaction(principal, targetUserId);
 		}
-		User targetUser = findActiveUser(targetUserId);
-
-		friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
-			.ifPresentOrElse(
-				friendship -> friendship.blockBy(currentUser),
-				() -> saveBlockedFriendship(currentUser, targetUser)
-			);
 	}
 
 	@Transactional
@@ -183,27 +193,40 @@ public class FriendService {
 		friendshipRepository.delete(friendship);
 	}
 
+	private void blockInNewTransaction(AuthenticatedUser principal, Long targetUserId) {
+		new TransactionTemplate(transactionManager)
+			.executeWithoutResult(status -> blockUserInTransaction(principal, targetUserId));
+	}
+
+	private void blockUserInTransaction(AuthenticatedUser principal, Long targetUserId) {
+		User currentUser = findActiveUser(principal.userId());
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfFriendActionException();
+		}
+		User targetUser = findActiveUser(targetUserId);
+
+		friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
+			.ifPresentOrElse(
+				friendship -> friendship.blockBy(currentUser),
+				() -> friendshipRepository.save(Friendship.blocked(currentUser, targetUser, currentUser))
+			);
+	}
+
 	private User findActiveUser(Long userId) {
 		return userRepository.findByIdAndDeletedAtIsNull(userId)
 			.orElseThrow(UserNotFoundException::new);
 	}
 
-	private void saveBlockedFriendship(User currentUser, User targetUser) {
-		try {
-			friendshipRepository.save(Friendship.blocked(currentUser, targetUser, currentUser));
-		} catch (DataIntegrityViolationException exception) {
-			if (!isFriendPairConstraintViolation(exception)) {
-				throw exception;
-			}
-			Friendship friendship = friendshipRepository.findByUserPair(currentUser.getId(), targetUser.getId())
-				.orElseThrow(() -> exception);
-			friendship.blockBy(currentUser);
-		}
+	private boolean isFriendPairConstraintViolation(DataIntegrityViolationException exception) {
+		String constraint = constraintName(exception);
+		return constraint != null && constraint.toLowerCase(Locale.ROOT).contains("uidx_friend_pair");
 	}
 
-	private boolean isFriendPairConstraintViolation(DataIntegrityViolationException exception) {
-		String message = exception.getMessage();
-		return message != null && message.toLowerCase(Locale.ROOT).contains("uidx_friend_pair");
+	private String constraintName(DataIntegrityViolationException exception) {
+		if (exception.getCause() instanceof ConstraintViolationException constraintViolation) {
+			return constraintViolation.getConstraintName();
+		}
+		return exception.getMessage();
 	}
 
 	private IllegalArgumentException invalidFriendRequestDirection() {

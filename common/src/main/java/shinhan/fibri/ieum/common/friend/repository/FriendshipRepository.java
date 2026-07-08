@@ -23,8 +23,12 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 	@Query("""
 		SELECT friendship
 		FROM Friendship friendship
+		JOIN FETCH friendship.requester requester
+		JOIN FETCH friendship.addressee addressee
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.accepted
-		  AND (friendship.requester.id = :userId OR friendship.addressee.id = :userId)
+		  AND (requester.id = :userId OR addressee.id = :userId)
+		  AND requester.deletedAt IS NULL
+		  AND addressee.deletedAt IS NULL
 		ORDER BY friendship.updatedAt DESC, friendship.id DESC
 		""")
 	List<Friendship> findAcceptedByUserId(@Param("userId") Long userId);
@@ -32,8 +36,12 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 	@Query("""
 		SELECT friendship
 		FROM Friendship friendship
+		JOIN FETCH friendship.requester requester
+		JOIN FETCH friendship.addressee addressee
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.pending
-		  AND friendship.addressee.id = :userId
+		  AND addressee.id = :userId
+		  AND requester.deletedAt IS NULL
+		  AND addressee.deletedAt IS NULL
 		ORDER BY friendship.createdAt DESC, friendship.id DESC
 		""")
 	List<Friendship> findPendingReceivedByUserId(@Param("userId") Long userId);
@@ -41,8 +49,12 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 	@Query("""
 		SELECT friendship
 		FROM Friendship friendship
+		JOIN FETCH friendship.requester requester
+		JOIN FETCH friendship.addressee addressee
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.pending
-		  AND friendship.requester.id = :userId
+		  AND requester.id = :userId
+		  AND requester.deletedAt IS NULL
+		  AND addressee.deletedAt IS NULL
 		ORDER BY friendship.createdAt DESC, friendship.id DESC
 		""")
 	List<Friendship> findPendingSentByUserId(@Param("userId") Long userId);
@@ -50,8 +62,12 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 	@Query("""
 		SELECT friendship
 		FROM Friendship friendship
+		JOIN FETCH friendship.requester requester
+		JOIN FETCH friendship.addressee addressee
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.blocked
 		  AND friendship.blockedBy.id = :userId
+		  AND requester.deletedAt IS NULL
+		  AND addressee.deletedAt IS NULL
 		ORDER BY friendship.updatedAt DESC, friendship.id DESC
 		""")
 	List<Friendship> findBlockedByUserId(@Param("userId") Long userId);
@@ -64,6 +80,8 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 		FROM Friendship friendship
 		WHERE friendship.status = shinhan.fibri.ieum.common.friend.domain.FriendshipStatus.blocked
 		  AND (friendship.requester.id = :userId OR friendship.addressee.id = :userId)
+		  AND friendship.requester.deletedAt IS NULL
+		  AND friendship.addressee.deletedAt IS NULL
 		""")
 	List<Long> findBlockedUserIdsByUserId(@Param("userId") Long userId);
 
