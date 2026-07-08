@@ -1,7 +1,6 @@
 package shinhan.fibri.ieum.main.user.service;
 
 import java.time.OffsetDateTime;
-import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -22,9 +21,6 @@ import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
-import shinhan.fibri.ieum.main.file.service.FileObjectKeys;
-import shinhan.fibri.ieum.main.file.service.FileVariant;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
@@ -47,7 +43,7 @@ public class UserService {
 	private final CountryRepository countryRepository;
 	private final RedisAuthSessionStore sessionStore;
 	private final FileRepository fileRepository;
-	private final FileStorage fileStorage;
+	private final ProfileFileCleanupService profileFileCleanupService;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -125,7 +121,7 @@ public class UserService {
 		UUID previousFileId = user.getProfileFileId();
 
 		user.linkProfileImage(file.getFileId());
-		if (previousFileId != null && !Objects.equals(previousFileId, file.getFileId())) {
+		if (previousFileId != null && !previousFileId.equals(file.getFileId())) {
 			deleteProfileFileAfterCommit(previousFileId);
 		}
 
@@ -169,7 +165,7 @@ public class UserService {
 	}
 
 	private void deleteProfileFileAfterCommit(UUID fileId) {
-		Runnable cleanup = () -> deleteProfileFileSafely(fileId);
+		Runnable cleanup = () -> profileFileCleanupService.cleanupProfileFile(fileId);
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
 			cleanup.run();
 			return;
@@ -180,22 +176,6 @@ public class UserService {
 				cleanup.run();
 			}
 		});
-	}
-
-	private void deleteProfileFileSafely(UUID fileId) {
-		try {
-			if (userRepository.existsByProfileFileId(fileId)) {
-				return;
-			}
-			fileRepository.findById(fileId).ifPresent(file -> {
-				fileStorage.delete(file.getS3Key());
-				fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.DISPLAY));
-				fileStorage.delete(FileObjectKeys.variantKey(file.getS3Key(), FileVariant.THUMB));
-				fileRepository.delete(file);
-			});
-		} catch (RuntimeException exception) {
-			log.warn("Failed to delete unreferenced profile file. fileId={}", fileId, exception);
-		}
 	}
 
 	private String profileImageUrl(UUID fileId) {

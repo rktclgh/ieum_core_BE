@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -27,7 +28,6 @@ import shinhan.fibri.ieum.common.auth.repository.UserSettingsRepository;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
-import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
@@ -45,14 +45,14 @@ class UserServiceTest {
 	private final CountryRepository countryRepository = mock(CountryRepository.class);
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
-	private final FileStorage fileStorage = mock(FileStorage.class);
+	private final ProfileFileCleanupService profileFileCleanupService = mock(ProfileFileCleanupService.class);
 	private final UserService service = new UserService(
 		userRepository,
 		userSettingsRepository,
 		countryRepository,
 		sessionStore,
 		fileRepository,
-		fileStorage
+		profileFileCleanupService
 	);
 
 	@Test
@@ -189,12 +189,10 @@ class UserServiceTest {
 		UUID oldFileId = UUID.fromString("22222222-2222-2222-2222-222222222222");
 		UUID newFileId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 		user.linkProfileImage(oldFileId);
-		File oldFile = completedFile(oldFileId, "final/42/profile/" + oldFileId + "/original.jpg");
 		File newFile = completedFile(newFileId, "final/42/profile/" + newFileId + "/original.png");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
 		when(fileRepository.findByFileIdAndUploaderId(newFileId, 42L)).thenReturn(Optional.of(newFile));
-		when(fileRepository.findById(oldFileId)).thenReturn(Optional.of(oldFile));
-		when(userRepository.existsByProfileFileId(oldFileId)).thenReturn(false);
+		doNothing().when(profileFileCleanupService).cleanupProfileFile(oldFileId);
 
 		TransactionSynchronizationManager.initSynchronization();
 		ProfileImageResponse response;
@@ -206,7 +204,7 @@ class UserServiceTest {
 
 			assertThat(user.getProfileFileId()).isEqualTo(newFileId);
 			assertThat(response.profileImageUrl()).isEqualTo("/api/v1/files/33333333-3333-3333-3333-333333333333");
-			verify(fileStorage, never()).delete(any());
+			verify(profileFileCleanupService, never()).cleanupProfileFile(any());
 
 			TransactionSynchronizationManager.getSynchronizations()
 				.forEach(TransactionSynchronization::afterCommit);
@@ -214,10 +212,7 @@ class UserServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/original.jpg");
-		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/display.webp");
-		verify(fileStorage).delete("final/42/profile/" + oldFileId + "/thumb.webp");
-		verify(fileRepository).delete(oldFile);
+		verify(profileFileCleanupService).cleanupProfileFile(oldFileId);
 	}
 
 	@Test
@@ -236,17 +231,15 @@ class UserServiceTest {
 		User user = user();
 		UUID fileId = UUID.fromString("55555555-5555-5555-5555-555555555555");
 		user.linkProfileImage(fileId);
-		File file = completedFile(fileId, "final/42/profile/" + fileId + "/original.jpg");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
-		when(fileRepository.findById(fileId)).thenReturn(Optional.of(file));
-		when(userRepository.existsByProfileFileId(fileId)).thenReturn(false);
+		doNothing().when(profileFileCleanupService).cleanupProfileFile(fileId);
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
 			service.deleteProfileImage(principal());
 
 			assertThat(user.getProfileFileId()).isNull();
-			verify(fileRepository, never()).delete(file);
+			verify(profileFileCleanupService, never()).cleanupProfileFile(any());
 
 			TransactionSynchronizationManager.getSynchronizations()
 				.forEach(TransactionSynchronization::afterCommit);
@@ -254,16 +247,13 @@ class UserServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(fileRepository).delete(file);
+		verify(profileFileCleanupService).cleanupProfileFile(fileId);
 	}
 
 	@Test
-	void deleteProfileImageKeepsFileWhenStillReferencedAfterCommit() {
+	void deleteProfileImageWithoutProfileFileDoesNotScheduleCleanup() {
 		User user = user();
-		UUID fileId = UUID.fromString("66666666-6666-6666-6666-666666666666");
-		user.linkProfileImage(fileId);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
-		when(userRepository.existsByProfileFileId(fileId)).thenReturn(true);
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
@@ -274,8 +264,7 @@ class UserServiceTest {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
 
-		verify(fileStorage, never()).delete(any());
-		verify(fileRepository, never()).delete(any(File.class));
+		verify(profileFileCleanupService, never()).cleanupProfileFile(any());
 	}
 
 	@Test
