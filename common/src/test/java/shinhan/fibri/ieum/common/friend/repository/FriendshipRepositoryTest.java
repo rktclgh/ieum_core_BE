@@ -48,6 +48,84 @@ class FriendshipRepositoryTest {
 			.containsExactly(acceptedFriendship);
 	}
 
+	@Test
+	void findPendingReceivedAndSentByUserIdSeparateRequestDirection() {
+		User me = persist(user("direction-me@example.com", "direction-me"));
+		User receivedRequester = persist(user("received-requester@example.com", "received-requester"));
+		User sentAddressee = persist(user("sent-addressee@example.com", "sent-addressee"));
+		User unrelated = persist(user("unrelated-pending@example.com", "unrelated-pending"));
+		Friendship received = friendshipRepository.save(Friendship.request(receivedRequester, me));
+		Friendship sent = friendshipRepository.save(Friendship.request(me, sentAddressee));
+		friendshipRepository.save(Friendship.request(receivedRequester, unrelated));
+
+		assertThat(friendshipRepository.findPendingReceivedByUserId(me.getId()))
+			.containsExactly(received);
+		assertThat(friendshipRepository.findPendingSentByUserId(me.getId()))
+			.containsExactly(sent);
+	}
+
+	@Test
+	void findBlockedByUserIdReturnsOnlyUsersBlockedByMe() {
+		User me = persist(user("block-me@example.com", "block-me"));
+		User blockedByMe = persist(user("blocked-by-me@example.com", "blocked-by-me"));
+		User blockedMe = persist(user("blocked-me@example.com", "blocked-me"));
+		Friendship myBlock = friendshipRepository.save(Friendship.blocked(me, blockedByMe, me));
+		friendshipRepository.save(Friendship.blocked(blockedMe, me, blockedMe));
+
+		assertThat(friendshipRepository.findBlockedByUserId(me.getId()))
+			.containsExactly(myBlock);
+	}
+
+	@Test
+	void findBlockedUserIdsByUserIdReturnsSymmetricBlockedUsers() {
+		User me = persist(user("symmetric-me@example.com", "symmetric-me"));
+		User blockedByMe = persist(user("symmetric-blocked-by-me@example.com", "symmetric-blocked-by-me"));
+		User blockedMe = persist(user("symmetric-blocked-me@example.com", "symmetric-blocked-me"));
+		User pending = persist(user("symmetric-pending@example.com", "symmetric-pending"));
+		friendshipRepository.save(Friendship.blocked(me, blockedByMe, me));
+		friendshipRepository.save(Friendship.blocked(blockedMe, me, blockedMe));
+		friendshipRepository.save(Friendship.request(me, pending));
+
+		assertThat(friendshipRepository.findBlockedUserIdsByUserId(me.getId()))
+			.containsExactlyInAnyOrder(blockedByMe.getId(), blockedMe.getId());
+	}
+
+	@Test
+	void existsAcceptedByUserPairReturnsTrueRegardlessOfDirection() {
+		User first = persist(user("accepted-first@example.com", "accepted-first"));
+		User second = persist(user("accepted-second@example.com", "accepted-second"));
+		User pending = persist(user("accepted-pending@example.com", "accepted-pending"));
+		Friendship accepted = Friendship.request(first, second);
+		accepted.accept();
+		friendshipRepository.save(accepted);
+		friendshipRepository.save(Friendship.request(first, pending));
+
+		assertThat(friendshipRepository.existsAcceptedByUserPair(first.getId(), second.getId()))
+			.isTrue();
+		assertThat(friendshipRepository.existsAcceptedByUserPair(second.getId(), first.getId()))
+			.isTrue();
+		assertThat(friendshipRepository.existsAcceptedByUserPair(first.getId(), pending.getId()))
+			.isFalse();
+	}
+
+	@Test
+	void existsBlockedByUserPairReturnsTrueRegardlessOfDirection() {
+		User first = persist(user("blocked-first@example.com", "blocked-first"));
+		User second = persist(user("blocked-second@example.com", "blocked-second"));
+		User acceptedUser = persist(user("blocked-accepted@example.com", "blocked-accepted"));
+		Friendship accepted = Friendship.request(first, acceptedUser);
+		accepted.accept();
+		friendshipRepository.save(Friendship.blocked(first, second, first));
+		friendshipRepository.save(accepted);
+
+		assertThat(friendshipRepository.existsBlockedByUserPair(first.getId(), second.getId()))
+			.isTrue();
+		assertThat(friendshipRepository.existsBlockedByUserPair(second.getId(), first.getId()))
+			.isTrue();
+		assertThat(friendshipRepository.existsBlockedByUserPair(first.getId(), acceptedUser.getId()))
+			.isFalse();
+	}
+
 	private User user(String email, String nickname) {
 		return User.createEmailUser(
 			email,
