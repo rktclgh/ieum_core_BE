@@ -21,6 +21,7 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)$");
 	private static final Pattern SEND_DESTINATION_PATTERN = Pattern.compile("^/app/rooms/(\\d+)/send$");
+	private static final String USER_ERROR_QUEUE_DESTINATION = "/user/queue/errors";
 
 	private final ChatMemberRepository chatMemberRepository;
 	private final RedisAuthSessionStore sessionStore;
@@ -66,9 +67,21 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private Message<?> handleSubscribe(Message<?> message, StompHeaderAccessor accessor) {
 		ChatWebSocketPrincipal principal = currentPrincipal(accessor).orElse(null);
-		Long roomId = parseRoomId(accessor.getDestination(), ROOM_TOPIC_PATTERN).orElse(null);
-		if (principal == null || roomId == null) {
+		String destination = accessor.getDestination();
+		if (principal == null || destination == null) {
+			return null;
+		}
+		// 에러 채널만 정확히 허용(Spring이 세션 소유자로 스코프). 개인 큐가 늘어도
+		// 검증 없이 구독 표면이 넓어지지 않도록 prefix가 아닌 정확 일치로 제한한다.
+		if (USER_ERROR_QUEUE_DESTINATION.equals(destination)) {
 			return message;
+		}
+		// 그 외 목적지(=/topic/**)는 default-deny — 정확히 /topic/rooms/{id} 이고 멤버일 때만 허용.
+		// 와일드카드(/topic/rooms/*, /topic/**) 구독으로 전체 방을 도청하는 우회를 차단한다.
+		Long roomId = parseRoomId(destination, ROOM_TOPIC_PATTERN).orElse(null);
+		if (roomId == null) {
+			sendError(principal, "NOT_ROOM_MEMBER", "Room subscription is not allowed", null);
+			return null;
 		}
 		if (!isActiveRoomMember(roomId, principal)) {
 			sendError(principal, "NOT_ROOM_MEMBER", "Room membership is required", roomId);
@@ -79,9 +92,15 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 
 	private Message<?> handleSend(Message<?> message, StompHeaderAccessor accessor) {
 		ChatWebSocketPrincipal principal = currentPrincipal(accessor).orElse(null);
+		if (principal == null) {
+			return null;
+		}
+		// SEND는 정확히 /app/rooms/{id}/send 만 허용(default-deny).
+		// 브로커 목적지(/topic/rooms/{id})로 직접 SEND해 컨트롤러·검증을 우회한 위조 브로드캐스트를 차단한다.
 		Long roomId = parseRoomId(accessor.getDestination(), SEND_DESTINATION_PATTERN).orElse(null);
-		if (principal == null || roomId == null) {
-			return message;
+		if (roomId == null) {
+			sendError(principal, "VALIDATION_FAILED", "Unsupported send destination", null);
+			return null;
 		}
 		if (!hasActiveSession(principal)) {
 			sendError(principal, "INVALID_SESSION", "Chat session is invalid", roomId);

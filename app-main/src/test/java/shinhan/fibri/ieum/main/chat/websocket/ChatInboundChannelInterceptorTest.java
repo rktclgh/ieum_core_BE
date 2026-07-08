@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.chat.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -141,6 +142,68 @@ class ChatInboundChannelInterceptorTest {
 		Message<?> result = interceptor.preSend(message(accessor), null);
 
 		assertThat(result).isNotNull();
+	}
+
+	@Test
+	void subscribeRejectsWildcardDestinationWithoutMembershipCheck() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/topic/rooms/*");
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"NOT_ROOM_MEMBER",
+			"Room subscription is not allowed",
+			null
+		));
+		verify(chatMemberRepository, never()).existsByRoom_IdAndUser_IdAndLeftAtIsNull(any(), any());
+	}
+
+	@Test
+	void subscribeAllowsOwnUserErrorQueue() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/errors");
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNotNull();
+	}
+
+	@Test
+	void subscribeRejectsNonErrorUserQueueDestinations() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SUBSCRIBE, principal);
+		accessor.setDestination("/user/queue/notifications");
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"NOT_ROOM_MEMBER",
+			"Room subscription is not allowed",
+			null
+		));
+	}
+
+	@Test
+	void sendRejectsDirectBrokerDestinationWithoutSessionOrRateCheck() {
+		ChatWebSocketPrincipal principal = principal(42L, "sid-1");
+		StompHeaderAccessor accessor = authenticatedAccessor(StompCommand.SEND, principal);
+		accessor.setDestination("/topic/rooms/100");
+
+		Message<?> result = interceptor.preSend(message(accessor), null);
+
+		assertThat(result).isNull();
+		verify(errorSender).send(principal, new ChatWebSocketErrorResponse(
+			"VALIDATION_FAILED",
+			"Unsupported send destination",
+			null
+		));
+		verify(sessionStore, never()).findBySessionId(any());
+		verify(rateLimiter, never()).tryConsumeSend(any());
 	}
 
 	private StompHeaderAccessor authenticatedAccessor(StompCommand command, ChatWebSocketPrincipal principal) {
