@@ -111,7 +111,6 @@ class PinRepositoryIntegrationTest {
 		assertThat(meeting.getThumbnailFileId()).isEqualTo(MEETING_THUMBNAIL_ID);
 		assertThat(meeting.getLatitude()).isEqualTo(37.6);
 		assertThat(meeting.getLongitude()).isEqualTo(127.1);
-		assertThat(meeting.getAuthorId()).isEqualTo(42L);
 		assertThat(meeting.getMine()).isTrue();
 		assertThat(meeting.getCreatedAt()).isBeforeOrEqualTo(Instant.now());
 

@@ -31,7 +31,7 @@ class PinServiceTest {
 	@Test
 	void getMapPinsTrimsLimitAndMarksTruncated() {
 		List<PinProjection> rows = java.util.stream.LongStream.rangeClosed(1, 501)
-			.mapToObj(id -> projection(id, "question", "title-" + id, null, 37.5, 127.0, 7L, false))
+			.mapToObj(id -> projection(id, "question", "title-" + id, null, 37.5, 127.0, false))
 			.toList();
 		when(pinRepository.findMapPins(42L, null, 37.0, 126.0, 38.0, 128.0, 501))
 			.thenReturn(rows);
@@ -51,7 +51,7 @@ class PinServiceTest {
 	void getMapPinsMapsThumbnailAndLocation() {
 		UUID thumbnailFileId = UUID.fromString("00000000-0000-0000-0000-000000000123");
 		when(pinRepository.findMapPins(42L, "meeting", 37.0, 126.0, 38.0, 128.0, 501))
-			.thenReturn(List.of(projection(10L, "meeting", "coffee", thumbnailFileId, 37.55, 126.98, 42L, true)));
+			.thenReturn(List.of(projection(10L, "meeting", "coffee", thumbnailFileId, 37.55, 126.98, true)));
 
 		PinMapResponse response = service.getMapPins(
 			principal(),
@@ -80,9 +80,9 @@ class PinServiceTest {
 	void getListPinsUsesLookaheadAndNextCursor() {
 		when(pinRepository.findListPins(42L, "question", null, 3))
 			.thenReturn(List.of(
-				projection(30L, "question", "a", null, 37.1, 127.1, 9L, false),
-				projection(20L, "question", "b", null, 37.2, 127.2, 9L, false),
-				projection(10L, "question", "c", null, 37.3, 127.3, 9L, false)
+				projection(30L, "question", "a", null, 37.1, 127.1, false),
+				projection(20L, "question", "b", null, 37.2, 127.2, false),
+				projection(10L, "question", "c", null, 37.3, 127.3, false)
 			));
 
 		CursorPage<PinItem> response = service.getListPins(
@@ -121,7 +121,6 @@ class PinServiceTest {
 		UUID thumbnailFileId,
 		double latitude,
 		double longitude,
-		Long authorId,
 		boolean mine
 	) {
 		Instant createdAt = Instant.parse("2026-07-08T01:00:00Z");
@@ -154,11 +153,6 @@ class PinServiceTest {
 			@Override
 			public Double getLongitude() {
 				return longitude;
-			}
-
-			@Override
-			public Long getAuthorId() {
-				return authorId;
 			}
 
 			@Override

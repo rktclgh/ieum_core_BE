@@ -79,7 +79,6 @@ public class PinService {
 			row.getTitle(),
 			thumbnailUrl(row.getThumbnailFileId()),
 			new PinLocation(row.getLatitude(), row.getLongitude()),
-			row.getAuthorId(),
 			Boolean.TRUE.equals(row.getMine()),
 			row.getCreatedAt().atOffset(ZoneOffset.UTC)
 		);

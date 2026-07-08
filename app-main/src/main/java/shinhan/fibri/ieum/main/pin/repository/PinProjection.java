@@ -17,8 +17,6 @@ public interface PinProjection {
 
 	Double getLongitude();
 
-	Long getAuthorId();
-
 	Boolean getMine();
 
 	Instant getCreatedAt();

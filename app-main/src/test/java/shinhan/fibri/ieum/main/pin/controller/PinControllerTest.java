@@ -76,6 +76,7 @@ class PinControllerTest {
 			.andExpect(jsonPath("$.items[0].pinType", is("meeting")))
 			.andExpect(jsonPath("$.items[0].thumbnailUrl", is("/api/v1/files/file-id?v=thumb")))
 			.andExpect(jsonPath("$.items[0].location.latitude", is(37.55)))
+			.andExpect(jsonPath("$.items[0].authorId").doesNotExist())
 			.andExpect(jsonPath("$.items[0].mine", is(true)));
 	}
 
@@ -140,7 +141,6 @@ class PinControllerTest {
 			"coffee",
 			"/api/v1/files/file-id?v=thumb",
 			new PinLocation(37.55, 126.98),
-			42L,
 			true,
 			OffsetDateTime.parse("2026-07-08T10:00:00+09:00")
 		);

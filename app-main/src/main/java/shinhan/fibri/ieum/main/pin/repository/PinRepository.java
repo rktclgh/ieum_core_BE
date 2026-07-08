@@ -16,7 +16,6 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       COALESCE(m.thumbnail_file_id, m.image_file_id, qi.file_id) AS "thumbnailFileId",
 			       ST_Y(p.location::geometry)                   AS "latitude",
 			       ST_X(p.location::geometry)                   AS "longitude",
-			       p.author_id                                  AS "authorId",
 			       (p.author_id = :userId)                      AS "mine",
 			       p.created_at                                 AS "createdAt"
 			FROM pins p
@@ -58,7 +57,6 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       COALESCE(m.thumbnail_file_id, m.image_file_id, qi.file_id) AS "thumbnailFileId",
 			       ST_Y(p.location::geometry)                   AS "latitude",
 			       ST_X(p.location::geometry)                   AS "longitude",
-			       p.author_id                                  AS "authorId",
 			       (p.author_id = :userId)                      AS "mine",
 			       p.created_at                                 AS "createdAt"
 			FROM pins p

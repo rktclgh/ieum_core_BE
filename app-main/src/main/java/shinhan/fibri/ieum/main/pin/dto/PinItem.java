@@ -9,7 +9,6 @@ public record PinItem(
 	String title,
 	String thumbnailUrl,
 	PinLocation location,
-	Long authorId,
 	boolean mine,
 	OffsetDateTime createdAt
 ) {
