@@ -1,5 +1,7 @@
 package shinhan.fibri.ieum.main.auth.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -12,6 +14,8 @@ import java.util.concurrent.CompletableFuture;
 
 @Component
 public class SmtpVerificationMailSender implements VerificationMailSender {
+
+	private static final Logger log = LoggerFactory.getLogger(SmtpVerificationMailSender.class);
 
 	private final JavaMailSender mailSender;
 	private final String fromAddress;
@@ -43,6 +47,7 @@ public class SmtpVerificationMailSender implements VerificationMailSender {
 		));
 		try {
 			mailSender.send(message);
+			log.info("SMTP signup mail sent: to={}", email);
 			return CompletableFuture.completedFuture(null);
 		} catch (RuntimeException exception) {
 			return CompletableFuture.failedFuture(exception);

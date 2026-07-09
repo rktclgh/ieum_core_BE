@@ -48,19 +48,22 @@ public class EmailVerificationService {
 		String code = codeGenerator.generate();
 		String codeHash = codeHasher.hash(email, code);
 		codeStore.saveSignupCode(email, codeHash, SIGNUP_CODE_TTL);
+		log.info("Signup verification email requested: email={}", email);
 		CompletableFuture<Void> delivery;
 		try {
 			delivery = mailSender.sendSignupCode(email, code, SIGNUP_CODE_TTL_SECONDS);
 		} catch (RuntimeException exception) {
 			codeStore.deleteSignupCode(email);
+			log.warn("Signup verification email send failed (sync): email={}", email, exception);
 			throw new EmailDeliveryFailedException(exception);
 		}
 		delivery.whenComplete((unused, exception) -> {
 			if (exception == null) {
+				log.info("Signup verification email sent: email={}", email);
 				return;
 			}
 			codeStore.deleteSignupCode(email);
-			log.warn("Failed to send signup verification email to {}", email, exception);
+			log.warn("Signup verification email send failed (async): email={}", email, exception);
 		});
 		return new SendEmailVerificationResponse(SIGNUP_CODE_TTL_SECONDS);
 	}
@@ -74,6 +77,7 @@ public class EmailVerificationService {
 			if (!rateLimiter.tryConsumeSignupVerifyFailure(email)) {
 				codeStore.deleteSignupCode(email);
 			}
+			log.warn("Signup email verification failed (code mismatch): email={}", email);
 			throw new InvalidEmailVerificationCodeException();
 		}
 
@@ -81,6 +85,7 @@ public class EmailVerificationService {
 		codeStore.deleteSignupCode(email);
 		rateLimiter.clearSignupVerifyFailures(email);
 		codeStore.saveSignupVerificationToken(token, email, VERIFICATION_TOKEN_TTL);
+		log.info("Signup email verified: email={}", email);
 		return new VerifyEmailVerificationResponse(token, VERIFICATION_TOKEN_TTL_SECONDS);
 	}
 
