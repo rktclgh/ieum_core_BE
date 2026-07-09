@@ -38,6 +38,8 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
@@ -169,6 +171,50 @@ class MeetingControllerTest {
 			.thenThrow(new MeetingNotFoundException());
 
 		mockMvc.perform(get("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));
+	}
+
+	@Test
+	void getParticipantsReturnsJoinedParticipants() throws Exception {
+		when(meetingService.getParticipants(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenReturn(new MeetingParticipantsResponse(java.util.List.of(
+				new MeetingParticipantItem(
+					1L,
+					"오이정",
+					null,
+					true,
+					OffsetDateTime.parse("2026-07-09T10:00:00+09:00")
+				),
+				new MeetingParticipantItem(
+					42L,
+					"참여자",
+					"/api/v1/files/33333333-3333-3333-3333-333333333333",
+					false,
+					OffsetDateTime.parse("2026-07-09T11:00:00+09:00")
+				)
+			)));
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}/participants", 3L)
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].userId", is(1)))
+			.andExpect(jsonPath("$.items[0].nickname", is("오이정")))
+			.andExpect(jsonPath("$.items[0].profileImageUrl").doesNotExist())
+			.andExpect(jsonPath("$.items[0].isHost", is(true)))
+			.andExpect(jsonPath("$.items[0].joinedAt", is("2026-07-09T10:00:00+09:00")))
+			.andExpect(jsonPath("$.items[1].userId", is(42)))
+			.andExpect(jsonPath("$.items[1].profileImageUrl", is("/api/v1/files/33333333-3333-3333-3333-333333333333")))
+			.andExpect(jsonPath("$.items[1].isHost", is(false)));
+	}
+
+	@Test
+	void getParticipantsMapsMissingMeetingToNotFound() throws Exception {
+		when(meetingService.getParticipants(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenThrow(new MeetingNotFoundException());
+
+		mockMvc.perform(get("/api/v1/meetings/{meetingId}/participants", 3L)
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));

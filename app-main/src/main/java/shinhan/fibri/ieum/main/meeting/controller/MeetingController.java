@@ -15,6 +15,7 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @RestController
@@ -40,5 +41,13 @@ public class MeetingController {
 		@PathVariable Long meetingId
 	) {
 		return ResponseEntity.ok(meetingService.getDetail(principal, meetingId));
+	}
+
+	@GetMapping("/{meetingId}/participants")
+	public ResponseEntity<MeetingParticipantsResponse> getParticipants(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId
+	) {
+		return ResponseEntity.ok(meetingService.getParticipants(principal, meetingId));
 	}
 }

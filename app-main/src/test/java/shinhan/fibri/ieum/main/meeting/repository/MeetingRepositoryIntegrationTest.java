@@ -46,17 +46,26 @@ class MeetingRepositoryIntegrationTest {
 	private MeetingRepository meetingRepository;
 
 	@Autowired
+	private MeetingParticipantRepository participantRepository;
+
+	@Autowired
 	private JdbcTemplate jdbcTemplate;
 
 	@BeforeEach
 	void setUpSchemaAndRows() {
 		createSchema();
-		jdbcTemplate.update("TRUNCATE TABLE chat_rooms, meetings, pins, users RESTART IDENTITY");
+		jdbcTemplate.update("TRUNCATE TABLE meeting_participants, chat_rooms, meetings, pins, users RESTART IDENTITY");
 
 		jdbcTemplate.update("""
 			INSERT INTO users (nickname, profile_file_id, deleted_at)
 			VALUES ('오이정', ?::uuid, NULL)
 			""", HOST_PROFILE_FILE_ID.toString());
+		jdbcTemplate.update("""
+			INSERT INTO users (nickname, profile_file_id, deleted_at)
+			VALUES ('참여자', NULL, NULL),
+			       ('나간사람', NULL, NULL),
+			       ('탈퇴자', NULL, now())
+			""");
 		jdbcTemplate.update("""
 			INSERT INTO pins (author_id, pin_type, location, deleted_at)
 			VALUES (1, 'meeting'::pin_type, ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, NULL)
@@ -74,6 +83,13 @@ class MeetingRepositoryIntegrationTest {
 			)
 			""", IMAGE_FILE_ID.toString(), THUMBNAIL_FILE_ID.toString());
 		jdbcTemplate.update("INSERT INTO chat_rooms (room_type, meeting_id) VALUES ('group'::room_type, 1)");
+		jdbcTemplate.update("""
+			INSERT INTO meeting_participants (meeting_id, user_id, status, joined_at)
+			VALUES (1, 2, 'joined'::participant_status, '2026-07-09T11:00:00+09:00'),
+			       (1, 1, 'joined'::participant_status, '2026-07-09T10:00:00+09:00'),
+			       (1, 3, 'left'::participant_status, '2026-07-09T09:00:00+09:00'),
+			       (1, 4, 'joined'::participant_status, '2026-07-09T08:00:00+09:00')
+			""");
 	}
 
 	@Test
@@ -108,6 +124,19 @@ class MeetingRepositoryIntegrationTest {
 		assertThat(detail).isEmpty();
 	}
 
+	@Test
+	void findJoinedParticipantsByMeetingIdReturnsOnlyActiveJoinedUsersInJoinOrder() {
+		var rows = participantRepository.findJoinedParticipantsByMeetingId(1L);
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows).extracting(MeetingParticipantProjection::getUserId)
+			.containsExactly(1L, 2L);
+		assertThat(rows.get(0).getNickname()).isEqualTo("오이정");
+		assertThat(rows.get(0).getProfileFileId()).isEqualTo(HOST_PROFILE_FILE_ID);
+		assertThat(rows.get(0).getJoinedAt()).isEqualTo(OffsetDateTime.parse("2026-07-09T10:00:00+09:00").toInstant());
+		assertThat(rows.get(1).getNickname()).isEqualTo("참여자");
+	}
+
 	private void createSchema() {
 		jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS postgis");
 		jdbcTemplate.execute("""
@@ -121,6 +150,9 @@ class MeetingRepositoryIntegrationTest {
 				END IF;
 				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'room_type') THEN
 					CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'participant_status') THEN
+					CREATE TYPE participant_status AS ENUM ('joined', 'left', 'kicked');
 				END IF;
 			END
 			$$
@@ -158,6 +190,15 @@ class MeetingRepositoryIntegrationTest {
 				created_at TIMESTAMPTZ NOT NULL,
 				updated_at TIMESTAMPTZ NOT NULL,
 				deleted_at TIMESTAMPTZ
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meeting_participants (
+				meeting_id BIGINT NOT NULL,
+				user_id BIGINT NOT NULL,
+				status participant_status NOT NULL,
+				joined_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (meeting_id, user_id)
 			)
 			""");
 		jdbcTemplate.execute("""

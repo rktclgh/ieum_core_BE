@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,9 +28,11 @@ import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
@@ -154,6 +157,52 @@ class MeetingServiceTest {
 			.hasMessage("Meeting not found");
 	}
 
+	@Test
+	void getParticipantsReturnsJoinedParticipantsInJoinedAtOrder() {
+		UUID profileFileId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+		OffsetDateTime hostJoinedAt = OffsetDateTime.parse("2026-07-09T10:00:00+09:00");
+		OffsetDateTime memberJoinedAt = OffsetDateTime.parse("2026-07-09T11:00:00+09:00");
+		Meeting meeting = Meeting.create(
+			11L,
+			1L,
+			"저녁 모임",
+			"같이 밥 먹어요",
+			"동선역 2번 출구",
+			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+			7,
+			null,
+			null
+		);
+		setField(meeting, "id", 3L);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findJoinedParticipantsByMeetingId(3L))
+			.thenReturn(List.of(
+				participantRow(1L, "오이정", null, hostJoinedAt),
+				participantRow(42L, "참여자", profileFileId, memberJoinedAt)
+			));
+
+		MeetingParticipantsResponse response = service.getParticipants(principal(42L), 3L);
+
+		assertThat(response.items()).hasSize(2);
+		assertThat(response.items().get(0).userId()).isEqualTo(1L);
+		assertThat(response.items().get(0).nickname()).isEqualTo("오이정");
+		assertThat(response.items().get(0).profileImageUrl()).isNull();
+		assertThat(response.items().get(0).isHost()).isTrue();
+		assertThat(response.items().get(0).joinedAt()).isEqualTo(hostJoinedAt);
+		assertThat(response.items().get(1).userId()).isEqualTo(42L);
+		assertThat(response.items().get(1).profileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
+		assertThat(response.items().get(1).isHost()).isFalse();
+		assertThat(response.items().get(1).joinedAt()).isEqualTo(memberJoinedAt);
+	}
+
+	@Test
+	void getParticipantsThrowsWhenMeetingDoesNotExist() {
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.getParticipants(principal(42L), 3L))
+			.isInstanceOf(MeetingNotFoundException.class);
+	}
+
 	private CreateMeetingRequest request(UUID imageFileId) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
@@ -261,6 +310,35 @@ class MeetingServiceTest {
 			@Override
 			public Instant getCreatedAt() {
 				return createdAt.toInstant();
+			}
+		};
+	}
+
+	private MeetingParticipantProjection participantRow(
+		Long userId,
+		String nickname,
+		UUID profileFileId,
+		OffsetDateTime joinedAt
+	) {
+		return new MeetingParticipantProjection() {
+			@Override
+			public Long getUserId() {
+				return userId;
+			}
+
+			@Override
+			public String getNickname() {
+				return nickname;
+			}
+
+			@Override
+			public UUID getProfileFileId() {
+				return profileFileId;
+			}
+
+			@Override
+			public Instant getJoinedAt() {
+				return joinedAt.toInstant();
 			}
 		};
 	}

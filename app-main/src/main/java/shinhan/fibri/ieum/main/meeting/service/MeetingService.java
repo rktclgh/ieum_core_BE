@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.meeting.service;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,8 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
@@ -87,6 +90,23 @@ public class MeetingService {
 			myStatus(principal.userId(), detail),
 			detail.getCreatedAt().atZone(RESPONSE_ZONE).toOffsetDateTime()
 		);
+	}
+
+	@Transactional(readOnly = true)
+	public MeetingParticipantsResponse getParticipants(AuthenticatedUser principal, Long meetingId) {
+		Meeting meeting = meetingRepository.findByIdAndDeletedAtIsNull(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		List<MeetingParticipantItem> items = participantRepository.findJoinedParticipantsByMeetingId(meetingId)
+			.stream()
+			.map(row -> new MeetingParticipantItem(
+				row.getUserId(),
+				row.getNickname(),
+				fileUrl(row.getProfileFileId(), null),
+				meeting.getHostId().equals(row.getUserId()),
+				row.getJoinedAt().atZone(RESPONSE_ZONE).toOffsetDateTime()
+			))
+			.toList();
+		return new MeetingParticipantsResponse(items);
 	}
 
 	private UUID validateImage(UUID imageFileId, Long userId) {
