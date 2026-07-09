@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.main.auth.dto.RefreshResponse;
@@ -16,6 +18,8 @@ import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
 @RequiredArgsConstructor
 public class RefreshService {
 
+	private static final Logger log = LoggerFactory.getLogger(RefreshService.class);
+
 	private final RedisAuthSessionStore sessionStore;
 	private final Sha256TokenHasher tokenHasher;
 	private final OpaqueTokenGenerator tokenGenerator;
@@ -29,6 +33,7 @@ public class RefreshService {
 			throw new InvalidRefreshTokenException();
 		}
 		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
+			log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
 			sessionStore.revokeAllSessionsOfUser(session.userId());
 			throw new RefreshTokenReusedException();
 		}
@@ -41,6 +46,7 @@ public class RefreshService {
 		String newRefreshTokenHash = tokenHasher.hash(newRefreshToken);
 		String accessToken = accessTokenIssuer.issue(session.userId(), session.sessionId(), session.email(), session.role());
 		sessionStore.rotateRefreshToken(session, newRefreshTokenHash);
+		log.info("Token refreshed: userId={} sessionId={}", session.userId(), session.sessionId());
 
 		return new RefreshResult(
 			new RefreshResponse(session.userId(), session.role()),

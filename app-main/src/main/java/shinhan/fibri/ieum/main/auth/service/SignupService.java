@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,8 @@ import shinhan.fibri.ieum.main.auth.exception.NicknameTakenException;
 @Service
 @RequiredArgsConstructor
 public class SignupService {
+
+	private static final Logger log = LoggerFactory.getLogger(SignupService.class);
 
 	private final EmailVerificationCodeStore codeStore;
 	private final UserRepository userRepository;
@@ -68,6 +72,7 @@ public class SignupService {
 		User savedUser = saveUserOrThrowDuplicateException(user);
 		userSettingsRepository.save(UserSettings.forSignup(savedUser, request.language()));
 		deleteVerificationTokenAfterCommit(request.emailVerificationToken());
+		log.info("Email signup success: userId={} email={} nickname={}", savedUser.getId(), email, request.nickname());
 		return new SignupResponse(savedUser.getId());
 	}
 

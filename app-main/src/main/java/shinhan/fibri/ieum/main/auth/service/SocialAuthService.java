@@ -3,6 +3,8 @@ package shinhan.fibri.ieum.main.auth.service;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ import shinhan.fibri.ieum.main.auth.session.SessionIssuer;
 @RequiredArgsConstructor
 public class SocialAuthService {
 
+	private static final Logger log = LoggerFactory.getLogger(SocialAuthService.class);
 	private static final Duration SIGNUP_TOKEN_TTL = Duration.ofMinutes(30);
 	private static final int SIGNUP_TOKEN_TTL_SECONDS = 1800;
 
@@ -82,6 +85,12 @@ public class SocialAuthService {
 		loginLogRepository.save(LoginLog.socialLogin(savedUser, identity.provider()));
 		IssuedAuthSession issuedSession = sessionIssuer.issue(savedUser);
 		deleteSignupTokenAfterCommit(request.socialSignupToken());
+		log.info(
+			"Social signup success: userId={} provider={} nickname={}",
+			savedUser.getId(),
+			identity.provider(),
+			request.nickname()
+		);
 		return new SocialSignupResult(
 			new SocialSignupResponse(savedUser.getId(), savedUser.getRole()),
 			issuedSession.accessToken(),
@@ -92,10 +101,12 @@ public class SocialAuthService {
 
 	private SocialAuthResult loginExistingUser(User user, VerifiedSocialIdentity identity) {
 		if (user.getStatus() == UserStatus.suspended) {
+			log.warn("Social login blocked (suspended): userId={} provider={}", user.getId(), identity.provider());
 			throw new SuspendedUserException();
 		}
 		loginLogRepository.save(LoginLog.socialLogin(user, identity.provider()));
 		IssuedAuthSession issuedSession = sessionIssuer.issue(user);
+		log.info("Social login success: userId={} provider={}", user.getId(), identity.provider());
 		return new SocialAuthResult(
 			SocialAuthResponse.existingUser(user.getId(), user.getRole()),
 			issuedSession.accessToken(),
@@ -116,6 +127,7 @@ public class SocialAuthService {
 			),
 			SIGNUP_TOKEN_TTL
 		);
+		log.info("Social signup token issued (new user): provider={} email={}", identity.provider(), identity.email());
 		return new SocialAuthResult(
 			SocialAuthResponse.newUser(signupToken, SIGNUP_TOKEN_TTL_SECONDS),
 			null,

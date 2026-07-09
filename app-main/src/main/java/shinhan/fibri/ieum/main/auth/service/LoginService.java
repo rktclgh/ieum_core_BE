@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.main.auth.service;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.AuthProvider;
@@ -22,6 +24,7 @@ import shinhan.fibri.ieum.main.auth.session.SessionIssuer;
 @RequiredArgsConstructor
 public class LoginService {
 
+	private static final Logger log = LoggerFactory.getLogger(LoginService.class);
 	private static final String DUMMY_PASSWORD_HASH =
 		"$2a$10$N9qo8uLOickgx2ZMRZoMye.IjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
@@ -37,21 +40,26 @@ public class LoginService {
 			.orElse(null);
 		if (user == null) {
 			passwordHasher.matches(request.password(), DUMMY_PASSWORD_HASH);
+			log.warn("Email login failed (unknown email): email={}", email);
 			throw new InvalidCredentialsException();
 		}
 		if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
+			log.warn("Email login failed (wrong password): userId={} email={}", user.getId(), email);
 			throw new InvalidCredentialsException();
 		}
 		if (!user.isEmailVerified()) {
+			log.warn("Email login blocked (email not verified): userId={} email={}", user.getId(), email);
 			throw new EmailNotVerifiedException();
 		}
 		if (user.getStatus() == UserStatus.suspended) {
+			log.warn("Email login blocked (suspended): userId={} email={}", user.getId(), email);
 			throw new SuspendedUserException();
 		}
 
 		loginLogRepository.save(LoginLog.emailLogin(user));
 
 		IssuedAuthSession issuedSession = sessionIssuer.issue(user);
+		log.info("Email login success: userId={} email={}", user.getId(), email);
 
 		return new LoginResult(
 			new LoginResponse(user.getId(), user.getRole(), user.isPasswordResetRequired()),
