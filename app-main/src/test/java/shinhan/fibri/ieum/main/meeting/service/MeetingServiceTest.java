@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.meeting.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -27,9 +29,12 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingType;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
+import shinhan.fibri.ieum.main.meeting.domain.RecurrenceFrequency;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRecurrenceRuleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
@@ -48,6 +53,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingRecurrenceRuleRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
@@ -57,6 +63,7 @@ class MeetingServiceTest {
 
 	private final MeetingRepository meetingRepository = mock(MeetingRepository.class);
 	private final MeetingScheduleRepository meetingScheduleRepository = mock(MeetingScheduleRepository.class);
+	private final MeetingRecurrenceRuleRepository recurrenceRuleRepository = mock(MeetingRecurrenceRuleRepository.class);
 	private final MeetingParticipantRepository participantRepository = mock(MeetingParticipantRepository.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
@@ -64,6 +71,7 @@ class MeetingServiceTest {
 	private final MeetingService service = new MeetingService(
 		meetingRepository,
 		meetingScheduleRepository,
+		recurrenceRuleRepository,
 		participantRepository,
 		fileRepository,
 		pinWriter,
@@ -127,6 +135,71 @@ class MeetingServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), request(imageFileId)))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("Invalid image");
+	}
+
+	@Test
+	void createRejectsRecurrenceRuleForOneTimeMeeting() {
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = weeklyRule(LocalDate.parse("2026-07-07"));
+
+		assertThatThrownBy(() -> service.create(
+			principal(42L),
+			request(null, MeetingType.one_time, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("recurrenceRule is only allowed for recurring meeting");
+		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+	}
+
+	@Test
+	void createRejectsMissingRecurrenceRuleForRecurringMeeting() {
+		assertThatThrownBy(() -> service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), null)
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("recurrenceRule is required for recurring meeting");
+		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+	}
+
+	@Test
+	void createRecurringMeetingStoresRuleAndInitialSchedules() {
+		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
+			Meeting meeting = invocation.getArgument(0);
+			setField(meeting, "id", 3L);
+			return meeting;
+		});
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
+			MeetingSchedule schedule = invocation.getArgument(0);
+			setField(schedule, "id", 30L + schedule.getSequenceNo());
+			return schedule;
+		});
+		when(recurrenceRuleRepository.save(any(MeetingRecurrenceRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = weeklyRule(LocalDate.parse("2026-07-07"));
+
+		CreateMeetingResponse response = service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+		);
+
+		assertThat(response.firstScheduleId()).isEqualTo(31L);
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository, org.mockito.Mockito.times(3)).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getAllValues())
+			.extracting(MeetingSchedule::getStartsAt)
+			.containsExactly(
+				OffsetDateTime.parse("2026-07-07T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-07-21T19:00:00+09:00")
+			);
+		assertThat(scheduleCaptor.getAllValues())
+			.extracting(MeetingSchedule::getSequenceNo)
+			.containsExactly(1, 2, 3);
+		ArgumentCaptor<MeetingRecurrenceRule> ruleCaptor = ArgumentCaptor.forClass(MeetingRecurrenceRule.class);
+		verify(recurrenceRuleRepository).save(ruleCaptor.capture());
+		assertThat(ruleCaptor.getValue().getMeetingId()).isEqualTo(3L);
+		assertThat(ruleCaptor.getValue().getFrequency()).isEqualTo(RecurrenceFrequency.weekly);
 	}
 
 	@Test
@@ -234,8 +307,9 @@ class MeetingServiceTest {
 
 	@Test
 	void joinAddsNewParticipantToOpenMeetingAndGroupRoom() {
-		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
@@ -256,6 +330,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
 
@@ -273,6 +348,7 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		participant.leave();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
@@ -298,6 +374,7 @@ class MeetingServiceTest {
 	void joinRejectsFullMeeting() {
 		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 2);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		allowActiveSchedule(3L);
 		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(2L);
@@ -314,7 +391,6 @@ class MeetingServiceTest {
 		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
 		participant.kick();
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
-		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
 
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
@@ -498,21 +574,53 @@ class MeetingServiceTest {
 	}
 
 	private CreateMeetingRequest request(UUID imageFileId) {
+		return request(
+			imageFileId,
+			MeetingType.one_time,
+			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+			null
+		);
+	}
+
+	private CreateMeetingRequest request(
+		UUID imageFileId,
+		MeetingType type,
+		OffsetDateTime startsAt,
+		CreateMeetingRecurrenceRuleRequest recurrenceRule
+	) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
 			"같이 밥 먹어요",
-			MeetingType.one_time,
+			type,
 			"동선역 2번 출구",
 			new CreateMeetingScheduleRequest(
-				OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+				startsAt,
 				null
 			),
-			null,
+			recurrenceRule,
 			7,
 			37.5,
 			127.0,
 			imageFileId
 		);
+	}
+
+	private CreateMeetingRecurrenceRuleRequest weeklyRule(LocalDate startsOn) {
+		return new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.weekly,
+			1,
+			List.of(2),
+			null,
+			startsOn,
+			LocalDate.parse("2026-07-21"),
+			null,
+			"Asia/Seoul"
+		);
+	}
+
+	private void allowActiveSchedule(Long meetingId) {
+		when(meetingScheduleRepository.existsActiveSchedule(eq(meetingId), any(OffsetDateTime.class)))
+			.thenReturn(true);
 	}
 
 	private Meeting meeting(Long id, Long hostId, OffsetDateTime meetingAt, int maxMembers) {
