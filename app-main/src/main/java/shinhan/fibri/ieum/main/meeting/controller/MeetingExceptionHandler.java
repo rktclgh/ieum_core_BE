@@ -10,11 +10,13 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -64,5 +66,17 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleKickedMember(KickedMemberException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("KICKED_MEMBER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(HostCannotLeaveException.class)
+	public ResponseEntity<AuthErrorResponse> handleHostCannotLeave(HostCannotLeaveException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("HOST_CANNOT_LEAVE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ParticipantNotFoundException.class)
+	public ResponseEntity<AuthErrorResponse> handleParticipantNotFound(ParticipantNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new AuthErrorResponse("PARTICIPANT_NOT_FOUND", exception.getMessage()));
 	}
 }

@@ -59,4 +59,13 @@ public class MeetingController {
 	) {
 		return ResponseEntity.ok(meetingService.join(principal, meetingId));
 	}
+
+	@PostMapping("/{meetingId}/leave")
+	public ResponseEntity<Void> leave(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId
+	) {
+		meetingService.leave(principal, meetingId);
+		return ResponseEntity.ok().build();
+	}
 }

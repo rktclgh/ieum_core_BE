@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -22,6 +23,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
@@ -31,11 +33,13 @@ import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
@@ -296,6 +300,57 @@ class MeetingServiceTest {
 		assertThatThrownBy(() -> service.join(principal(42L), 3L))
 			.isInstanceOf(KickedMemberException.class);
 		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void leaveMarksParticipantLeftAndRemovesGroupRoomMember() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		service.leave(principal(42L), 3L);
+
+		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.left);
+		verify(chatRoomLifecycle).removeMember(9L, 42L);
+	}
+
+	@Test
+	void leaveRejectsHost() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.leave(principal(1L), 3L))
+			.isInstanceOf(HostCannotLeaveException.class);
+		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+	}
+
+	@Test
+	void leaveRejectsMissingOrInactiveParticipant() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		participant.leave();
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.leave(principal(42L), 3L))
+			.isInstanceOf(ParticipantNotFoundException.class);
+		verify(chatRoomLifecycle, never()).removeMember(any(), any());
+	}
+
+	@Test
+	void leaveIgnoresMissingActiveChatMember() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		when(meetingRepository.findById(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		doThrow(new NotRoomMemberException()).when(chatRoomLifecycle).removeMember(9L, 42L);
+
+		service.leave(principal(42L), 3L);
+
+		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.left);
 	}
 
 	private CreateMeetingRequest request(UUID imageFileId) {

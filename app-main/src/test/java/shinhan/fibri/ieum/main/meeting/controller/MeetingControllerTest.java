@@ -41,11 +41,13 @@ import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @WebMvcTest(MeetingController.class)
@@ -266,6 +268,37 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code", is("KICKED_MEMBER")));
+	}
+
+	@Test
+	void leaveReturnsOk() throws Exception {
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/leave", 3L)
+				.with(authenticated()))
+			.andExpect(status().isOk());
+
+		verify(meetingService).leave(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+	}
+
+	@Test
+	void leaveMapsHostCannotLeaveToForbidden() throws Exception {
+		org.mockito.Mockito.doThrow(new HostCannotLeaveException())
+			.when(meetingService).leave(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/leave", 3L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("HOST_CANNOT_LEAVE")));
+	}
+
+	@Test
+	void leaveMapsParticipantNotFoundToNotFound() throws Exception {
+		org.mockito.Mockito.doThrow(new ParticipantNotFoundException())
+			.when(meetingService).leave(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/leave", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("PARTICIPANT_NOT_FOUND")));
 	}
 
 	private static RequestPostProcessor authenticated() {

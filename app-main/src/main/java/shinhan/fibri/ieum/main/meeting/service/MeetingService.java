@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.file.domain.File;
 import shinhan.fibri.ieum.common.file.repository.FileRepository;
+import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
@@ -22,11 +23,13 @@ import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.exception.HostCannotLeaveException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
+import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
@@ -160,6 +163,27 @@ public class MeetingService {
 		);
 		if (joinedCount >= meeting.getMaxMembers()) {
 			throw new MeetingFullException();
+		}
+	}
+
+	@Transactional
+	public void leave(AuthenticatedUser principal, Long meetingId) {
+		Meeting meeting = meetingRepository.findById(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		if (meeting.getHostId().equals(principal.userId())) {
+			throw new HostCannotLeaveException();
+		}
+		MeetingParticipant participant = participantRepository
+			.findByIdMeetingIdAndIdUserId(meetingId, principal.userId())
+			.filter(row -> row.getStatus() == ParticipantStatus.joined)
+			.orElseThrow(ParticipantNotFoundException::new);
+		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		participant.leave();
+		try {
+			chatRoomLifecycle.removeMember(roomId, principal.userId());
+		} catch (NotRoomMemberException ignored) {
+			// meeting_participants is the source of truth; tolerate older chat-only leave history.
 		}
 	}
 
