@@ -227,6 +227,18 @@ public class MeetingService {
 		}
 	}
 
+	@Transactional
+	public void cancel(AuthenticatedUser principal, Long meetingId) {
+		Meeting meeting = meetingRepository.findByIdAndDeletedAtIsNull(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		if (!meeting.getHostId().equals(principal.userId())) {
+			throw new NotHostException();
+		}
+		OffsetDateTime deletedAt = OffsetDateTime.now();
+		meeting.cancel(deletedAt);
+		pinWriter.softDelete(meeting.getPinId(), deletedAt);
+	}
+
 	private UUID validateImage(UUID imageFileId, Long userId) {
 		if (imageFileId == null) {
 			return null;

@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.pin.repository;
 
+import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -25,6 +26,20 @@ public class JdbcPinWriter implements PinWriter {
 			type.name(),
 			longitude,
 			latitude
+		);
+	}
+
+	@Override
+	public void softDelete(Long pinId, OffsetDateTime deletedAt) {
+		jdbcTemplate.update(
+			"""
+				UPDATE pins
+				   SET deleted_at = ?
+				 WHERE pin_id = ?
+				   AND deleted_at IS NULL
+				""",
+			deletedAt,
+			pinId
 		);
 	}
 }

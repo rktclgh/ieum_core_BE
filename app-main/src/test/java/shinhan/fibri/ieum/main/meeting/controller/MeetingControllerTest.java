@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -392,6 +393,37 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code", is("MEETING_NOT_OPEN")));
+	}
+
+	@Test
+	void deleteReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNoContent());
+
+		verify(meetingService).cancel(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+	}
+
+	@Test
+	void deleteMapsNotHostToForbidden() throws Exception {
+		org.mockito.Mockito.doThrow(new NotHostException())
+			.when(meetingService).cancel(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("NOT_HOST")));
+	}
+
+	@Test
+	void deleteMapsMeetingNotFoundToNotFound() throws Exception {
+		org.mockito.Mockito.doThrow(new MeetingNotFoundException())
+			.when(meetingService).cancel(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L));
+
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}", 3L)
+				.with(authenticated()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));
 	}
 
 	private static RequestPostProcessor authenticated() {

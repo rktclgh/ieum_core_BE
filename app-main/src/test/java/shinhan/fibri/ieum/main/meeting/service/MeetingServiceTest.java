@@ -447,6 +447,38 @@ class MeetingServiceTest {
 			.isInstanceOf(MeetingNotOpenException.class);
 	}
 
+	@Test
+	void cancelMarksMeetingCancelledAndSoftDeletesPin() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+
+		service.cancel(principal(1L), 3L);
+
+		assertThat(meeting.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingStatus.cancelled);
+		assertThat(meeting.getDeletedAt()).isNotNull();
+		verify(pinWriter).softDelete(org.mockito.ArgumentMatchers.eq(11L), any(OffsetDateTime.class));
+	}
+
+	@Test
+	void cancelRejectsNonHost() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.cancel(principal(42L), 3L))
+			.isInstanceOf(NotHostException.class);
+		assertThat(meeting.getDeletedAt()).isNull();
+		verify(pinWriter, never()).softDelete(any(), any());
+	}
+
+	@Test
+	void cancelThrowsWhenMeetingDoesNotExist() {
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.cancel(principal(1L), 3L))
+			.isInstanceOf(MeetingNotFoundException.class);
+		verify(pinWriter, never()).softDelete(any(), any());
+	}
+
 	private CreateMeetingRequest request(UUID imageFileId) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
