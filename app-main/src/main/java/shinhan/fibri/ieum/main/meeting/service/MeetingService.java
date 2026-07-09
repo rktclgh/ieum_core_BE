@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.meeting.service;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,8 @@ import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 @Service
 @RequiredArgsConstructor
 public class MeetingService {
+
+	private static final ZoneId RESPONSE_ZONE = ZoneId.of("Asia/Seoul");
 
 	private final MeetingRepository meetingRepository;
 	private final MeetingParticipantRepository participantRepository;
@@ -69,7 +72,7 @@ public class MeetingService {
 			detail.getTitle(),
 			detail.getContent(),
 			detail.getPlaceName(),
-			detail.getMeetingAt(),
+			detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
 			detail.getStatus(),
 			detail.getMaxMembers(),
 			participantCount,
@@ -82,7 +85,7 @@ public class MeetingService {
 			fileUrl(detail.getThumbnailFileId(), "thumb"),
 			new MeetingLocation(detail.getLatitude(), detail.getLongitude()),
 			myStatus(principal.userId(), detail),
-			detail.getCreatedAt()
+			detail.getCreatedAt().atZone(RESPONSE_ZONE).toOffsetDateTime()
 		);
 	}
 

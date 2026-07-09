@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -208,8 +209,8 @@ class MeetingServiceTest {
 			}
 
 			@Override
-			public OffsetDateTime getMeetingAt() {
-				return meetingAt;
+			public Instant getMeetingAt() {
+				return meetingAt.toInstant();
 			}
 
 			@Override
@@ -258,8 +259,8 @@ class MeetingServiceTest {
 			}
 
 			@Override
-			public OffsetDateTime getCreatedAt() {
-				return createdAt;
+			public Instant getCreatedAt() {
+				return createdAt.toInstant();
 			}
 		};
 	}

@@ -86,7 +86,7 @@ class MeetingRepositoryIntegrationTest {
 		assertThat(detail.getTitle()).isEqualTo("저녁 모임");
 		assertThat(detail.getContent()).isEqualTo("같이 밥 먹어요");
 		assertThat(detail.getPlaceName()).isEqualTo("동선역 2번 출구");
-		assertThat(detail.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00"));
+		assertThat(detail.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00").toInstant());
 		assertThat(detail.getStatus()).isEqualTo("open");
 		assertThat(detail.getMaxMembers()).isEqualTo(7);
 		assertThat(detail.getHostUserId()).isEqualTo(1L);
@@ -96,7 +96,7 @@ class MeetingRepositoryIntegrationTest {
 		assertThat(detail.getThumbnailFileId()).isEqualTo(THUMBNAIL_FILE_ID);
 		assertThat(detail.getLatitude()).isEqualTo(37.5);
 		assertThat(detail.getLongitude()).isEqualTo(127.0);
-		assertThat(detail.getCreatedAt()).isEqualTo(OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		assertThat(detail.getCreatedAt()).isEqualTo(OffsetDateTime.parse("2026-07-09T10:00:00+09:00").toInstant());
 	}
 
 	@Test

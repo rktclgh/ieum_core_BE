@@ -1,6 +1,6 @@
 package shinhan.fibri.ieum.main.meeting.repository;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 public interface MeetingDetailProjection {
@@ -17,7 +17,7 @@ public interface MeetingDetailProjection {
 
 	String getPlaceName();
 
-	OffsetDateTime getMeetingAt();
+	Instant getMeetingAt();
 
 	String getStatus();
 
@@ -37,5 +37,5 @@ public interface MeetingDetailProjection {
 
 	double getLongitude();
 
-	OffsetDateTime getCreatedAt();
+	Instant getCreatedAt();
 }
