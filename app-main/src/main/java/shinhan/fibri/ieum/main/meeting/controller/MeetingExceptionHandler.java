@@ -11,7 +11,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 
 @RestControllerAdvice(assignableTypes = MeetingController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -43,5 +46,23 @@ public class MeetingExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleMeetingNotFound(MeetingNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("MEETING_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MeetingNotOpenException.class)
+	public ResponseEntity<AuthErrorResponse> handleMeetingNotOpen(MeetingNotOpenException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("MEETING_NOT_OPEN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MeetingFullException.class)
+	public ResponseEntity<AuthErrorResponse> handleMeetingFull(MeetingFullException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("MEETING_FULL", exception.getMessage()));
+	}
+
+	@ExceptionHandler(KickedMemberException.class)
+	public ResponseEntity<AuthErrorResponse> handleKickedMember(KickedMemberException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+			.body(new AuthErrorResponse("KICKED_MEMBER", exception.getMessage()));
 	}
 }

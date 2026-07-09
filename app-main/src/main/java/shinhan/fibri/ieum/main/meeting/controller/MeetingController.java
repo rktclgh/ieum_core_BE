@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
@@ -49,5 +50,13 @@ public class MeetingController {
 		@PathVariable Long meetingId
 	) {
 		return ResponseEntity.ok(meetingService.getParticipants(principal, meetingId));
+	}
+
+	@PostMapping("/{meetingId}/join")
+	public ResponseEntity<JoinMeetingResponse> join(
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		@PathVariable Long meetingId
+	) {
+		return ResponseEntity.ok(meetingService.join(principal, meetingId));
 	}
 }

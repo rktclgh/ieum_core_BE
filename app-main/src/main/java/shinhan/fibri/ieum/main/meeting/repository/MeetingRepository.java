@@ -41,6 +41,13 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 		""", nativeQuery = true)
 	Optional<MeetingDetailProjection> findDetailById(@Param("id") Long id);
 
+	@Query(value = """
+		SELECT cr.room_id
+		  FROM chat_rooms cr
+		 WHERE cr.meeting_id = :meetingId
+		""", nativeQuery = true)
+	Optional<Long> findGroupRoomIdByMeetingId(@Param("meetingId") Long meetingId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("SELECT m FROM Meeting m WHERE m.id = :id AND m.deletedAt IS NULL")
 	Optional<Meeting> findActiveByIdForUpdate(@Param("id") Long id);

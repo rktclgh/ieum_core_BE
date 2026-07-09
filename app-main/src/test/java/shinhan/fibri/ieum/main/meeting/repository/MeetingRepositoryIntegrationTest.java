@@ -125,6 +125,13 @@ class MeetingRepositoryIntegrationTest {
 	}
 
 	@Test
+	void findGroupRoomIdByMeetingIdReturnsGroupRoomId() {
+		Optional<Long> roomId = meetingRepository.findGroupRoomIdByMeetingId(1L);
+
+		assertThat(roomId).contains(1L);
+	}
+
+	@Test
 	void findJoinedParticipantsByMeetingIdReturnsOnlyActiveJoinedUsersInJoinOrder() {
 		var rows = participantRepository.findJoinedParticipantsByMeetingId(1L);
 

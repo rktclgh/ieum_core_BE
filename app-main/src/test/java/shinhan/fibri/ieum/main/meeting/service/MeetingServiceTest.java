@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
@@ -27,10 +28,14 @@ import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
+import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
@@ -203,6 +208,96 @@ class MeetingServiceTest {
 			.isInstanceOf(MeetingNotFoundException.class);
 	}
 
+	@Test
+	void joinAddsNewParticipantToOpenMeetingAndGroupRoom() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+
+		JoinMeetingResponse response = service.join(principal(42L), 3L);
+
+		assertThat(response.roomId()).isEqualTo(9L);
+		ArgumentCaptor<MeetingParticipant> participantCaptor = ArgumentCaptor.forClass(MeetingParticipant.class);
+		verify(participantRepository).save(participantCaptor.capture());
+		assertThat(participantCaptor.getValue().getId().meetingId()).isEqualTo(3L);
+		assertThat(participantCaptor.getValue().getId().userId()).isEqualTo(42L);
+		assertThat(participantCaptor.getValue().getStatus()).isEqualTo(ParticipantStatus.joined);
+		verify(chatRoomLifecycle).addMember(9L, 42L);
+	}
+
+	@Test
+	void joinReturnsRoomIdWithoutMutatingWhenAlreadyJoined() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		JoinMeetingResponse response = service.join(principal(42L), 3L);
+
+		assertThat(response.roomId()).isEqualTo(9L);
+		verify(participantRepository, never()).save(any(MeetingParticipant.class));
+		verify(participantRepository, never()).countByIdMeetingIdAndStatus(any(), any());
+		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void joinRejoinsLeftParticipantAndRestoresGroupRoomMember() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		participant.leave();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+
+		JoinMeetingResponse response = service.join(principal(42L), 3L);
+
+		assertThat(response.roomId()).isEqualTo(9L);
+		assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.joined);
+		verify(chatRoomLifecycle).addMember(9L, 42L);
+	}
+
+	@Test
+	void joinRejectsPastOrClosedMeeting() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.join(principal(42L), 3L))
+			.isInstanceOf(MeetingNotOpenException.class);
+		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void joinRejectsFullMeeting() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 2);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(2L);
+
+		assertThatThrownBy(() -> service.join(principal(42L), 3L))
+			.isInstanceOf(MeetingFullException.class);
+		verify(participantRepository, never()).save(any(MeetingParticipant.class));
+		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
+	@Test
+	void joinRejectsKickedParticipant() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.parse("2026-07-09T10:00:00+09:00"));
+		participant.kick();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingRepository.findGroupRoomIdByMeetingId(3L)).thenReturn(Optional.of(9L));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.join(principal(42L), 3L))
+			.isInstanceOf(KickedMemberException.class);
+		verify(chatRoomLifecycle, never()).addMember(any(), any());
+	}
+
 	private CreateMeetingRequest request(UUID imageFileId) {
 		return new CreateMeetingRequest(
 			"저녁 모임",
@@ -214,6 +309,22 @@ class MeetingServiceTest {
 			127.0,
 			imageFileId
 		);
+	}
+
+	private Meeting meeting(Long id, Long hostId, OffsetDateTime meetingAt, int maxMembers) {
+		Meeting meeting = Meeting.create(
+			11L,
+			hostId,
+			"저녁 모임",
+			"같이 밥 먹어요",
+			"동선역 2번 출구",
+			meetingAt,
+			maxMembers,
+			null,
+			null
+		);
+		setField(meeting, "id", id);
+		return meeting;
 	}
 
 	private AuthenticatedUser principal(Long userId) {

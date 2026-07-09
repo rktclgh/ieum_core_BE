@@ -13,15 +13,20 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
+import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
@@ -107,6 +112,55 @@ public class MeetingService {
 			))
 			.toList();
 		return new MeetingParticipantsResponse(items);
+	}
+
+	@Transactional
+	public JoinMeetingResponse join(AuthenticatedUser principal, Long meetingId) {
+		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		if (!meeting.isJoinable(OffsetDateTime.now())) {
+			throw new MeetingNotOpenException();
+		}
+		Long roomId = meetingRepository.findGroupRoomIdByMeetingId(meetingId)
+			.orElseThrow(MeetingNotFoundException::new);
+		return participantRepository.findByIdMeetingIdAndIdUserId(meetingId, principal.userId())
+			.map(participant -> joinExistingParticipant(meeting, participant, roomId, principal.userId()))
+			.orElseGet(() -> joinNewParticipant(meeting, roomId, principal.userId()));
+	}
+
+	private JoinMeetingResponse joinExistingParticipant(
+		Meeting meeting,
+		MeetingParticipant participant,
+		Long roomId,
+		Long userId
+	) {
+		if (participant.getStatus() == ParticipantStatus.kicked) {
+			throw new KickedMemberException();
+		}
+		if (participant.getStatus() == ParticipantStatus.joined) {
+			return new JoinMeetingResponse(roomId);
+		}
+		ensureHasCapacity(meeting);
+		participant.rejoin(OffsetDateTime.now());
+		chatRoomLifecycle.addMember(roomId, userId);
+		return new JoinMeetingResponse(roomId);
+	}
+
+	private JoinMeetingResponse joinNewParticipant(Meeting meeting, Long roomId, Long userId) {
+		ensureHasCapacity(meeting);
+		participantRepository.save(MeetingParticipant.join(meeting.getId(), userId, OffsetDateTime.now()));
+		chatRoomLifecycle.addMember(roomId, userId);
+		return new JoinMeetingResponse(roomId);
+	}
+
+	private void ensureHasCapacity(Meeting meeting) {
+		long joinedCount = participantRepository.countByIdMeetingIdAndStatus(
+			meeting.getId(),
+			ParticipantStatus.joined
+		);
+		if (joinedCount >= meeting.getMaxMembers()) {
+			throw new MeetingFullException();
+		}
 	}
 
 	private UUID validateImage(UUID imageFileId, Long userId) {

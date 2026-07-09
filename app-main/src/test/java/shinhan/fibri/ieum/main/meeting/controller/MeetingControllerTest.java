@@ -35,13 +35,17 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
+import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingParticipantsResponse;
 import shinhan.fibri.ieum.main.meeting.exception.InvalidMeetingRequestException;
+import shinhan.fibri.ieum.main.meeting.exception.KickedMemberException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingFullException;
 import shinhan.fibri.ieum.main.meeting.exception.MeetingNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.MeetingNotOpenException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 
 @WebMvcTest(MeetingController.class)
@@ -218,6 +222,50 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("MEETING_NOT_FOUND")));
+	}
+
+	@Test
+	void joinReturnsGroupRoomId() throws Exception {
+		when(meetingService.join(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenReturn(new JoinMeetingResponse(9L));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/join", 3L)
+				.with(authenticated()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.roomId", is(9)));
+	}
+
+	@Test
+	void joinMapsMeetingNotOpenToConflict() throws Exception {
+		when(meetingService.join(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenThrow(new MeetingNotOpenException());
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/join", 3L)
+				.with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("MEETING_NOT_OPEN")));
+	}
+
+	@Test
+	void joinMapsMeetingFullToConflict() throws Exception {
+		when(meetingService.join(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenThrow(new MeetingFullException());
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/join", 3L)
+				.with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("MEETING_FULL")));
+	}
+
+	@Test
+	void joinMapsKickedMemberToForbidden() throws Exception {
+		when(meetingService.join(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L)))
+			.thenThrow(new KickedMemberException());
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/join", 3L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("KICKED_MEMBER")));
 	}
 
 	private static RequestPostProcessor authenticated() {
