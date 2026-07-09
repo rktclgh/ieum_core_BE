@@ -14,6 +14,7 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
@@ -35,6 +36,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 
@@ -45,6 +47,7 @@ public class MeetingService {
 	private static final ZoneId RESPONSE_ZONE = ZoneId.of("Asia/Seoul");
 
 	private final MeetingRepository meetingRepository;
+	private final MeetingScheduleRepository meetingScheduleRepository;
 	private final MeetingParticipantRepository participantRepository;
 	private final FileRepository fileRepository;
 	private final PinWriter pinWriter;
@@ -57,17 +60,25 @@ public class MeetingService {
 		Meeting meeting = meetingRepository.save(Meeting.create(
 			pinId,
 			principal.userId(),
+			request.type(),
 			request.title(),
 			request.content(),
 			request.placeName(),
-			request.meetingAt(),
+			request.schedule().startsAt(),
 			request.maxMembers(),
 			imageFileId,
 			imageFileId
 		));
+		MeetingSchedule firstSchedule = meetingScheduleRepository.save(MeetingSchedule.create(
+			meeting.getId(),
+			request.schedule().startsAt(),
+			request.schedule().endsAt(),
+			MeetingScheduleTimePolicy.visibleUntil(request.schedule().startsAt()),
+			1
+		));
 		participantRepository.save(MeetingParticipant.join(meeting.getId(), principal.userId(), OffsetDateTime.now()));
 		Long roomId = chatRoomLifecycle.createGroupRoom(meeting.getId(), principal.userId());
-		return new CreateMeetingResponse(meeting.getId(), pinId, roomId);
+		return new CreateMeetingResponse(meeting.getId(), pinId, roomId, firstSchedule.getId());
 	}
 
 	@Transactional(readOnly = true)

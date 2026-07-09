@@ -27,7 +27,10 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.service.ChatRoomLifecycle;
 import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingType;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
+import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingScheduleRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.CreateMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
@@ -46,18 +49,21 @@ import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantRepository;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
+import shinhan.fibri.ieum.main.meeting.repository.MeetingScheduleRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 
 class MeetingServiceTest {
 
 	private final MeetingRepository meetingRepository = mock(MeetingRepository.class);
+	private final MeetingScheduleRepository meetingScheduleRepository = mock(MeetingScheduleRepository.class);
 	private final MeetingParticipantRepository participantRepository = mock(MeetingParticipantRepository.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = mock(ChatRoomLifecycle.class);
 	private final MeetingService service = new MeetingService(
 		meetingRepository,
+		meetingScheduleRepository,
 		participantRepository,
 		fileRepository,
 		pinWriter,
@@ -75,6 +81,11 @@ class MeetingServiceTest {
 			setField(meeting, "id", 3L);
 			return meeting;
 		});
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
+			MeetingSchedule schedule = invocation.getArgument(0);
+			setField(schedule, "id", 31L);
+			return schedule;
+		});
 		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
 
 		CreateMeetingResponse response = service.create(principal(42L), request(imageFileId));
@@ -82,11 +93,18 @@ class MeetingServiceTest {
 		assertThat(response.meetingId()).isEqualTo(3L);
 		assertThat(response.pinId()).isEqualTo(11L);
 		assertThat(response.roomId()).isEqualTo(9L);
-		InOrder order = inOrder(pinWriter, meetingRepository, participantRepository, chatRoomLifecycle);
+		assertThat(response.firstScheduleId()).isEqualTo(31L);
+		InOrder order = inOrder(pinWriter, meetingRepository, meetingScheduleRepository, participantRepository, chatRoomLifecycle);
 		order.verify(pinWriter).create(42L, PinType.meeting, 37.5, 127.0);
 		order.verify(meetingRepository).save(any(Meeting.class));
+		order.verify(meetingScheduleRepository).save(any(MeetingSchedule.class));
 		order.verify(participantRepository).save(any(MeetingParticipant.class));
 		order.verify(chatRoomLifecycle).createGroupRoom(3L, 42L);
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getValue().getMeetingId()).isEqualTo(3L);
+		assertThat(scheduleCaptor.getValue().getStartsAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00"));
+		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59+09:00"));
 	}
 
 	@Test
@@ -483,8 +501,13 @@ class MeetingServiceTest {
 		return new CreateMeetingRequest(
 			"저녁 모임",
 			"같이 밥 먹어요",
+			MeetingType.one_time,
 			"동선역 2번 출구",
-			OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+			new CreateMeetingScheduleRequest(
+				OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+				null
+			),
+			null,
 			7,
 			37.5,
 			127.0,

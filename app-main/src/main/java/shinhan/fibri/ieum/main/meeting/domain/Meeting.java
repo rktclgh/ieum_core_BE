@@ -29,6 +29,11 @@ public class Meeting {
 	@Column(name = "host_id", nullable = false)
 	private Long hostId;
 
+	@Enumerated(EnumType.STRING)
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(name = "type", nullable = false, columnDefinition = "meeting_type")
+	private MeetingType type;
+
 	@Column(name = "title", nullable = false, length = 200)
 	private String title;
 
@@ -70,6 +75,7 @@ public class Meeting {
 	private Meeting(
 		Long pinId,
 		Long hostId,
+		MeetingType type,
 		String title,
 		String content,
 		String placeName,
@@ -83,6 +89,7 @@ public class Meeting {
 		}
 		this.pinId = Objects.requireNonNull(pinId, "pinId must not be null");
 		this.hostId = Objects.requireNonNull(hostId, "hostId must not be null");
+		this.type = Objects.requireNonNull(type, "type must not be null");
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.content = content;
 		this.placeName = Objects.requireNonNull(placeName, "placeName must not be null");
@@ -98,6 +105,7 @@ public class Meeting {
 	public static Meeting create(
 		Long pinId,
 		Long hostId,
+		MeetingType type,
 		String title,
 		String content,
 		String placeName,
@@ -106,7 +114,43 @@ public class Meeting {
 		UUID imageFileId,
 		UUID thumbnailFileId
 	) {
-		return new Meeting(pinId, hostId, title, content, placeName, meetingAt, maxMembers, imageFileId, thumbnailFileId);
+		return new Meeting(
+			pinId,
+			hostId,
+			type,
+			title,
+			content,
+			placeName,
+			meetingAt,
+			maxMembers,
+			imageFileId,
+			thumbnailFileId
+		);
+	}
+
+	public static Meeting create(
+		Long pinId,
+		Long hostId,
+		String title,
+		String content,
+		String placeName,
+		OffsetDateTime meetingAt,
+		int maxMembers,
+		UUID imageFileId,
+		UUID thumbnailFileId
+	) {
+		return new Meeting(
+			pinId,
+			hostId,
+			MeetingType.one_time,
+			title,
+			content,
+			placeName,
+			meetingAt,
+			maxMembers,
+			imageFileId,
+			thumbnailFileId
+		);
 	}
 
 	public void close() {
@@ -139,6 +183,10 @@ public class Meeting {
 
 	public Long getHostId() {
 		return hostId;
+	}
+
+	public MeetingType getType() {
+		return type;
 	}
 
 	public String getTitle() {

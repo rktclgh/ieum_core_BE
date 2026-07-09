@@ -72,7 +72,7 @@ class MeetingControllerTest {
 	@Test
 	void createReturnsCreatedMeetingIds() throws Exception {
 		when(meetingService.create(any(AuthenticatedUser.class), any()))
-			.thenReturn(new CreateMeetingResponse(3L, 11L, 9L));
+			.thenReturn(new CreateMeetingResponse(3L, 11L, 9L, 31L));
 
 		mockMvc.perform(post("/api/v1/meetings")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -80,8 +80,9 @@ class MeetingControllerTest {
 					{
 					  "title": "저녁 모임",
 					  "content": "같이 밥 먹어요",
+					  "type": "one_time",
 					  "placeName": "동선역 2번 출구",
-					  "meetingAt": "2026-07-10T19:00:00+09:00",
+					  "schedule": { "startsAt": "2026-07-10T19:00:00+09:00" },
 					  "maxMembers": 7,
 					  "lat": 37.5,
 					  "lng": 127.0,
@@ -93,7 +94,8 @@ class MeetingControllerTest {
 			.andExpect(header().string(HttpHeaders.LOCATION, "/api/v1/meetings/3"))
 			.andExpect(jsonPath("$.meetingId", is(3)))
 			.andExpect(jsonPath("$.pinId", is(11)))
-			.andExpect(jsonPath("$.roomId", is(9)));
+			.andExpect(jsonPath("$.roomId", is(9)))
+			.andExpect(jsonPath("$.firstScheduleId", is(31)));
 
 		verify(meetingService).create(any(AuthenticatedUser.class), any());
 	}
@@ -119,8 +121,9 @@ class MeetingControllerTest {
 				.content("""
 					{
 					  "title": "저녁 모임",
+					  "type": "one_time",
 					  "placeName": "동선역 2번 출구",
-					  "meetingAt": "2026-07-10T19:00:00+09:00",
+					  "schedule": { "startsAt": "2026-07-10T19:00:00+09:00" },
 					  "maxMembers": 7,
 					  "lat": 37.5,
 					  "lng": 127.0,
