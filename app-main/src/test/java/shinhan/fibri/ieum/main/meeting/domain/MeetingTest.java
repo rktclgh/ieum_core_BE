@@ -36,7 +36,6 @@ class MeetingTest {
 		assertThat(meeting.getThumbnailFileId()).isEqualTo(thumbnailFileId);
 		assertThat(meeting.getStatus()).isEqualTo(MeetingStatus.open);
 		assertThat(meeting.getDeletedAt()).isNull();
-		assertThat(meeting.isJoinable(OffsetDateTime.parse("2026-07-10T18:00:00+09:00"))).isTrue();
 	}
 
 	@Test
@@ -46,7 +45,6 @@ class MeetingTest {
 		meeting.close();
 
 		assertThat(meeting.getStatus()).isEqualTo(MeetingStatus.closed);
-		assertThat(meeting.isJoinable(OffsetDateTime.parse("2026-07-10T18:00:00+09:00"))).isFalse();
 		assertThatThrownBy(meeting::close).isInstanceOf(IllegalStateException.class);
 	}
 
@@ -59,7 +57,6 @@ class MeetingTest {
 
 		assertThat(meeting.getStatus()).isEqualTo(MeetingStatus.cancelled);
 		assertThat(meeting.getDeletedAt()).isEqualTo(cancelledAt);
-		assertThat(meeting.isJoinable(OffsetDateTime.parse("2026-07-10T18:00:00+09:00"))).isFalse();
 	}
 
 	private Meeting openMeeting() {

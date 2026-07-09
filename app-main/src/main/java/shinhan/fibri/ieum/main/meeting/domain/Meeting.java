@@ -172,12 +172,6 @@ public class Meeting {
 		this.updatedAt = OffsetDateTime.now();
 	}
 
-	public boolean isJoinable(OffsetDateTime now) {
-		return status == MeetingStatus.open
-			&& deletedAt == null
-			&& meetingAt.isAfter(Objects.requireNonNull(now, "now must not be null"));
-	}
-
 	public Long getId() {
 		return id;
 	}
