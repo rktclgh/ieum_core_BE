@@ -113,6 +113,33 @@ class MeetingScheduleMaintenanceServiceTest {
 		assertThat(created).isZero();
 	}
 
+	@Test
+	void expandRecurringMonthlySchedulesAnchorsIntervalAtFirstActualOccurrence() {
+		OffsetDateTime now = OffsetDateTime.parse("2026-02-16T09:00:00+09:00");
+		MeetingRecurrenceRule rule = MeetingRecurrenceRule.createMonthly(
+			3L,
+			2,
+			15,
+			LocalDate.parse("2026-01-20"),
+			null,
+			null,
+			"Asia/Seoul"
+		);
+		when(recurrenceRuleRepository.findRulesNeedingExpansion(now, now.toLocalDate(), 4))
+			.thenReturn(List.of(rule));
+		when(repository.findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(3L)).thenReturn(List.of(
+			schedule(3L, "2026-02-15T19:00:00+09:00", 1)
+		));
+
+		int created = service.expandRecurringSchedules(now);
+
+		assertThat(created).isEqualTo(4);
+		verify(repository).saveAndFlush(scheduleMatching("2026-04-15T19:00:00+09:00", 2));
+		verify(repository).saveAndFlush(scheduleMatching("2026-06-15T19:00:00+09:00", 3));
+		verify(repository).saveAndFlush(scheduleMatching("2026-08-15T19:00:00+09:00", 4));
+		verify(repository).saveAndFlush(scheduleMatching("2026-10-15T19:00:00+09:00", 5));
+	}
+
 	private MeetingSchedule schedule(Long meetingId, String startsAt, int sequenceNo) {
 		OffsetDateTime start = OffsetDateTime.parse(startsAt);
 		return MeetingSchedule.create(
@@ -128,7 +155,7 @@ class MeetingScheduleMaintenanceServiceTest {
 		return org.mockito.ArgumentMatchers.argThat(schedule ->
 			schedule.getStartsAt().isEqual(OffsetDateTime.parse(startsAt))
 				&& schedule.getEndsAt().isEqual(OffsetDateTime.parse(startsAt).plusHours(1))
-				&& schedule.getVisibleUntil().isEqual(OffsetDateTime.parse(startsAt).withHour(23).withMinute(59).withSecond(59))
+				&& schedule.getVisibleUntil().isEqual(OffsetDateTime.parse(startsAt).withHour(23).withMinute(59).withSecond(59).withNano(999999999))
 				&& schedule.getSequenceNo() == sequenceNo
 		);
 	}

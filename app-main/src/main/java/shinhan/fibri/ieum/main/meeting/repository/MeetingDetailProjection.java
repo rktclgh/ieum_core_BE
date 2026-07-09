@@ -19,6 +19,8 @@ public interface MeetingDetailProjection {
 
 	Instant getMeetingAt();
 
+	String getType();
+
 	String getStatus();
 
 	int getMaxMembers();

@@ -13,7 +13,7 @@ class MeetingScheduleTimePolicyTest {
 
 		OffsetDateTime visibleUntil = MeetingScheduleTimePolicy.visibleUntil(startsAt);
 
-		assertThat(visibleUntil).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59+09:00"));
+		assertThat(visibleUntil).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59.999999999+09:00"));
 	}
 
 	@Test
@@ -22,6 +22,15 @@ class MeetingScheduleTimePolicyTest {
 
 		OffsetDateTime visibleUntil = MeetingScheduleTimePolicy.visibleUntil(startsAt);
 
-		assertThat(visibleUntil).isEqualTo(OffsetDateTime.parse("2026-07-11T23:59:59+09:00"));
+		assertThat(visibleUntil).isEqualTo(OffsetDateTime.parse("2026-07-11T23:59:59.999999999+09:00"));
+	}
+
+	@Test
+	void visibleUntilIsNotBeforeLateNightStart() {
+		OffsetDateTime startsAt = OffsetDateTime.parse("2026-07-10T23:59:59.500+09:00");
+
+		OffsetDateTime visibleUntil = MeetingScheduleTimePolicy.visibleUntil(startsAt);
+
+		assertThat(visibleUntil).isAfter(startsAt);
 	}
 }

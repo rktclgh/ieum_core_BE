@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
 
 public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule, Long> {
@@ -34,12 +35,37 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 
 	Optional<MeetingSchedule> findByIdAndMeetingIdAndDeletedAtIsNull(Long id, Long meetingId);
 
+	Optional<MeetingSchedule> findFirstByMeetingIdAndStatusAndVisibleUntilGreaterThanEqualAndDeletedAtIsNullOrderByStartsAtAscIdAsc(
+		Long meetingId,
+		MeetingScheduleStatus status,
+		OffsetDateTime now
+	);
+
+	default Optional<MeetingSchedule> findFirstActiveSchedule(Long meetingId, OffsetDateTime now) {
+		return findFirstByMeetingIdAndStatusAndVisibleUntilGreaterThanEqualAndDeletedAtIsNullOrderByStartsAtAscIdAsc(
+			meetingId,
+			MeetingScheduleStatus.scheduled,
+			now
+		);
+	}
+
 	List<MeetingSchedule> findByMeetingIdAndDeletedAtIsNullOrderBySequenceNoAsc(Long meetingId);
 
-	List<MeetingSchedule> findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(
-		Long meetingId,
-		OffsetDateTime from,
-		OffsetDateTime to
+	@Query(value = """
+		SELECT *
+		  FROM meeting_schedules
+		 WHERE meeting_id = :meetingId
+		   AND deleted_at IS NULL
+		   AND starts_at >= :from
+		   AND starts_at <= :to
+		 ORDER BY starts_at ASC, schedule_id ASC
+		 LIMIT :limit
+		""", nativeQuery = true)
+	List<MeetingSchedule> findSchedulesInRange(
+		@Param("meetingId") Long meetingId,
+		@Param("from") OffsetDateTime from,
+		@Param("to") OffsetDateTime to,
+		@Param("limit") int limit
 	);
 
 	@Query("""
@@ -84,10 +110,12 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		   AND s.starts_at >= :from
 		   AND s.starts_at <= :to
 		 ORDER BY s.starts_at ASC, s.schedule_id ASC
+		 LIMIT :limit
 		""", nativeQuery = true)
 	List<MeetingCalendarProjection> findCalendarItems(
 		@Param("userId") Long userId,
 		@Param("from") OffsetDateTime from,
-		@Param("to") OffsetDateTime to
+		@Param("to") OffsetDateTime to,
+		@Param("limit") int limit
 	);
 }

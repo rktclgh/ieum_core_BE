@@ -120,7 +120,7 @@ class MeetingServiceTest {
 		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
 		assertThat(scheduleCaptor.getValue().getMeetingId()).isEqualTo(3L);
 		assertThat(scheduleCaptor.getValue().getStartsAt()).isEqualTo(OffsetDateTime.parse("2026-07-10T19:00:00+09:00"));
-		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59+09:00"));
+		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2026-07-10T23:59:59.999999999+09:00"));
 	}
 
 	@Test
@@ -211,6 +211,91 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void createRecurringMonthlyMeetingAnchorsIntervalAtFirstActualOccurrence() {
+		when(pinWriter.create(42L, PinType.meeting, 37.5, 127.0)).thenReturn(11L);
+		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
+			Meeting meeting = invocation.getArgument(0);
+			setField(meeting, "id", 3L);
+			return meeting;
+		});
+		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(recurrenceRuleRepository.save(any(MeetingRecurrenceRule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(chatRoomLifecycle.createGroupRoom(3L, 42L)).thenReturn(9L);
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.monthly,
+			2,
+			null,
+			15,
+			LocalDate.parse("2026-01-20"),
+			LocalDate.parse("2026-08-31"),
+			null,
+			"Asia/Seoul"
+		);
+
+		service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-02-15T19:00:00+09:00"), recurrenceRule)
+		);
+
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository, org.mockito.Mockito.times(4)).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getAllValues())
+			.extracting(MeetingSchedule::getStartsAt)
+			.containsExactly(
+				OffsetDateTime.parse("2026-02-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-04-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-06-15T19:00:00+09:00"),
+				OffsetDateTime.parse("2026-08-15T19:00:00+09:00")
+			);
+	}
+
+	@Test
+	void createRecurringMeetingRejectsInvalidTimezoneBeforeWritingRows() {
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.daily,
+			1,
+			null,
+			null,
+			LocalDate.parse("2026-07-07"),
+			null,
+			null,
+			"Foo/Bar"
+		);
+
+		assertThatThrownBy(() -> service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("Invalid recurrenceRule");
+		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
+	void createRecurringMeetingRejectsMissingWeeklyDaysBeforeWritingRows() {
+		CreateMeetingRecurrenceRuleRequest recurrenceRule = new CreateMeetingRecurrenceRuleRequest(
+			RecurrenceFrequency.weekly,
+			1,
+			List.of(),
+			null,
+			LocalDate.parse("2026-07-07"),
+			null,
+			null,
+			"Asia/Seoul"
+		);
+
+		assertThatThrownBy(() -> service.create(
+			principal(42L),
+			request(null, MeetingType.recurring, OffsetDateTime.parse("2026-07-07T19:00:00+09:00"), recurrenceRule)
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("daysOfWeek is required for weekly recurrence");
+		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
 	void getDetailAssemblesMeetingDetailForJoinedMember() {
 		UUID hostProfileFileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
 		UUID imageFileId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -221,6 +306,26 @@ class MeetingServiceTest {
 		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(7L);
 		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
 			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, createdAt)));
+		MeetingSchedule nextSchedule = MeetingSchedule.create(
+			3L,
+			OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
+			OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
+			OffsetDateTime.parse("2026-07-14T23:59:59+09:00"),
+			2
+		);
+		setField(nextSchedule, "id", 32L);
+		when(meetingScheduleRepository.findFirstActiveSchedule(eq(3L), any(OffsetDateTime.class)))
+			.thenReturn(Optional.of(nextSchedule));
+		when(recurrenceRuleRepository.findByMeetingId(3L))
+			.thenReturn(Optional.of(MeetingRecurrenceRule.createWeekly(
+				3L,
+				1,
+				List.of(2),
+				LocalDate.parse("2026-07-07"),
+				LocalDate.parse("2026-07-21"),
+				3,
+				"Asia/Seoul"
+			)));
 
 		MeetingDetailResponse response = service.getDetail(principal(42L), 3L);
 
@@ -231,6 +336,13 @@ class MeetingServiceTest {
 		assertThat(response.content()).isEqualTo("같이 밥 먹어요");
 		assertThat(response.placeName()).isEqualTo("동선역 2번 출구");
 		assertThat(response.meetingAt()).isEqualTo(meetingAt);
+		assertThat(response.type()).isEqualTo("recurring");
+		assertThat(response.active()).isTrue();
+		assertThat(response.nextSchedule().scheduleId()).isEqualTo(32L);
+		assertThat(response.nextSchedule().startsAt()).isEqualTo(OffsetDateTime.parse("2026-07-14T19:00:00+09:00"));
+		assertThat(response.nextSchedule().status()).isEqualTo("scheduled");
+		assertThat(response.recurrenceRule().frequency()).isEqualTo("weekly");
+		assertThat(response.recurrenceRule().daysOfWeek()).containsExactly(2);
 		assertThat(response.status()).isEqualTo("open");
 		assertThat(response.maxMembers()).isEqualTo(7);
 		assertThat(response.participantCount()).isEqualTo(7L);
@@ -243,6 +355,19 @@ class MeetingServiceTest {
 		assertThat(response.location().lng()).isEqualTo(127.0);
 		assertThat(response.myStatus()).isEqualTo("joined");
 		assertThat(response.createdAt()).isEqualTo(createdAt);
+	}
+
+	@Test
+	void getDetailReturnsInactiveWhenNoActiveScheduleExists() {
+		when(meetingRepository.findDetailById(3L))
+			.thenReturn(Optional.of(detailRow(null, null, OffsetDateTime.parse("2026-07-10T19:00:00+09:00"), OffsetDateTime.parse("2026-07-09T10:00:00+09:00"))));
+		when(participantRepository.countByIdMeetingIdAndStatus(3L, ParticipantStatus.joined)).thenReturn(1L);
+		when(meetingScheduleRepository.findFirstActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(Optional.empty());
+
+		MeetingDetailResponse response = service.getDetail(principal(1L), 3L);
+
+		assertThat(response.active()).isFalse();
+		assertThat(response.nextSchedule()).isNull();
 	}
 
 	@Test
@@ -350,10 +475,11 @@ class MeetingServiceTest {
 		second.cancel();
 		setField(second, "id", 32L);
 		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
-		when(meetingScheduleRepository.findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(
+		when(meetingScheduleRepository.findSchedulesInRange(
 			3L,
 			OffsetDateTime.parse("2099-07-01T00:00:00+09:00"),
-			OffsetDateTime.parse("2099-08-01T00:00:00+09:00")
+			OffsetDateTime.parse("2099-08-01T00:00:00+09:00"),
+			1000
 		)).thenReturn(List.of(first, second));
 
 		MeetingSchedulesResponse response = service.getSchedules(
@@ -380,11 +506,38 @@ class MeetingServiceTest {
 			OffsetDateTime.parse("2099-08-01T00:00:00+09:00")
 		);
 
-		verify(meetingScheduleRepository).findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(
+		verify(meetingScheduleRepository).findSchedulesInRange(
 			3L,
 			OffsetDateTime.parse("2099-07-01T00:00:00+09:00"),
-			OffsetDateTime.parse("2099-08-01T00:00:00+09:00")
+			OffsetDateTime.parse("2099-08-01T00:00:00+09:00"),
+			1000
 		);
+	}
+
+	@Test
+	void getSchedulesRejectsRangeLongerThanOneYear() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+
+		assertThatThrownBy(() -> service.getSchedules(
+			principal(42L),
+			3L,
+			OffsetDateTime.parse("2099-01-01T00:00:00+09:00"),
+			OffsetDateTime.parse("2100-01-03T00:00:00+09:00")
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("Range must not exceed 366 days");
+	}
+
+	@Test
+	void getCalendarRejectsRangeLongerThanOneYear() {
+		assertThatThrownBy(() -> service.getCalendar(
+			principal(42L),
+			OffsetDateTime.parse("2099-01-01T00:00:00+09:00"),
+			OffsetDateTime.parse("2100-01-03T00:00:00+09:00")
+		))
+			.isInstanceOf(InvalidMeetingRequestException.class)
+			.hasMessage("Range must not exceed 366 days");
 	}
 
 	@Test
@@ -414,7 +567,8 @@ class MeetingServiceTest {
 		when(meetingScheduleRepository.findCalendarItems(
 			42L,
 			OffsetDateTime.parse("2099-07-01T00:00:00+09:00"),
-			OffsetDateTime.parse("2099-08-01T00:00:00+09:00")
+			OffsetDateTime.parse("2099-08-01T00:00:00+09:00"),
+			1000
 		)).thenReturn(List.of(calendarRow()));
 
 		MeetingCalendarResponse response = service.getCalendar(
@@ -558,7 +712,7 @@ class MeetingServiceTest {
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
 		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
 		assertThat(scheduleCaptor.getValue().getSequenceNo()).isEqualTo(2);
-		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59+09:00"));
+		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59.999999999+09:00"));
 	}
 
 	@Test
@@ -989,6 +1143,11 @@ class MeetingServiceTest {
 			@Override
 			public Instant getMeetingAt() {
 				return meetingAt.toInstant();
+			}
+
+			@Override
+			public String getType() {
+				return "recurring";
 			}
 
 			@Override

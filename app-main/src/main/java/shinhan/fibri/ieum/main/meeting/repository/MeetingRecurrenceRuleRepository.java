@@ -3,12 +3,15 @@ package shinhan.fibri.ieum.main.meeting.repository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 
 public interface MeetingRecurrenceRuleRepository extends JpaRepository<MeetingRecurrenceRule, Long> {
+
+	Optional<MeetingRecurrenceRule> findByMeetingId(Long meetingId);
 
 	@Query("""
 		select rule

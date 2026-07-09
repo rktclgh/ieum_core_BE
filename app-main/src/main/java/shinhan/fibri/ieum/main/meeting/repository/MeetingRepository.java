@@ -21,6 +21,7 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 		       m.content                            AS "content",
 		       m.place_name                         AS "placeName",
 		       m.meeting_at                         AS "meetingAt",
+		       CAST(m.type AS text)                 AS "type",
 		       CAST(m.status AS text)               AS "status",
 		       m.max_members                        AS "maxMembers",
 		       u.user_id                            AS "hostUserId",

@@ -41,6 +41,7 @@ import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailRecurrenceRuleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
@@ -156,6 +157,24 @@ class MeetingControllerTest {
 				"같이 밥 먹어요",
 				"동선역 2번 출구",
 				OffsetDateTime.parse("2026-07-10T19:00:00+09:00"),
+				"recurring",
+				true,
+				new MeetingScheduleItem(
+					32L,
+					OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
+					OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
+					"scheduled"
+				),
+				new MeetingDetailRecurrenceRuleResponse(
+					"weekly",
+					1,
+					java.util.List.of(2),
+					null,
+					java.time.LocalDate.parse("2026-07-07"),
+					java.time.LocalDate.parse("2026-07-21"),
+					3,
+					"Asia/Seoul"
+				),
 				"open",
 				7,
 				7L,
@@ -175,6 +194,12 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.roomId", is(9)))
 			.andExpect(jsonPath("$.title", is("저녁 모임")))
 			.andExpect(jsonPath("$.placeName", is("동선역 2번 출구")))
+			.andExpect(jsonPath("$.type", is("recurring")))
+			.andExpect(jsonPath("$.active", is(true)))
+			.andExpect(jsonPath("$.nextSchedule.scheduleId", is(32)))
+			.andExpect(jsonPath("$.nextSchedule.startsAt", is("2026-07-14T19:00:00+09:00")))
+			.andExpect(jsonPath("$.recurrenceRule.frequency", is("weekly")))
+			.andExpect(jsonPath("$.recurrenceRule.daysOfWeek[0]", is(2)))
 			.andExpect(jsonPath("$.status", is("open")))
 			.andExpect(jsonPath("$.participantCount", is(7)))
 			.andExpect(jsonPath("$.host.userId", is(1)))

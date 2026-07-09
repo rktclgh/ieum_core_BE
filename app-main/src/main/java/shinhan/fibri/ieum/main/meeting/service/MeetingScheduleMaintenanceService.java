@@ -56,6 +56,7 @@ public class MeetingScheduleMaintenanceService {
 		}
 		MeetingSchedule last = schedules.getLast();
 		ZoneId zone = zone(rule);
+		LocalDate anchorDate = schedules.getFirst().getStartsAt().atZoneSameInstant(zone).toLocalDate();
 		ZonedDateTime lastStart = last.getStartsAt().atZoneSameInstant(zone);
 		LocalTime meetingTime = lastStart.toLocalTime();
 		Duration duration = last.getEndsAt() == null ? null : Duration.between(last.getStartsAt(), last.getEndsAt());
@@ -77,7 +78,7 @@ public class MeetingScheduleMaintenanceService {
 			if (maxOccurrencesReached(rule, totalCount)) {
 				break;
 			}
-			if (matchesRecurrence(current, rule)) {
+			if (matchesRecurrence(current, rule, anchorDate)) {
 				OffsetDateTime startsAt = current.atTime(meetingTime).atZone(zone).toOffsetDateTime();
 				OffsetDateTime endsAt = duration == null ? null : startsAt.plus(duration);
 				try {
@@ -124,12 +125,12 @@ public class MeetingScheduleMaintenanceService {
 			: ZoneId.of(rule.getTimezone());
 	}
 
-	private boolean matchesRecurrence(LocalDate date, MeetingRecurrenceRule rule) {
+	private boolean matchesRecurrence(LocalDate date, MeetingRecurrenceRule rule, LocalDate anchorDate) {
 		return switch (rule.getFrequency()) {
-			case daily -> daysBetween(rule.getStartsOn(), date) % rule.getIntervalValue() == 0;
-			case weekly -> weeksBetween(rule.getStartsOn(), date) % rule.getIntervalValue() == 0
+			case daily -> daysBetween(anchorDate, date) % rule.getIntervalValue() == 0;
+			case weekly -> weeksBetween(anchorDate, date) % rule.getIntervalValue() == 0
 				&& containsDayOfWeek(rule.getDaysOfWeek(), date.getDayOfWeek().getValue());
-			case monthly -> monthsBetween(rule.getStartsOn(), date) % rule.getIntervalValue() == 0
+			case monthly -> monthsBetween(anchorDate, date) % rule.getIntervalValue() == 0
 				&& rule.getDayOfMonth() != null
 				&& date.getDayOfMonth() == rule.getDayOfMonth();
 		};

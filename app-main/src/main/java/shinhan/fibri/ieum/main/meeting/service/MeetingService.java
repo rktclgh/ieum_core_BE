@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.meeting.service;
 
 import java.time.Duration;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -38,6 +39,7 @@ import shinhan.fibri.ieum.main.meeting.dto.JoinMeetingResponse;
 import shinhan.fibri.ieum.main.meeting.dto.KickMeetingRequest;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarItem;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingCalendarResponse;
+import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailRecurrenceRuleResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingDetailResponse;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingHostSummary;
 import shinhan.fibri.ieum.main.meeting.dto.MeetingLocation;
@@ -73,6 +75,8 @@ public class MeetingService {
 	private static final ZoneId RESPONSE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int INITIAL_RECURRING_SCHEDULE_LIMIT = 12;
 	private static final int DEFAULT_SCHEDULE_RANGE_DAYS = 90;
+	private static final int MAX_SCHEDULE_RANGE_DAYS = 366;
+	private static final int SCHEDULE_QUERY_LIMIT = 1000;
 
 	private final MeetingRepository meetingRepository;
 	private final MeetingScheduleRepository meetingScheduleRepository;
@@ -85,6 +89,7 @@ public class MeetingService {
 	@Transactional
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
 		validateCreateRuleCombination(request);
+		validateRecurrenceRule(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
 		Long pinId = pinWriter.create(principal.userId(), PinType.meeting, request.lat(), request.lng());
 		Meeting meeting = meetingRepository.save(Meeting.create(
@@ -124,6 +129,11 @@ public class MeetingService {
 			principal.userId()
 		);
 		ensureNotKicked(participant);
+		OffsetDateTime now = OffsetDateTime.now();
+		Optional<MeetingSchedule> nextSchedule = meetingScheduleRepository.findFirstActiveSchedule(meetingId, now);
+		MeetingDetailRecurrenceRuleResponse recurrenceRule = recurrenceRuleRepository.findByMeetingId(meetingId)
+			.map(this::toRecurrenceRuleResponse)
+			.orElse(null);
 		long participantCount = participantRepository.countByIdMeetingIdAndStatus(
 			meetingId,
 			shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus.joined
@@ -136,6 +146,10 @@ public class MeetingService {
 			detail.getContent(),
 			detail.getPlaceName(),
 			detail.getMeetingAt().atZone(RESPONSE_ZONE).toOffsetDateTime(),
+			detail.getType(),
+			"open".equals(detail.getStatus()) && nextSchedule.isPresent(),
+			nextSchedule.map(this::toScheduleItem).orElse(null),
+			recurrenceRule,
 			detail.getStatus(),
 			detail.getMaxMembers(),
 			participantCount,
@@ -183,7 +197,7 @@ public class MeetingService {
 		OffsetDateTime resolvedFrom = resolveRangeFrom(from);
 		OffsetDateTime resolvedTo = resolveRangeTo(resolvedFrom, to);
 		List<MeetingScheduleItem> items = meetingScheduleRepository
-			.findByMeetingIdAndDeletedAtIsNullAndStartsAtBetweenOrderByStartsAtAscIdAsc(meetingId, resolvedFrom, resolvedTo)
+			.findSchedulesInRange(meetingId, resolvedFrom, resolvedTo, SCHEDULE_QUERY_LIMIT)
 			.stream()
 			.map(this::toScheduleItem)
 			.toList();
@@ -197,7 +211,8 @@ public class MeetingService {
 		List<MeetingCalendarItem> items = meetingScheduleRepository.findCalendarItems(
 				principal.userId(),
 				resolvedFrom,
-				resolvedTo
+				resolvedTo,
+				SCHEDULE_QUERY_LIMIT
 			)
 			.stream()
 			.map(this::toCalendarItem)
@@ -353,6 +368,21 @@ public class MeetingService {
 		}
 	}
 
+	private void validateRecurrenceRule(CreateMeetingRequest request) {
+		if (request.type() != MeetingType.recurring) {
+			return;
+		}
+		try {
+			CreateMeetingRecurrenceRuleRequest rule = request.recurrenceRule();
+			ZoneId.of(rule.timezone() == null || rule.timezone().isBlank() ? "Asia/Seoul" : rule.timezone());
+			createRecurrenceRule(0L, rule);
+		} catch (DateTimeException exception) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "recurrenceRule", "Invalid recurrenceRule");
+		} catch (IllegalArgumentException exception) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "recurrenceRule", exception.getMessage());
+		}
+	}
+
 	private List<MeetingSchedule> createInitialSchedules(Long meetingId, CreateMeetingRequest request) {
 		if (request.type() == MeetingType.one_time) {
 			return List.of(createSchedule(meetingId, request.schedule().startsAt(), request.schedule().endsAt(), 1));
@@ -393,6 +423,7 @@ public class MeetingService {
 		ZonedDateTime firstStart = request.schedule().startsAt().atZoneSameInstant(zone);
 		LocalTime time = firstStart.toLocalTime();
 		LocalDate firstDate = firstStart.toLocalDate();
+		LocalDate anchorDate = firstDate;
 		LocalDate current = firstDate.isAfter(rule.startsOn()) ? firstDate : rule.startsOn();
 		LocalDate until = rule.endsOn() == null ? rule.startsOn().plusYears(1) : rule.endsOn();
 		int limit = rule.maxOccurrences() == null
@@ -400,7 +431,7 @@ public class MeetingService {
 			: Math.min(rule.maxOccurrences(), INITIAL_RECURRING_SCHEDULE_LIMIT);
 		List<OffsetDateTime> startsAtList = new ArrayList<>(limit);
 		while (!current.isAfter(until) && startsAtList.size() < limit) {
-			if (matchesRecurrence(current, rule)) {
+			if (matchesRecurrence(current, rule, anchorDate)) {
 				OffsetDateTime startsAt = current.atTime(time).atZone(zone).toOffsetDateTime();
 				if (!startsAt.isBefore(request.schedule().startsAt())) {
 					startsAtList.add(startsAt);
@@ -411,13 +442,13 @@ public class MeetingService {
 		return startsAtList;
 	}
 
-	private boolean matchesRecurrence(LocalDate date, CreateMeetingRecurrenceRuleRequest rule) {
+	private boolean matchesRecurrence(LocalDate date, CreateMeetingRecurrenceRuleRequest rule, LocalDate anchorDate) {
 		return switch (rule.frequency()) {
-			case daily -> daysBetween(rule.startsOn(), date) % rule.intervalValue() == 0;
-			case weekly -> weeksBetween(rule.startsOn(), date) % rule.intervalValue() == 0
+			case daily -> daysBetween(anchorDate, date) % rule.intervalValue() == 0;
+			case weekly -> weeksBetween(anchorDate, date) % rule.intervalValue() == 0
 				&& rule.daysOfWeek() != null
 				&& rule.daysOfWeek().contains(date.getDayOfWeek().getValue());
-			case monthly -> monthsBetween(rule.startsOn(), date) % rule.intervalValue() == 0
+			case monthly -> monthsBetween(anchorDate, date) % rule.intervalValue() == 0
 				&& rule.dayOfMonth() != null
 				&& date.getDayOfMonth() == rule.dayOfMonth();
 		};
@@ -590,6 +621,9 @@ public class MeetingService {
 		if (resolvedTo.isBefore(resolvedFrom)) {
 			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "from", "must be before to");
 		}
+		if (Duration.between(resolvedFrom, resolvedTo).toDays() > MAX_SCHEDULE_RANGE_DAYS) {
+			throw new InvalidMeetingRequestException("VALIDATION_FAILED", "from", "Range must not exceed 366 days");
+		}
 		return resolvedTo;
 	}
 
@@ -614,6 +648,28 @@ public class MeetingService {
 			row.getRoomId(),
 			Boolean.TRUE.equals(row.getHost())
 		);
+	}
+
+	private MeetingDetailRecurrenceRuleResponse toRecurrenceRuleResponse(MeetingRecurrenceRule rule) {
+		return new MeetingDetailRecurrenceRuleResponse(
+			rule.getFrequency().name(),
+			rule.getIntervalValue(),
+			toIntegerList(rule.getDaysOfWeek()),
+			rule.getDayOfMonth() == null ? null : rule.getDayOfMonth().intValue(),
+			rule.getStartsOn(),
+			rule.getEndsOn(),
+			rule.getMaxOccurrences(),
+			rule.getTimezone()
+		);
+	}
+
+	private List<Integer> toIntegerList(Short[] values) {
+		if (values == null) {
+			return null;
+		}
+		return java.util.Arrays.stream(values)
+			.map(Short::intValue)
+			.toList();
 	}
 
 	private OffsetDateTime toResponseTime(OffsetDateTime value) {

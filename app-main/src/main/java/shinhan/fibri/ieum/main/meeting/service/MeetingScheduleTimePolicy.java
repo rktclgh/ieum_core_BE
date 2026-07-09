@@ -8,7 +8,7 @@ import java.util.Objects;
 final class MeetingScheduleTimePolicy {
 
 	private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-	private static final LocalTime END_OF_VISIBLE_DAY = LocalTime.of(23, 59, 59);
+	private static final LocalTime END_OF_VISIBLE_DAY = LocalTime.MAX;
 
 	private MeetingScheduleTimePolicy() {
 	}
