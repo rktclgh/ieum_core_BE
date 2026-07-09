@@ -4,6 +4,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
@@ -19,6 +20,17 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 			and schedule.deletedAt is null
 		""")
 	boolean existsActiveSchedule(@Param("meetingId") Long meetingId, @Param("now") OffsetDateTime now);
+
+	@Modifying(clearAutomatically = true)
+	@Query("""
+		update MeetingSchedule schedule
+		   set schedule.status = shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.completed,
+		       schedule.updatedAt = :now
+		 where schedule.status = shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.scheduled
+		   and schedule.visibleUntil < :now
+		   and schedule.deletedAt is null
+		""")
+	int completeExpiredSchedules(@Param("now") OffsetDateTime now);
 
 	Optional<MeetingSchedule> findByIdAndMeetingIdAndDeletedAtIsNull(Long id, Long meetingId);
 
