@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import jakarta.annotation.PreDestroy;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -135,6 +136,13 @@ public class SseConnectionRegistry {
 			.filter(entry -> !entry.getValue().isEmpty())
 			.map(java.util.Map.Entry::getKey)
 			.collect(java.util.stream.Collectors.toUnmodifiableSet());
+	}
+
+	@PreDestroy
+	public void shutdown() {
+		for (Long userId : onlineUserIds()) {
+			closeUser(userId);
+		}
 	}
 
 	int connectionCount(Long userId) {
