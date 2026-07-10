@@ -78,10 +78,6 @@ public class AdminUserQueryRepository {
 		return count("SELECT COUNT(*) FROM answers WHERE author_id = :userId", userId);
 	}
 
-	public int countAcceptedAnswers(Long userId) {
-		return count("SELECT COUNT(*) FROM answers WHERE author_id = :userId AND is_accepted = true", userId);
-	}
-
 	public int countReports(Long userId) {
 		return count("SELECT COUNT(*) FROM reports WHERE reported_user_id = :userId", userId);
 	}

@@ -74,7 +74,7 @@ public class AdminUserQueryService {
 		AdminUserActivity activity = new AdminUserActivity(
 			adminUserQueryRepository.countQuestions(userId),
 			adminUserQueryRepository.countAnswers(userId),
-			adminUserQueryRepository.countAcceptedAnswers(userId),
+			user.getAcceptedCount(),
 			adminUserQueryRepository.countReports(userId)
 		);
 		return new AdminUserDetailResponse(toProfile(user), activity, reports, sanctions);
