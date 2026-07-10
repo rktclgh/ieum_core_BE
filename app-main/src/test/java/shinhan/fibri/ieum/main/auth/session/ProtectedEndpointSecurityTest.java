@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -84,6 +85,15 @@ class ProtectedEndpointSecurityTest {
 				.cookie(new MockCookie("access_token", "admin-token")))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$", is("admin-ok")));
+	}
+
+	@Test
+	void adminLoginAllowsAnonymousRequestWithoutCsrfToken() throws Exception {
+		mockMvc.perform(post("/api/v1/admin/login")
+				.contentType("application/json")
+				.content("{}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
 	}
 
 	@RestController
