@@ -106,6 +106,30 @@ class AdminSanctionServiceTest {
 	}
 
 	@Test
+	void sanctionRejectsTemporaryWithPastEndsAt() {
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+
+		assertThatThrownBy(() -> service.sanction(
+			adminPrincipal(),
+			10L,
+			new CreateSanctionRequest(SanctionType.temporary, "abuse", OffsetDateTime.now().minusMinutes(1))
+		)).isInstanceOf(InvalidSanctionRequestException.class)
+			.hasMessage("endsAt must be in the future");
+	}
+
+	@Test
+	void sanctionRejectsPermanentWithEndsAt() {
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+
+		assertThatThrownBy(() -> service.sanction(
+			adminPrincipal(),
+			10L,
+			new CreateSanctionRequest(SanctionType.permanent, "abuse", OffsetDateTime.now().plusDays(1))
+		)).isInstanceOf(InvalidSanctionRequestException.class)
+			.hasMessage("endsAt is not allowed for permanent sanction");
+	}
+
+	@Test
 	void sanctionAlreadyActiveRevokesSessionsAgainAndThrowsConflict() {
 		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
 		when(sanctionRepository.existsByUserIdAndReleasedAtIsNull(10L)).thenReturn(true);
@@ -140,6 +164,77 @@ class AdminSanctionServiceTest {
 
 		assertThatThrownBy(() -> service.activate(adminPrincipal(), 10L))
 			.isInstanceOf(UserNotSanctionedException.class);
+	}
+
+	@Test
+	void activateWithoutActiveSanctionButSuspendedRecoversStatusOnly() {
+		// 드리프트 복구 분기 b: 활성 제재 기록은 없는데 status만 suspended로 남아있는 경우
+		// (수동 DB 변경 등으로 어긋난 상태) — 제재 해제 없이 status만 복구한다.
+		User target = user();
+		target.suspend();
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findByUserIdAndReleasedAtIsNull(10L)).thenReturn(Optional.empty());
+
+		service.activate(adminPrincipal(), 10L);
+
+		assertThat(target.getStatus()).isEqualTo(UserStatus.active);
+	}
+
+	@Test
+	void activateWithActiveSanctionButAlreadyActiveReleasesSanctionOnly() {
+		// 드리프트 복구 분기 c: status는 이미 active인데 활성 제재 기록이 남아있는 경우 —
+		// status 변경 없이 제재만 release하고 예외 없이 끝낸다.
+		User target = user();
+		UserSanction sanction = UserSanction.permanent(10L, "abuse", 1L);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findByUserIdAndReleasedAtIsNull(10L)).thenReturn(Optional.of(sanction));
+
+		service.activate(adminPrincipal(), 10L);
+
+		assertThat(target.getStatus()).isEqualTo(UserStatus.active);
+		assertThat(sanction.isActive()).isFalse();
+		assertThat(sanction.getReleasedBy()).isEqualTo(1L);
+	}
+
+	@Test
+	void releaseExpiredSanctionLocksUserFirstThenReleasesSanctionAndActivatesUser() {
+		User target = user();
+		target.suspend();
+		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
+
+		service.releaseExpiredSanction(99L, 10L);
+
+		assertThat(sanction.isActive()).isFalse();
+		assertThat(sanction.getReleasedBy()).isNull();
+		assertThat(target.getStatus()).isEqualTo(UserStatus.active);
+	}
+
+	@Test
+	void releaseExpiredSanctionWarnsAndSkipsStatusRecoveryWhenUserMissing() {
+		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
+		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
+
+		service.releaseExpiredSanction(99L, 10L);
+
+		assertThat(sanction.isActive()).isFalse();
+	}
+
+	@Test
+	void releaseExpiredSanctionIsNoopWhenAlreadyReleased() {
+		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		sanction.release(OffsetDateTime.now(), 1L);
+		User target = user();
+		target.suspend();
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
+
+		service.releaseExpiredSanction(99L, 10L);
+
+		assertThat(target.getStatus()).isEqualTo(UserStatus.suspended);
+		assertThat(sanction.getReleasedBy()).isEqualTo(1L);
 	}
 
 	private static AuthenticatedUser adminPrincipal() {
