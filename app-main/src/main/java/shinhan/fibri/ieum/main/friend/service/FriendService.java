@@ -102,7 +102,7 @@ public class FriendService {
 		return new HashSet<>(friendshipRepository.findBlockedUserIdsByUserId(userId));
 	}
 
-	@Transactional
+	@Transactional(timeout = 30)
 	public void requestFriend(AuthenticatedUser principal, Long targetUserId) {
 		User requester = findActiveUser(principal.userId());
 		if (requester.getId().equals(targetUserId)) {

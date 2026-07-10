@@ -10,9 +10,11 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -67,6 +69,13 @@ class FriendServiceTest {
 		friendRequestNotifier,
 		transactionManager
 	);
+
+	@Test
+	void requestFriendLimitsTransactionToThirtySeconds() throws NoSuchMethodException {
+		Method method = FriendService.class.getMethod("requestFriend", AuthenticatedUser.class, Long.class);
+
+		assertThat(method.getAnnotation(Transactional.class).timeout()).isEqualTo(30);
+	}
 
 	@Test
 	void requestFriendCreatesPendingFriendshipAndNotifiesWhenBothUsersAreActive() {
