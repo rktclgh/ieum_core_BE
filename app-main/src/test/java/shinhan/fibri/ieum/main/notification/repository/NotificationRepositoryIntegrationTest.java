@@ -143,6 +143,16 @@ class NotificationRepositoryIntegrationTest {
 		assertThat(page).extracting(Notification::getTitle).containsExactly("newer", "older");
 	}
 
+	@Test
+	void countsOnlyUnreadNotificationsForOwner() {
+		insertNotification(1L, "unread", OffsetDateTime.parse("2026-07-01T10:00:00+09:00"));
+		long readId = insertNotification(1L, "read", OffsetDateTime.parse("2026-07-02T10:00:00+09:00"));
+		insertNotification(2L, "other-user", OffsetDateTime.parse("2026-07-03T10:00:00+09:00"));
+		jdbcTemplate.update("UPDATE notifications SET is_read = true WHERE notification_id = ?", readId);
+
+		assertThat(notificationRepository.countUnreadByUserId(1L)).isEqualTo(1L);
+	}
+
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {
 		return jdbcTemplate.queryForObject(
 			"""
