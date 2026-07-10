@@ -100,7 +100,7 @@ class FriendServiceTest {
 	}
 
 	@Test
-	void requestFriendNotifiesAfterCommitWhenTransactionSynchronizationIsActive() {
+	void requestFriendNotifiesInsideTransactionWhenTransactionSynchronizationIsActive() {
 		User currentUser = user(42L, "current@example.com", "current");
 		User targetUser = user(77L, "target@example.com", "target");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
@@ -112,15 +112,10 @@ class FriendServiceTest {
 		try {
 			service.requestFriend(principal(42L), 77L);
 
-			verify(friendRequestNotifier, never()).notifyRequested(any(), any());
-
-			TransactionSynchronizationManager.getSynchronizations()
-				.forEach(TransactionSynchronization::afterCommit);
+			verify(friendRequestNotifier).notifyRequested(42L, 77L);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
-
-		verify(friendRequestNotifier).notifyRequested(42L, 77L);
 	}
 
 	@Test
