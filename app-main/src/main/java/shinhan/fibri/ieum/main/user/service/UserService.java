@@ -25,6 +25,8 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
 import shinhan.fibri.ieum.main.user.dto.PublicUserProfileResponse;
 import shinhan.fibri.ieum.main.user.dto.UpdateProfileImageRequest;
@@ -52,6 +54,8 @@ public class UserService {
 	private final FileRepository fileRepository;
 	private final ProfileFileCleanupService profileFileCleanupService;
 	private final FriendService friendService;
+	private final SseConnectionRegistry sseConnectionRegistry;
+	private final PresenceRegistry presenceRegistry;
 
 	@Transactional
 	public UserMeResponse getMe(AuthenticatedUser principal) {
@@ -110,6 +114,9 @@ public class UserService {
 			request.notifyQuestion() == null ? settings.isNotifyQuestion() : request.notifyQuestion(),
 			request.notifyRadiusKm() == null ? settings.getNotifyRadiusKm() : request.notifyRadiusKm()
 		);
+		runAfterCommit(() -> presenceRegistry.refreshSettings(
+			user.getId(), settings.isNotifyAll(), settings.isNotifyQuestion(), settings.isNotifyMeeting(), settings.getNotifyRadiusKm()
+		));
 		return UserSettingsResponse.from(settings);
 	}
 
@@ -120,6 +127,7 @@ public class UserService {
 		if (updatedRows == 0) {
 			throw new UserNotFoundException();
 		}
+		runAfterCommit(() -> presenceRegistry.refreshLocation(user.getId(), request.latitude(), request.longitude()));
 	}
 
 	@Transactional
@@ -150,7 +158,7 @@ public class UserService {
 	public void withdraw(AuthenticatedUser principal) {
 		User user = findActiveUser(principal.userId());
 		user.markDeleted(OffsetDateTime.now());
-		revokeSessionsAfterCommit(user.getId());
+		revokeSessionsAndCloseSseAfterCommit(user.getId());
 	}
 
 	@Transactional(readOnly = true)
@@ -205,15 +213,18 @@ public class UserService {
 	}
 
 	private void deleteProfileFileAfterCommit(UUID fileId) {
-		Runnable cleanup = () -> profileFileCleanupService.cleanupProfileFile(fileId);
+		runAfterCommit(() -> profileFileCleanupService.cleanupProfileFile(fileId));
+	}
+
+	private void runAfterCommit(Runnable action) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			cleanup.run();
+			action.run();
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				cleanup.run();
+				action.run();
 			}
 		});
 	}
@@ -256,25 +267,16 @@ public class UserService {
 		}
 	}
 
-	private void revokeSessionsAfterCommit(Long userId) {
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			revokeSessionsLogOnly(userId);
-			return;
-		}
-
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				revokeSessionsLogOnly(userId);
-			}
-		});
+	private void revokeSessionsAndCloseSseAfterCommit(Long userId) {
+		runAfterCommit(() -> revokeSessionsAndCloseSse(userId));
 	}
 
-	private void revokeSessionsLogOnly(Long userId) {
+	private void revokeSessionsAndCloseSse(Long userId) {
 		try {
 			sessionStore.revokeAllSessionsOfUser(userId);
+			sseConnectionRegistry.closeUser(userId);
 		} catch (RuntimeException exception) {
-			log.warn("Failed to revoke sessions after user withdrawal. userId={}", userId, exception);
+			log.warn("Failed to revoke sessions or close SSE after user withdrawal. userId={}", userId, exception);
 		}
 	}
 }

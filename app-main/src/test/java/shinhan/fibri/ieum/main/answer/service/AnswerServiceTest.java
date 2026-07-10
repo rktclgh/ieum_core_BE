@@ -41,6 +41,8 @@ import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 class AnswerServiceTest {
 
@@ -49,13 +51,55 @@ class AnswerServiceTest {
 	private final AnswerImageRepository answerImageRepository = mock(AnswerImageRepository.class);
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final UserRepository userRepository = mock(UserRepository.class);
+	private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
 	private final AnswerService service = new AnswerService(
 		questionRepository,
 		answerRepository,
 		answerImageRepository,
 		fileRepository,
-		userRepository
+		userRepository,
+		notificationPublisher
 	);
+
+	@Test
+	void createPublishesDurableNotificationToQuestionAuthorButSkipsSelfAnswer() {
+		Question question = Question.create(100L, 99L, "title", "question");
+		setId(question, 200L);
+		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
+			Answer answer = invocation.getArgument(0);
+			setId(answer, 300L);
+			return answer;
+		});
+
+		service.create(principal(), 200L, new CreateAnswerRequest("answer", List.of()));
+
+		verify(notificationPublisher).publishDurable(
+			99L,
+			NotificationType.question,
+			"새 답변",
+			"회원님의 질문에 답변이 달렸어요",
+			200L
+		);
+	}
+
+	@Test
+	void createSkipsNotificationWhenQuestionAuthorAnswersOwnQuestion() {
+		Question question = Question.create(100L, 42L, "title", "question");
+		setId(question, 200L);
+		when(questionRepository.existsById(200L)).thenReturn(true);
+		when(questionRepository.findById(200L)).thenReturn(Optional.of(question));
+		when(answerRepository.save(any(Answer.class))).thenAnswer(invocation -> {
+			Answer answer = invocation.getArgument(0);
+			setId(answer, 300L);
+			return answer;
+		});
+
+		service.create(principal(), 200L, new CreateAnswerRequest("answer", List.of()));
+
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
+	}
 
 	@Test
 	void createValidatesQuestionAndImagesThenSavesAnswerAndImageLinksInOrder() {
@@ -230,6 +274,13 @@ class AnswerServiceTest {
 		assertThat(question.isResolved()).isTrue();
 		assertThat(answerAuthor.getAcceptedCount()).isEqualTo(5);
 		assertThat(answerAuthor.getGrade()).isEqualTo(UserGrade.silver);
+		verify(notificationPublisher).publishDurable(
+			77L,
+			NotificationType.question,
+			"답변 채택",
+			"회원님의 답변이 채택됐어요",
+			200L
+		);
 	}
 
 	@Test
@@ -306,6 +357,7 @@ class AnswerServiceTest {
 		assertThat(answer.isAccepted()).isTrue();
 		assertThat(question.isResolved()).isTrue();
 		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
 	}
 
 	private AuthenticatedUser principal() {

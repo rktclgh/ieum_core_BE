@@ -10,9 +10,11 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -69,6 +71,13 @@ class FriendServiceTest {
 	);
 
 	@Test
+	void requestFriendLimitsTransactionToThirtySeconds() throws NoSuchMethodException {
+		Method method = FriendService.class.getMethod("requestFriend", AuthenticatedUser.class, Long.class);
+
+		assertThat(method.getAnnotation(Transactional.class).timeout()).isEqualTo(30);
+	}
+
+	@Test
 	void requestFriendCreatesPendingFriendshipAndNotifiesWhenBothUsersAreActive() {
 		User currentUser = user(42L, "current@example.com", "current");
 		User targetUser = user(77L, "target@example.com", "target");
@@ -100,7 +109,7 @@ class FriendServiceTest {
 	}
 
 	@Test
-	void requestFriendNotifiesAfterCommitWhenTransactionSynchronizationIsActive() {
+	void requestFriendNotifiesInsideTransactionWhenTransactionSynchronizationIsActive() {
 		User currentUser = user(42L, "current@example.com", "current");
 		User targetUser = user(77L, "target@example.com", "target");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(currentUser));
@@ -112,15 +121,10 @@ class FriendServiceTest {
 		try {
 			service.requestFriend(principal(42L), 77L);
 
-			verify(friendRequestNotifier, never()).notifyRequested(any(), any());
-
-			TransactionSynchronizationManager.getSynchronizations()
-				.forEach(TransactionSynchronization::afterCommit);
+			verify(friendRequestNotifier).notifyRequested(42L, 77L);
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
-
-		verify(friendRequestNotifier).notifyRequested(42L, 77L);
 	}
 
 	@Test

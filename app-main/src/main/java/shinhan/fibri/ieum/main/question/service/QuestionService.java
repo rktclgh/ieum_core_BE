@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -39,6 +40,7 @@ import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.notification.presence.QuestionCreatedEvent;
 
 @Service
 @RequiredArgsConstructor
@@ -55,6 +57,7 @@ public class QuestionService {
 	private final UserRepository userRepository;
 	private final PinWriter pinWriter;
 	private final QuestionImageCleanupService imageCleanupService;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
 	public QuestionDetailResponse create(AuthenticatedUser principal, QuestionCreateRequest request) {
@@ -81,6 +84,9 @@ public class QuestionService {
 			images.add(QuestionImage.link(question.getId(), files.get(index).getFileId(), index));
 		}
 		questionImageRepository.saveAll(images);
+		eventPublisher.publishEvent(new QuestionCreatedEvent(
+			question.getId(), principal.userId(), question.getTitle(), request.location().latitude(), request.location().longitude()
+		));
 
 		return new QuestionDetailResponse(
 			question.getId(),

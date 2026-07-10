@@ -29,6 +29,8 @@ import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.service.NotificationPublisher;
 
 @Service
 @RequiredArgsConstructor
@@ -39,8 +41,9 @@ public class AnswerService {
 	private final AnswerImageRepository answerImageRepository;
 	private final FileRepository fileRepository;
 	private final UserRepository userRepository;
+	private final NotificationPublisher notificationPublisher;
 
-	@Transactional
+	@Transactional(timeout = 30)
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
 		if (!questionRepository.existsById(questionId)) {
 			throw new QuestionNotFoundException();
@@ -55,10 +58,19 @@ public class AnswerService {
 			images.add(AnswerImage.link(answer.getId(), files.get(index).getFileId(), index));
 		}
 		answerImageRepository.saveAll(images);
+		questionRepository.findById(questionId)
+			.filter(question -> !question.getAuthorId().equals(principal.userId()))
+			.ifPresent(question -> notificationPublisher.publishDurable(
+				question.getAuthorId(),
+				NotificationType.question,
+				"새 답변",
+				"회원님의 질문에 답변이 달렸어요",
+				questionId
+			));
 		return new CreateAnswerResponse(answer.getId());
 	}
 
-	@Transactional
+	@Transactional(timeout = 30)
 	public void accept(AuthenticatedUser principal, Long answerId) {
 		Answer answer = answerRepository.findById(answerId)
 			.orElseThrow(AnswerNotFoundException::new);
@@ -79,6 +91,13 @@ public class AnswerService {
 		if (!answer.isAi()) {
 			userRepository.findByIdForUpdate(answer.getAuthorId())
 				.ifPresent(User::recordAcceptedAnswer);
+			notificationPublisher.publishDurable(
+				answer.getAuthorId(),
+				NotificationType.question,
+				"답변 채택",
+				"회원님의 답변이 채택됐어요",
+				question.getId()
+			);
 		}
 	}
 
