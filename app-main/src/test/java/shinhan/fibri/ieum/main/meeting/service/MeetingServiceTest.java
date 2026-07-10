@@ -141,7 +141,7 @@ class MeetingServiceTest {
 		assertThatThrownBy(() -> service.create(principal(42L), request(imageFileId)))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("Invalid image");
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 	}
 
 	@Test
@@ -165,7 +165,7 @@ class MeetingServiceTest {
 		))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("recurrenceRule is only allowed for recurring meeting");
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 	}
 
 	@Test
@@ -176,7 +176,7 @@ class MeetingServiceTest {
 		))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("recurrenceRule is required for recurring meeting");
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 	}
 
 	@Test
@@ -350,7 +350,7 @@ class MeetingServiceTest {
 		))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("Invalid recurrenceRule");
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 		verify(meetingRepository, never()).save(any(Meeting.class));
 	}
 
@@ -373,7 +373,7 @@ class MeetingServiceTest {
 		))
 			.isInstanceOf(InvalidMeetingRequestException.class)
 			.hasMessage("daysOfWeek is required for weekly recurrence");
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 		verify(meetingRepository, never()).save(any(Meeting.class));
 	}
 

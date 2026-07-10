@@ -21,6 +21,7 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.pin.service.PinCursor;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -176,13 +177,16 @@ public class QuestionService {
 				.map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId))
 				.toList()
 			: imageFileIds.stream().map(fileId -> DISPLAY_URL_TEMPLATE.formatted(fileId)).toList();
+		LocationSnapshot location = questionRepository.findDetailByQuestionId(questionId)
+			.map(this::toLocationSnapshot)
+			.orElseThrow(QuestionNotFoundException::new);
 		return new QuestionDetailResponse(
 			question.getId(),
 			question.getTitle(),
 			question.getContent(),
 			question.isResolved(),
 			new AuthorSummary(author.getId(), author.getNickname(), profileUrl(author.getProfileFileId())),
-			null,
+			location,
 			imageUrls,
 			List.<AnswerItem>of()
 		);
@@ -203,11 +207,15 @@ public class QuestionService {
 				detail.getAuthorNickname(),
 				profileUrl(detail.getAuthorProfileFileId())
 			),
-			new shinhan.fibri.ieum.main.pin.dto.LocationSnapshot(
-				detail.getLatitude(), detail.getLongitude(), detail.getAddress(), detail.getDetailAddress(), detail.getLabel()
-			),
+			toLocationSnapshot(detail),
 			imageUrls,
 			answers
+		);
+	}
+
+	private LocationSnapshot toLocationSnapshot(QuestionDetailProjection detail) {
+		return new LocationSnapshot(
+			detail.getLatitude(), detail.getLongitude(), detail.getAddress(), detail.getDetailAddress(), detail.getLabel()
 		);
 	}
 

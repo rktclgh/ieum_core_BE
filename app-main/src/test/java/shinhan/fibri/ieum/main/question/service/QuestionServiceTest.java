@@ -123,7 +123,7 @@ class QuestionServiceTest {
 		)).isInstanceOf(InvalidQuestionRequestException.class)
 			.hasMessage("Invalid image");
 
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 	}
 
 	@Test
@@ -305,6 +305,9 @@ class QuestionServiceTest {
 			.thenReturn(List.of(QuestionImage.link(200L, oldImage, 0)));
 		when(fileRepository.findByFileIdAndUploaderId(newImage, 42L)).thenReturn(Optional.of(uploadedFile(newImage, 42L)));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
+			200L, "updated", "changed", false, 42L, "nickname", profileId
+		)));
 
 		TransactionSynchronizationManager.initSynchronization();
 		QuestionDetailResponse response;
@@ -325,6 +328,9 @@ class QuestionServiceTest {
 		assertThat(response.title()).isEqualTo("updated");
 		assertThat(response.content()).isEqualTo("changed");
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location()).isEqualTo(new LocationSnapshot(
+			37.4979, 127.0276, "서울특별시 강남구", "", "강남역"
+		));
 		verify(questionImageRepository).deleteByQuestionId(200L);
 		verify(questionImageRepository).saveAll(any());
 		verify(imageCleanupService).cleanRemovedImagesAfterCommit(List.of(oldImage));
@@ -338,6 +344,9 @@ class QuestionServiceTest {
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
+			200L, "updated title", "original content", false, 42L, "nickname", profileId
+		)));
 
 		QuestionDetailResponse response = service.update(
 			principal(),
