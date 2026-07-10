@@ -1,0 +1,183 @@
+package shinhan.fibri.ieum.main.notification.sse;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+@Component
+public class SseConnectionRegistry {
+
+	private final NotificationProperties properties;
+	private final Executor executor;
+	private final ConcurrentHashMap<Long, UserConnections> connectionsByUser = new ConcurrentHashMap<>();
+
+	public SseConnectionRegistry(
+		NotificationProperties properties,
+		@Qualifier("notificationTaskExecutor") Executor executor
+	) {
+		this.properties = Objects.requireNonNull(properties, "properties must not be null");
+		this.executor = Objects.requireNonNull(executor, "executor must not be null");
+	}
+
+	public void register(Long userId, String sessionId, SseEmitter emitter) {
+		register(userId, sessionId, new SpringSseEmitterConnection(emitter));
+	}
+
+	void register(Long userId, String sessionId, SseEmitterConnection emitter) {
+		Objects.requireNonNull(userId, "userId must not be null");
+		Objects.requireNonNull(sessionId, "sessionId must not be null");
+		Objects.requireNonNull(emitter, "emitter must not be null");
+
+		Connection connection = new Connection(userId, sessionId, emitter);
+		SseEmitterState state = new SseEmitterState(
+			properties.durableQueuePerEmitter(),
+			executor,
+			event -> send(emitter, event),
+			() -> closeAndRemove(connection)
+		);
+		connection.setState(state);
+		emitter.onCompletion(() -> remove(connection));
+		emitter.onTimeout(() -> remove(connection));
+		emitter.onError(error -> remove(connection));
+
+		AtomicReference<Connection> evictedReference = new AtomicReference<>();
+		connectionsByUser.compute(userId, (ignored, existing) -> {
+			UserConnections connections = existing == null ? new UserConnections() : existing;
+			evictedReference.set(connections.add(connection, properties.maxConnectionsPerUser()));
+			return connections;
+		});
+		Connection evicted = evictedReference.get();
+		if (evicted != null) {
+			evicted.close();
+		}
+	}
+
+	public void push(Long userId, OutboundEvent event) {
+		UserConnections connections = connectionsByUser.get(userId);
+		if (connections == null) {
+			return;
+		}
+		for (Connection connection : connections.snapshot()) {
+			connection.enqueue(event);
+		}
+	}
+
+	public void closeSession(String sessionId) {
+		for (UserConnections connections : connectionsByUser.values()) {
+			for (Connection connection : connections.snapshot()) {
+				if (connection.sessionId.equals(sessionId)) {
+					connection.close();
+				}
+			}
+		}
+	}
+
+	public void closeUser(Long userId) {
+		UserConnections connections = connectionsByUser.get(userId);
+		if (connections == null) {
+			return;
+		}
+		for (Connection connection : connections.snapshot()) {
+			connection.close();
+		}
+	}
+
+	public boolean isOnline(Long userId) {
+		UserConnections connections = connectionsByUser.get(userId);
+		return connections != null && !connections.isEmpty();
+	}
+
+	public Set<Long> onlineUserIds() {
+		return connectionsByUser.entrySet().stream()
+			.filter(entry -> !entry.getValue().isEmpty())
+			.map(java.util.Map.Entry::getKey)
+			.collect(java.util.stream.Collectors.toUnmodifiableSet());
+	}
+
+	int connectionCount(Long userId) {
+		UserConnections connections = connectionsByUser.get(userId);
+		return connections == null ? 0 : connections.size();
+	}
+
+	private void closeAndRemove(Connection connection) {
+		connection.emitter.complete();
+		remove(connection);
+	}
+
+	private void remove(Connection connection) {
+		connectionsByUser.computeIfPresent(connection.userId, (ignored, connections) -> {
+			connections.remove(connection);
+			return connections.isEmpty() ? null : connections;
+		});
+	}
+
+	private void send(SseEmitterConnection emitter, OutboundEvent event) {
+		try {
+			emitter.send(event);
+		} catch (IOException exception) {
+			throw new UncheckedIOException(exception);
+		}
+	}
+
+	private final class Connection {
+
+		private final Long userId;
+		private final String sessionId;
+		private final SseEmitterConnection emitter;
+		private SseEmitterState state;
+
+		private Connection(Long userId, String sessionId, SseEmitterConnection emitter) {
+			this.userId = userId;
+			this.sessionId = sessionId;
+			this.emitter = emitter;
+		}
+
+		private void setState(SseEmitterState state) {
+			this.state = state;
+		}
+
+		private void enqueue(OutboundEvent event) {
+			state.enqueue(event);
+		}
+
+		private void close() {
+			state.close();
+		}
+	}
+
+	private static final class UserConnections {
+
+		private final List<Connection> connections = new ArrayList<>();
+
+		synchronized Connection add(Connection connection, int maxConnections) {
+			Connection evicted = connections.size() == maxConnections ? connections.removeFirst() : null;
+			connections.add(connection);
+			return evicted;
+		}
+
+		synchronized boolean remove(Connection connection) {
+			return connections.remove(connection);
+		}
+
+		synchronized boolean isEmpty() {
+			return connections.isEmpty();
+		}
+
+		synchronized int size() {
+			return connections.size();
+		}
+
+		synchronized List<Connection> snapshot() {
+			return List.copyOf(connections);
+		}
+	}
+}

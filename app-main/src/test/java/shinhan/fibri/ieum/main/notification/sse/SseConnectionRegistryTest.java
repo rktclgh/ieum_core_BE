@@ -1,0 +1,175 @@
+package shinhan.fibri.ieum.main.notification.sse;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+
+class SseConnectionRegistryTest {
+
+	@Test
+	void pushesEventsToAllConnectionsOfUser() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection first = new FakeConnection();
+		FakeConnection second = new FakeConnection();
+		registry.register(42L, "sid-1", first);
+		registry.register(42L, "sid-2", second);
+
+		registry.push(42L, durable(1L));
+
+		assertThat(first.sent).extracting(OutboundEvent::kind).containsExactly(OutboundEvent.Kind.durable);
+		assertThat(second.sent).extracting(OutboundEvent::kind).containsExactly(OutboundEvent.Kind.durable);
+		assertThat(registry.isOnline(42L)).isTrue();
+		assertThat(registry.onlineUserIds()).containsExactly(42L);
+	}
+
+	@Test
+	void evictsOldestConnectionWhenUserConnectionLimitIsExceeded() {
+		SseConnectionRegistry registry = registry(2);
+		FakeConnection oldest = new FakeConnection();
+		FakeConnection middle = new FakeConnection();
+		FakeConnection newest = new FakeConnection();
+		registry.register(42L, "sid-1", oldest);
+		registry.register(42L, "sid-2", middle);
+		registry.register(42L, "sid-3", newest);
+
+		registry.push(42L, durable(1L));
+
+		assertThat(oldest.completeCount).isEqualTo(1);
+		assertThat(oldest.sent).isEmpty();
+		assertThat(middle.sent).hasSize(1);
+		assertThat(newest.sent).hasSize(1);
+		assertThat(registry.connectionCount(42L)).isEqualTo(2);
+	}
+
+	@Test
+	void closesOnlyConnectionsForRequestedSession() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection target = new FakeConnection();
+		FakeConnection other = new FakeConnection();
+		registry.register(42L, "sid-target", target);
+		registry.register(42L, "sid-other", other);
+
+		registry.closeSession("sid-target");
+		registry.push(42L, durable(1L));
+
+		assertThat(target.completeCount).isEqualTo(1);
+		assertThat(target.sent).isEmpty();
+		assertThat(other.completeCount).isZero();
+		assertThat(other.sent).hasSize(1);
+	}
+
+	@Test
+	void closesAllConnectionsForUser() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection first = new FakeConnection();
+		FakeConnection second = new FakeConnection();
+		FakeConnection differentUser = new FakeConnection();
+		registry.register(42L, "sid-1", first);
+		registry.register(42L, "sid-2", second);
+		registry.register(99L, "sid-3", differentUser);
+
+		registry.closeUser(42L);
+
+		assertThat(first.completeCount).isEqualTo(1);
+		assertThat(second.completeCount).isEqualTo(1);
+		assertThat(differentUser.completeCount).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
+		assertThat(registry.isOnline(99L)).isTrue();
+	}
+
+	@Test
+	void removesConnectionWhenEmitterCompletesOrTimesOutOrErrors() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection completed = new FakeConnection();
+		FakeConnection timedOut = new FakeConnection();
+		FakeConnection errored = new FakeConnection();
+		registry.register(42L, "sid-1", completed);
+		registry.register(42L, "sid-2", timedOut);
+		registry.register(42L, "sid-3", errored);
+
+		completed.fireCompletion();
+		timedOut.fireTimeout();
+		errored.fireError(new IllegalStateException("connection failed"));
+
+		assertThat(registry.isOnline(42L)).isFalse();
+		assertThat(registry.onlineUserIds()).isEmpty();
+	}
+
+	private static SseConnectionRegistry registry(int maxConnectionsPerUser) {
+		NotificationProperties properties = new NotificationProperties(
+			1_800_000L,
+			maxConnectionsPerUser,
+			32,
+			15_000L,
+			4,
+			3_000L,
+			8_000L,
+			4,
+			16,
+			500
+		);
+		return new SseConnectionRegistry(properties, Runnable::run);
+	}
+
+	private static OutboundEvent durable(Long id) {
+		return OutboundEvent.durable(NotificationSsePayload.durable(
+			id,
+			NotificationType.question,
+			"새 답변",
+			null,
+			id,
+			OffsetDateTime.parse("2026-07-10T12:00:00+09:00")
+		));
+	}
+
+	private static final class FakeConnection implements SseEmitterConnection {
+
+		private final List<OutboundEvent> sent = new ArrayList<>();
+		private Runnable completionCallback;
+		private Runnable timeoutCallback;
+		private Consumer<Throwable> errorCallback;
+		private int completeCount;
+
+		@Override
+		public void send(OutboundEvent event) {
+			sent.add(event);
+		}
+
+		@Override
+		public void complete() {
+			completeCount++;
+		}
+
+		@Override
+		public void onCompletion(Runnable callback) {
+			completionCallback = callback;
+		}
+
+		@Override
+		public void onTimeout(Runnable callback) {
+			timeoutCallback = callback;
+		}
+
+		@Override
+		public void onError(Consumer<Throwable> callback) {
+			errorCallback = callback;
+		}
+
+		void fireCompletion() {
+			completionCallback.run();
+		}
+
+		void fireTimeout() {
+			timeoutCallback.run();
+		}
+
+		void fireError(Throwable error) {
+			errorCallback.accept(error);
+		}
+	}
+}
