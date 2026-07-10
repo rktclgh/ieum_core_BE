@@ -158,6 +158,26 @@ class AdminSanctionServiceTest {
 	}
 
 	@Test
+	void activateRevokesSessionsAfterCommit() {
+		TransactionSynchronizationManager.initSynchronization();
+		User target = user();
+		target.suspend();
+		UserSanction sanction = UserSanction.permanent(10L, "abuse", 1L);
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
+		when(sanctionRepository.findByUserIdAndReleasedAtIsNull(10L)).thenReturn(Optional.of(sanction));
+
+		service.activate(adminPrincipal(), 10L);
+
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+
+		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+			synchronization.afterCommit();
+		}
+
+		verify(sessionStore).revokeAllSessionsOfUser(10L);
+	}
+
+	@Test
 	void activateThrowsWhenUserIsAlreadyActiveAndNotSanctioned() {
 		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
 		when(sanctionRepository.findByUserIdAndReleasedAtIsNull(10L)).thenReturn(Optional.empty());
