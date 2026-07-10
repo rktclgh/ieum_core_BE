@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.place.dto.GeocodeResponse;
 import shinhan.fibri.ieum.main.place.dto.PlaceSearchResponse;
 import shinhan.fibri.ieum.main.place.dto.ReverseGeocodeResponse;
@@ -30,17 +32,22 @@ public class PlaceController {
 		@RequestParam(required = false) String query,
 		@RequestParam(required = false) Double lat,
 		@RequestParam(required = false) Double lng,
+		@AuthenticationPrincipal AuthenticatedUser principal,
 		HttpServletRequest request
 	) {
 		String normalizedQuery = PlaceRequestValidator.normalizeQuery(query);
 		PlaceRequestValidator.validateOptionalCoordinates(lat, lng);
-		checkRateLimit(PlaceOperation.search, request);
+		checkRateLimit(PlaceOperation.search, principal, request);
 		return ResponseEntity.ok(placeService.search(normalizedQuery, lat, lng));
 	}
 
 	@GetMapping("/geocode")
-	public ResponseEntity<GeocodeResponse> geocode(@RequestParam(required = false) String query, HttpServletRequest request) {
-		checkRateLimit(PlaceOperation.geocode, request);
+	public ResponseEntity<GeocodeResponse> geocode(
+		@RequestParam(required = false) String query,
+		@AuthenticationPrincipal AuthenticatedUser principal,
+		HttpServletRequest request
+	) {
+		checkRateLimit(PlaceOperation.geocode, principal, request);
 		return ResponseEntity.ok(placeService.geocode(PlaceRequestValidator.normalizeQuery(query)));
 	}
 
@@ -48,15 +55,16 @@ public class PlaceController {
 	public ResponseEntity<ReverseGeocodeResponse> reverseGeocode(
 		@RequestParam(required = false) Double lat,
 		@RequestParam(required = false) Double lng,
+		@AuthenticationPrincipal AuthenticatedUser principal,
 		HttpServletRequest request
 	) {
 		PlaceRequestValidator.validateRequiredCoordinates(lat, lng);
-		checkRateLimit(PlaceOperation.reverse, request);
+		checkRateLimit(PlaceOperation.reverse, principal, request);
 		return ResponseEntity.ok(placeService.reverseGeocode(lat, lng));
 	}
 
-	private void checkRateLimit(PlaceOperation operation, HttpServletRequest request) {
-		if (!placeRateLimiter.tryAcquire(operation, placeClientKeyFactory.anonymousClientKey(request.getRemoteAddr()))) {
+	private void checkRateLimit(PlaceOperation operation, AuthenticatedUser principal, HttpServletRequest request) {
+		if (!placeRateLimiter.tryAcquire(operation, placeClientKeyFactory.clientKey(principal, request.getRemoteAddr()))) {
 			throw new PlaceRateLimitedException();
 		}
 	}

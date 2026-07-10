@@ -21,7 +21,10 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.place.dto.GeocodeResponse;
 import shinhan.fibri.ieum.main.place.dto.GeocodedAddressResponse;
@@ -150,6 +153,16 @@ class PlaceControllerTest {
 		@Primary
 		SessionTokenValidator sessionTokenValidator() {
 			return mock(SessionTokenValidator.class);
+		}
+
+		@Bean
+		WebMvcConfigurer authenticationPrincipalArgumentResolverConfigurer() {
+			return new WebMvcConfigurer() {
+				@Override
+				public void addArgumentResolvers(java.util.List<HandlerMethodArgumentResolver> resolvers) {
+					resolvers.add(new AuthenticationPrincipalArgumentResolver());
+				}
+			};
 		}
 	}
 }

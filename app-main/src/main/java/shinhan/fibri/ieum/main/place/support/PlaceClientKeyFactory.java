@@ -5,9 +5,17 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import org.springframework.stereotype.Component;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 
 @Component
 public class PlaceClientKeyFactory {
+
+	public String clientKey(AuthenticatedUser principal, String remoteAddress) {
+		if (principal != null) {
+			return principal.userId().toString();
+		}
+		return anonymousClientKey(remoteAddress);
+	}
 
 	public String anonymousClientKey(String remoteAddress) {
 		return sha256("ip:" + (remoteAddress == null ? "" : remoteAddress));
