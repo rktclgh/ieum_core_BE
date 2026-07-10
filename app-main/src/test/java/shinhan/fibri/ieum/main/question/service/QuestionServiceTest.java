@@ -30,12 +30,12 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionLocation;
 import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
@@ -76,7 +76,8 @@ class QuestionServiceTest {
 		User author = user(profileId);
 		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.of(uploadedFile));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(author));
-		when(pinWriter.create(42L, PinType.question, 37.4979, 127.0276)).thenReturn(100L);
+		LocationSnapshot location = new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역");
+		when(pinWriter.create(42L, PinType.question, location)).thenReturn(100L);
 		when(questionRepository.save(any(Question.class))).thenAnswer(invocation -> {
 			Question question = invocation.getArgument(0);
 			setId(question, 200L);
@@ -88,7 +89,7 @@ class QuestionServiceTest {
 			new QuestionCreateRequest(
 				"title",
 				"content",
-				new QuestionLocation(37.4979, 127.0276),
+				location,
 				List.of(imageId)
 			)
 		);
@@ -100,7 +101,7 @@ class QuestionServiceTest {
 		verify(eventPublisher).publishEvent(new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276));
 		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
-		inOrder.verify(pinWriter).create(42L, PinType.question, 37.4979, 127.0276);
+		inOrder.verify(pinWriter).create(42L, PinType.question, location);
 		inOrder.verify(questionRepository).save(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
 	}
@@ -115,7 +116,7 @@ class QuestionServiceTest {
 			new QuestionCreateRequest(
 				"title",
 				"content",
-				new QuestionLocation(37.4979, 127.0276),
+				new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역"),
 				List.of(imageId)
 			)
 		)).isInstanceOf(InvalidQuestionRequestException.class)

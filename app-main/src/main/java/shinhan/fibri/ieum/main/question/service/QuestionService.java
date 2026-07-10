@@ -69,8 +69,7 @@ public class QuestionService {
 		Long pinId = pinWriter.create(
 			principal.userId(),
 			PinType.question,
-			request.location().latitude(),
-			request.location().longitude()
+			request.location()
 		);
 		Question question = questionRepository.save(Question.create(
 			pinId,
@@ -85,7 +84,7 @@ public class QuestionService {
 		}
 		questionImageRepository.saveAll(images);
 		eventPublisher.publishEvent(new QuestionCreatedEvent(
-			question.getId(), principal.userId(), question.getTitle(), request.location().latitude(), request.location().longitude()
+			question.getId(), principal.userId(), question.getTitle(), request.location().lat(), request.location().lng()
 		));
 
 		return new QuestionDetailResponse(

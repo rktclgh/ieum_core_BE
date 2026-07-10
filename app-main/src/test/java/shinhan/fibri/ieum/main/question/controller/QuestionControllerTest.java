@@ -76,7 +76,7 @@ class QuestionControllerTest {
 					{
 					  "title": "title",
 					  "content": "content",
-					  "location": { "latitude": 37.4979, "longitude": 127.0276 },
+				  "location": { "lat": 37.4979, "lng": 127.0276, "address": "서울특별시 강남구", "detailAddress": "", "label": "강남역" },
 					  "imageFileIds": ["00000000-0000-0000-0000-000000000001"]
 					}
 					"""))
