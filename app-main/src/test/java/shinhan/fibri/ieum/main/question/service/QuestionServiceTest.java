@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
@@ -44,6 +45,7 @@ import shinhan.fibri.ieum.main.question.repository.MyQuestionItemProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionDetailProjection;
 import shinhan.fibri.ieum.main.question.repository.QuestionImageRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.notification.presence.QuestionCreatedEvent;
 
 class QuestionServiceTest {
 
@@ -54,6 +56,7 @@ class QuestionServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final QuestionImageCleanupService imageCleanupService = mock(QuestionImageCleanupService.class);
+	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 	private final QuestionService service = new QuestionService(
 		questionRepository,
 		questionImageRepository,
@@ -61,7 +64,8 @@ class QuestionServiceTest {
 		fileRepository,
 		userRepository,
 		pinWriter,
-		imageCleanupService
+		imageCleanupService,
+		eventPublisher
 	);
 
 	@Test
@@ -93,6 +97,7 @@ class QuestionServiceTest {
 		assertThat(response.title()).isEqualTo("title");
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
+		verify(eventPublisher).publishEvent(new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276));
 		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
 		inOrder.verify(pinWriter).create(42L, PinType.question, 37.4979, 127.0276);

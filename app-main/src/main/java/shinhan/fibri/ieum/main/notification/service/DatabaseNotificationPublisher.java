@@ -9,6 +9,7 @@ import shinhan.fibri.ieum.main.notification.repository.NotificationRepository;
 import shinhan.fibri.ieum.main.notification.sse.NotificationSsePayload;
 import shinhan.fibri.ieum.main.notification.sse.OutboundEvent;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
+import java.time.OffsetDateTime;
 
 @Component
 public class DatabaseNotificationPublisher implements NotificationPublisher {
@@ -22,6 +23,15 @@ public class DatabaseNotificationPublisher implements NotificationPublisher {
 	) {
 		this.notificationRepository = notificationRepository;
 		this.registry = registry;
+	}
+
+	@Override
+	public void publishEphemeral(Long userId, NotificationType type, String title, String body, Long refId) {
+		if (registry.isOnline(userId)) {
+			registry.push(userId, OutboundEvent.ephemeral(NotificationSsePayload.ephemeral(
+				type, title, body, refId, OffsetDateTime.now()
+			)));
+		}
 	}
 
 	@Override
