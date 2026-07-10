@@ -74,12 +74,14 @@ public class AdminSanctionService {
 			activeSanction.release(OffsetDateTime.now(), principal.userId());
 			if (target.getStatus() == UserStatus.active) {
 				log.warn("Activating user with active sanction but active status: userId={}", userId);
-				return;
+			} else {
+				target.activate();
 			}
 		} else {
 			log.warn("Activating suspended user without active sanction: userId={}", userId);
+			target.activate();
 		}
-		target.activate();
+		revokeSessionsAfterCommit(userId);
 	}
 
 	@Transactional
