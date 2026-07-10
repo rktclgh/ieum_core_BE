@@ -24,9 +24,7 @@ import shinhan.fibri.ieum.main.admin.dto.AdminLoginResponse;
 import shinhan.fibri.ieum.main.admin.service.AdminLoginResult;
 import shinhan.fibri.ieum.main.admin.service.AdminLoginService;
 import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
-import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
-import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.session.AuthCookieWriter;
 import shinhan.fibri.ieum.main.auth.session.AuthSessionProperties;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -103,42 +101,6 @@ class AdminAuthControllerTest {
 					"""))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code", is("INVALID_CREDENTIALS")));
-	}
-
-	@Test
-	void loginReturnsForbiddenWhenEmailIsNotVerified() throws Exception {
-		doThrow(new EmailNotVerifiedException())
-			.when(adminLoginService)
-			.login(any(LoginRequest.class));
-
-		mockMvc.perform(post("/api/v1/admin/login")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "admin@example.com",
-					  "password": "Passw@rd123"
-					}
-					"""))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code", is("EMAIL_NOT_VERIFIED")));
-	}
-
-	@Test
-	void loginReturnsForbiddenWhenUserIsSuspended() throws Exception {
-		doThrow(new SuspendedUserException())
-			.when(adminLoginService)
-			.login(any(LoginRequest.class));
-
-		mockMvc.perform(post("/api/v1/admin/login")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "admin@example.com",
-					  "password": "Passw@rd123"
-					}
-					"""))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code", is("SUSPENDED_USER")));
 	}
 
 	@TestConfiguration

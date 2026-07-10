@@ -11,9 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
-import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
-import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 
 @RestControllerAdvice(assignableTypes = AdminAuthController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -23,18 +21,6 @@ public class AdminAuthExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleInvalidCredentials(InvalidCredentialsException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 			.body(new AuthErrorResponse("INVALID_CREDENTIALS", exception.getMessage()));
-	}
-
-	@ExceptionHandler(EmailNotVerifiedException.class)
-	public ResponseEntity<AuthErrorResponse> handleEmailNotVerified(EmailNotVerifiedException exception) {
-		return ResponseEntity.status(HttpStatus.FORBIDDEN)
-			.body(new AuthErrorResponse("EMAIL_NOT_VERIFIED", exception.getMessage()));
-	}
-
-	@ExceptionHandler(SuspendedUserException.class)
-	public ResponseEntity<AuthErrorResponse> handleSuspendedUser(SuspendedUserException exception) {
-		return ResponseEntity.status(HttpStatus.FORBIDDEN)
-			.body(new AuthErrorResponse("SUSPENDED_USER", exception.getMessage()));
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)

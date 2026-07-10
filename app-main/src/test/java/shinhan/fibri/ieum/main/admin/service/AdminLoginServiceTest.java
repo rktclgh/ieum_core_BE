@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.main.auth.dto.LoginRequest;
 import shinhan.fibri.ieum.main.auth.dto.LoginResponse;
 import shinhan.fibri.ieum.main.auth.exception.EmailNotVerifiedException;
 import shinhan.fibri.ieum.main.auth.exception.InvalidCredentialsException;
+import shinhan.fibri.ieum.main.auth.exception.SuspendedUserException;
 import shinhan.fibri.ieum.main.auth.service.LoginResult;
 import shinhan.fibri.ieum.main.auth.service.LoginService;
 
@@ -58,13 +59,24 @@ class AdminLoginServiceTest {
 	}
 
 	@Test
-	void loginPropagatesLoginServiceExceptions() {
+	void loginConvertsEmailNotVerifiedToInvalidCredentials() {
 		LoginService loginService = mock(LoginService.class);
 		AdminLoginService service = new AdminLoginService(loginService);
 		LoginRequest request = new LoginRequest("admin@example.com", "Passw@rd123");
 		doThrow(new EmailNotVerifiedException()).when(loginService).login(request);
 
 		assertThatThrownBy(() -> service.login(request))
-			.isInstanceOf(EmailNotVerifiedException.class);
+			.isInstanceOf(InvalidCredentialsException.class);
+	}
+
+	@Test
+	void loginConvertsSuspendedUserToInvalidCredentials() {
+		LoginService loginService = mock(LoginService.class);
+		AdminLoginService service = new AdminLoginService(loginService);
+		LoginRequest request = new LoginRequest("admin@example.com", "Passw@rd123");
+		doThrow(new SuspendedUserException()).when(loginService).login(request);
+
+		assertThatThrownBy(() -> service.login(request))
+			.isInstanceOf(InvalidCredentialsException.class);
 	}
 }
