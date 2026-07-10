@@ -70,7 +70,7 @@ public class AnswerService {
 		return new CreateAnswerResponse(answer.getId());
 	}
 
-	@Transactional
+	@Transactional(timeout = 30)
 	public void accept(AuthenticatedUser principal, Long answerId) {
 		Answer answer = answerRepository.findById(answerId)
 			.orElseThrow(AnswerNotFoundException::new);
@@ -91,6 +91,13 @@ public class AnswerService {
 		if (!answer.isAi()) {
 			userRepository.findByIdForUpdate(answer.getAuthorId())
 				.ifPresent(User::recordAcceptedAnswer);
+			notificationPublisher.publishDurable(
+				answer.getAuthorId(),
+				NotificationType.question,
+				"답변 채택",
+				"회원님의 답변이 채택됐어요",
+				question.getId()
+			);
 		}
 	}
 

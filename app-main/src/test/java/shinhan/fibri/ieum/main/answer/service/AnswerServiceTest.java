@@ -274,6 +274,13 @@ class AnswerServiceTest {
 		assertThat(question.isResolved()).isTrue();
 		assertThat(answerAuthor.getAcceptedCount()).isEqualTo(5);
 		assertThat(answerAuthor.getGrade()).isEqualTo(UserGrade.silver);
+		verify(notificationPublisher).publishDurable(
+			77L,
+			NotificationType.question,
+			"답변 채택",
+			"회원님의 답변이 채택됐어요",
+			200L
+		);
 	}
 
 	@Test
@@ -350,6 +357,7 @@ class AnswerServiceTest {
 		assertThat(answer.isAccepted()).isTrue();
 		assertThat(question.isResolved()).isTrue();
 		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
 	}
 
 	private AuthenticatedUser principal() {
