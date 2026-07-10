@@ -22,6 +22,7 @@ import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 
 class SseSubscriptionServiceTest {
 
@@ -29,12 +30,14 @@ class SseSubscriptionServiceTest {
 	private final SseConnectionRegistry registry = mock(SseConnectionRegistry.class);
 	private final SseEmitterFactory emitterFactory = mock(SseEmitterFactory.class);
 	private final SseInitialFrameWriter initialFrameWriter = mock(SseInitialFrameWriter.class);
+	private final PresenceRegistry presenceRegistry = mock(PresenceRegistry.class);
 	private final SseSubscriptionService service = new SseSubscriptionService(
 		sessionTokenValidator,
 		registry,
 		emitterFactory,
 		initialFrameWriter,
-		properties()
+		properties(),
+		presenceRegistry
 	);
 
 	@Test
@@ -47,9 +50,10 @@ class SseSubscriptionServiceTest {
 		SseEmitter result = service.subscribe("access-token");
 
 		ArgumentCaptor<Long> retryMs = ArgumentCaptor.forClass(Long.class);
-		InOrder order = inOrder(initialFrameWriter, registry);
+		InOrder order = inOrder(initialFrameWriter, registry, presenceRegistry);
 		order.verify(initialFrameWriter).write(eq(emitter), retryMs.capture());
 		order.verify(registry).register(42L, "sid-1", emitter);
+		order.verify(presenceRegistry).seedOnConnect(42L);
 		assertThat(result).isSameAs(emitter);
 		assertThat(retryMs.getValue()).isBetween(3_000L, 8_000L);
 	}

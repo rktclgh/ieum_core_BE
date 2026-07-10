@@ -11,23 +11,28 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 
 @Component
 public class SseConnectionRegistry {
 
 	private final NotificationProperties properties;
 	private final Executor executor;
+	private final PresenceRegistry presenceRegistry;
 	private final ConcurrentHashMap<Long, UserConnections> connectionsByUser = new ConcurrentHashMap<>();
 
 	public SseConnectionRegistry(
 		NotificationProperties properties,
-		@Qualifier("notificationTaskExecutor") Executor executor
+		@Qualifier("notificationTaskExecutor") Executor executor,
+		PresenceRegistry presenceRegistry
 	) {
 		this.properties = Objects.requireNonNull(properties, "properties must not be null");
 		this.executor = Objects.requireNonNull(executor, "executor must not be null");
+		this.presenceRegistry = Objects.requireNonNull(presenceRegistry, "presenceRegistry must not be null");
 	}
 
 	public void register(Long userId, String sessionId, SseEmitter emitter) {
@@ -143,10 +148,18 @@ public class SseConnectionRegistry {
 	}
 
 	private void remove(Connection connection) {
+		AtomicBoolean lastConnectionRemoved = new AtomicBoolean();
 		connectionsByUser.computeIfPresent(connection.userId, (ignored, connections) -> {
 			connections.remove(connection);
-			return connections.isEmpty() ? null : connections;
+			if (connections.isEmpty()) {
+				lastConnectionRemoved.set(true);
+				return null;
+			}
+			return connections;
 		});
+		if (lastConnectionRemoved.get()) {
+			presenceRegistry.removeOnLastDisconnect(connection.userId);
+		}
 	}
 
 	private void send(SseEmitterConnection emitter, OutboundEvent event) {

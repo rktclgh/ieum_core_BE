@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 
 class SseConnectionRegistryTest {
 
@@ -101,6 +102,18 @@ class SseConnectionRegistryTest {
 	}
 
 	@Test
+	void removesPresenceWhenUsersLastConnectionEnds() {
+		PresenceRegistry presenceRegistry = org.mockito.Mockito.mock(PresenceRegistry.class);
+		SseConnectionRegistry registry = registry(5, presenceRegistry);
+		FakeConnection connection = new FakeConnection();
+		registry.register(42L, "sid-1", connection);
+
+		connection.fireCompletion();
+
+		org.mockito.Mockito.verify(presenceRegistry).removeOnLastDisconnect(42L);
+	}
+
+	@Test
 	void enqueuesHeartbeatForEveryActiveConnection() {
 		SseConnectionRegistry registry = registry(5);
 		FakeConnection first = new FakeConnection();
@@ -143,6 +156,10 @@ class SseConnectionRegistryTest {
 	}
 
 	private static SseConnectionRegistry registry(int maxConnectionsPerUser) {
+		return registry(maxConnectionsPerUser, org.mockito.Mockito.mock(PresenceRegistry.class));
+	}
+
+	private static SseConnectionRegistry registry(int maxConnectionsPerUser, PresenceRegistry presenceRegistry) {
 		NotificationProperties properties = new NotificationProperties(
 			1_800_000L,
 			maxConnectionsPerUser,
@@ -155,7 +172,7 @@ class SseConnectionRegistryTest {
 			16,
 			500
 		);
-		return new SseConnectionRegistry(properties, Runnable::run);
+		return new SseConnectionRegistry(properties, Runnable::run, presenceRegistry);
 	}
 
 	private static OutboundEvent durable(Long id) {

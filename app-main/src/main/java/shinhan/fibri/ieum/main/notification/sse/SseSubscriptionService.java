@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
+import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +18,7 @@ public class SseSubscriptionService {
 	private final SseEmitterFactory emitterFactory;
 	private final SseInitialFrameWriter initialFrameWriter;
 	private final NotificationProperties properties;
+	private final PresenceRegistry presenceRegistry;
 
 	public SseEmitter subscribe(String accessToken) {
 		ValidatedAuthSession session = validate(accessToken);
@@ -28,6 +30,7 @@ public class SseSubscriptionService {
 			throw new SseInitialFrameWriteException(exception);
 		}
 		registry.register(session.principal().userId(), session.sessionId(), emitter);
+		presenceRegistry.seedOnConnect(session.principal().userId());
 		return emitter;
 	}
 
