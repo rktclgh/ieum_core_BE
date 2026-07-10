@@ -45,6 +45,8 @@ public class NotificationConfig {
 		executor.setMaxPoolSize(properties.dispatchMaxPoolSize());
 		executor.setQueueCapacity(properties.dispatchQueueCapacity());
 		executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+		executor.setWaitForTasksToCompleteOnShutdown(true);
+		executor.setAwaitTerminationSeconds(10);
 		executor.initialize();
 		return executor;
 	}
