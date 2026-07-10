@@ -41,6 +41,7 @@ public class SecurityConfig {
 				.accessDeniedHandler(jsonAccessDeniedHandler)
 			)
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
 				.requestMatchers(
 					"/api/v1/auth/**",
 					"/ws/**",
