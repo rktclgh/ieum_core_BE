@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.place.exception.PlaceProviderException;
 import shinhan.fibri.ieum.main.place.exception.PlaceRequestException;
 
 @RestControllerAdvice(assignableTypes = PlaceController.class)
@@ -21,5 +22,11 @@ public class PlaceExceptionHandler {
 				exception.getMessage(),
 				List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage()))
 			));
+	}
+
+	@ExceptionHandler(PlaceProviderException.class)
+	public ResponseEntity<AuthErrorResponse> handleProvider(PlaceProviderException exception) {
+		return ResponseEntity.status(exception.status())
+			.body(new AuthErrorResponse(exception.code(), exception.getMessage()));
 	}
 }
