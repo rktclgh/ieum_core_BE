@@ -10,6 +10,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.Objects;
+import org.hibernate.annotations.JdbcType;
+import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
 
 @Entity
 @Table(name = "user_sanctions")
@@ -24,7 +26,8 @@ public class UserSanction {
 	private Long userId;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, columnDefinition = "varchar(30)")
+	@JdbcType(PostgreSQLEnumJdbcType.class)
+	@Column(name = "sanction_type", nullable = false, columnDefinition = "sanction_type")
 	private SanctionType type;
 
 	@Column(nullable = false, columnDefinition = "text")
@@ -33,7 +36,7 @@ public class UserSanction {
 	@Column(name = "ends_at")
 	private OffsetDateTime endsAt;
 
-	@Column(name = "created_by", nullable = false)
+	@Column(name = "admin_id")
 	private Long createdBy;
 
 	@Column(name = "created_at", nullable = false, updatable = false)

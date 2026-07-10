@@ -18,11 +18,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * SnakeCasePostgreSQLDialect 회귀 테스트 — {@code user_sanctions.type}은 실제로 varchar(30) 컬럼이다
- * (마이그레이션 DDL 참조). {@code UserSanction.type}에 {@code @JdbcType(PostgreSQLEnumJdbcType)}를 붙이면
- * {@code findExpiredTemporarySanctions}의 JPQL enum 리터럴이 존재하지 않는 {@code sanction_type} pg 타입으로
- * 캐스팅되어 42704로 실패한다(운영에서 스케줄러가 매분 실패하는 버그). 순수 varchar 매핑으로 되돌린 뒤
- * 실제 Postgres에서 정상 동작하는지 검증한다.
+ * 기준 DDL과 같은 PostgreSQL enum/컬럼명으로 제재 만료 쿼리를 검증한다.
+ * 운영 DB는 {@code sanction_type}, {@code admin_id}를 사용하므로 구형 {@code type}, {@code created_by}
+ * 매핑이 남으면 스케줄러가 매분 SQL 오류를 낸다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -76,7 +74,7 @@ class UserSanctionRepositoryIntegrationTest {
 	}
 
 	@Test
-	void findExpiredTemporarySanctionsRendersPlainVarcharComparisonAndSucceeds() {
+	void findExpiredTemporarySanctionsUsesCurrentSchemaAndSucceeds() {
 		List<ExpiredSanctionRef> expired = userSanctionRepository.findExpiredTemporarySanctions(
 			OffsetDateTime.parse("2026-07-10T10:00:00+09:00")
 		);
@@ -96,24 +94,39 @@ class UserSanctionRepositoryIntegrationTest {
 
 	private void createSchema() {
 		jdbcTemplate.execute("""
+			DO $$
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sanction_type') THEN
+					CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
+				END IF;
+				IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sanction_decision_source') THEN
+					CREATE TYPE sanction_decision_source AS ENUM ('admin', 'ai_recommendation');
+				END IF;
+			END
+			$$
+			""");
+		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS users (
 				user_id BIGINT PRIMARY KEY
 			)
 			""");
 		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS user_sanctions (
-				sanction_id  bigserial PRIMARY KEY,
-				user_id      bigint      NOT NULL REFERENCES users (user_id),
-				type         varchar(30) NOT NULL,
-				reason       text        NOT NULL,
-				ends_at      timestamptz,
-				created_by   bigint      NOT NULL REFERENCES users (user_id),
-				created_at   timestamptz NOT NULL DEFAULT now(),
-				released_at  timestamptz,
-				released_by  bigint      REFERENCES users (user_id),
+				sanction_id     bigserial PRIMARY KEY,
+				user_id         bigint NOT NULL REFERENCES users (user_id),
+				report_id        bigint,
+				decision_source  sanction_decision_source NOT NULL DEFAULT 'admin',
+				admin_id         bigint REFERENCES users (user_id),
+				sanction_type    sanction_type NOT NULL,
+				reason          text NOT NULL,
+				starts_at       timestamptz NOT NULL DEFAULT now(),
+				ends_at         timestamptz,
+				released_at     timestamptz,
+				released_by     bigint REFERENCES users (user_id),
+				created_at      timestamptz NOT NULL DEFAULT now(),
 				CONSTRAINT chk_user_sanctions_ends_at CHECK (
-					(type = 'temporary' AND ends_at IS NOT NULL)
-					OR (type = 'permanent' AND ends_at IS NULL)
+					(sanction_type = 'temporary' AND ends_at IS NOT NULL)
+					OR (sanction_type = 'permanent' AND ends_at IS NULL)
 				)
 			)
 			""");
@@ -126,8 +139,8 @@ class UserSanctionRepositoryIntegrationTest {
 	private void insertSanction(Long userId, String type, String endsAt, String releasedAt, Long createdBy) {
 		jdbcTemplate.update(
 			"""
-				INSERT INTO user_sanctions (user_id, type, reason, ends_at, created_by, released_at)
-				VALUES (?, ?, 'abuse', ?::timestamptz, ?, ?::timestamptz)
+				INSERT INTO user_sanctions (user_id, sanction_type, reason, ends_at, admin_id, released_at)
+				VALUES (?, CAST(? AS sanction_type), 'abuse', ?::timestamptz, ?, ?::timestamptz)
 				""",
 			userId,
 			type,

@@ -30,12 +30,12 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.pin.domain.PinType;
+import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.dto.AnswerItem;
 import shinhan.fibri.ieum.main.question.dto.QuestionCreateRequest;
 import shinhan.fibri.ieum.main.question.dto.QuestionDetailResponse;
-import shinhan.fibri.ieum.main.question.dto.QuestionLocation;
 import shinhan.fibri.ieum.main.question.dto.QuestionUpdateRequest;
 import shinhan.fibri.ieum.main.question.exception.InvalidQuestionRequestException;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
@@ -76,7 +76,8 @@ class QuestionServiceTest {
 		User author = user(profileId);
 		when(fileRepository.findByFileIdAndUploaderId(imageId, 42L)).thenReturn(Optional.of(uploadedFile));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(author));
-		when(pinWriter.create(42L, PinType.question, 37.4979, 127.0276)).thenReturn(100L);
+		LocationSnapshot location = new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역");
+		when(pinWriter.create(42L, PinType.question, location)).thenReturn(100L);
 		when(questionRepository.save(any(Question.class))).thenAnswer(invocation -> {
 			Question question = invocation.getArgument(0);
 			setId(question, 200L);
@@ -88,7 +89,7 @@ class QuestionServiceTest {
 			new QuestionCreateRequest(
 				"title",
 				"content",
-				new QuestionLocation(37.4979, 127.0276),
+				location,
 				List.of(imageId)
 			)
 		);
@@ -96,11 +97,12 @@ class QuestionServiceTest {
 		assertThat(response.questionId()).isEqualTo(200L);
 		assertThat(response.title()).isEqualTo("title");
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location()).isEqualTo(location);
 		assertThat(response.imageUrls()).containsExactly("/api/v1/files/%s?v=display".formatted(imageId));
 		verify(eventPublisher).publishEvent(new QuestionCreatedEvent(200L, 42L, "title", 37.4979, 127.0276));
 		InOrder inOrder = inOrder(fileRepository, pinWriter, questionRepository, questionImageRepository);
 		inOrder.verify(fileRepository).findByFileIdAndUploaderId(imageId, 42L);
-		inOrder.verify(pinWriter).create(42L, PinType.question, 37.4979, 127.0276);
+		inOrder.verify(pinWriter).create(42L, PinType.question, location);
 		inOrder.verify(questionRepository).save(any(Question.class));
 		inOrder.verify(questionImageRepository).saveAll(any());
 	}
@@ -115,13 +117,13 @@ class QuestionServiceTest {
 			new QuestionCreateRequest(
 				"title",
 				"content",
-				new QuestionLocation(37.4979, 127.0276),
+				new LocationSnapshot(37.4979, 127.0276, "서울특별시 강남구", "", "강남역"),
 				List.of(imageId)
 			)
 		)).isInstanceOf(InvalidQuestionRequestException.class)
 			.hasMessage("Invalid image");
 
-		verify(pinWriter, never()).create(any(), any(), any(Double.class), any(Double.class));
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
 	}
 
 	@Test
@@ -146,6 +148,7 @@ class QuestionServiceTest {
 			"/api/v1/files/%s?v=display".formatted(second)
 		);
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location().address()).isEqualTo("서울특별시 강남구");
 		assertThat(response.answers()).isEmpty();
 		verify(answerImageRepository, never()).findByAnswerIdInOrderBySortOrderAsc(any());
 	}
@@ -302,6 +305,9 @@ class QuestionServiceTest {
 			.thenReturn(List.of(QuestionImage.link(200L, oldImage, 0)));
 		when(fileRepository.findByFileIdAndUploaderId(newImage, 42L)).thenReturn(Optional.of(uploadedFile(newImage, 42L)));
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
+			200L, "updated", "changed", false, 42L, "nickname", profileId
+		)));
 
 		TransactionSynchronizationManager.initSynchronization();
 		QuestionDetailResponse response;
@@ -322,6 +328,9 @@ class QuestionServiceTest {
 		assertThat(response.title()).isEqualTo("updated");
 		assertThat(response.content()).isEqualTo("changed");
 		assertThat(response.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(profileId));
+		assertThat(response.location()).isEqualTo(new LocationSnapshot(
+			37.4979, 127.0276, "서울특별시 강남구", "", "강남역"
+		));
 		verify(questionImageRepository).deleteByQuestionId(200L);
 		verify(questionImageRepository).saveAll(any());
 		verify(imageCleanupService).cleanRemovedImagesAfterCommit(List.of(oldImage));
@@ -335,6 +344,9 @@ class QuestionServiceTest {
 		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
 		when(questionImageRepository.findByQuestionIdOrderBySortOrderAsc(200L)).thenReturn(List.of());
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user(profileId)));
+		when(questionRepository.findDetailByQuestionId(200L)).thenReturn(Optional.of(new DetailProjection(
+			200L, "updated title", "original content", false, 42L, "nickname", profileId
+		)));
 
 		QuestionDetailResponse response = service.update(
 			principal(),
@@ -449,6 +461,31 @@ class QuestionServiceTest {
 		@Override
 		public UUID getAuthorProfileFileId() {
 			return authorProfileFileId;
+		}
+
+		@Override
+		public double getLatitude() {
+			return 37.4979;
+		}
+
+		@Override
+		public double getLongitude() {
+			return 127.0276;
+		}
+
+		@Override
+		public String getAddress() {
+			return "서울특별시 강남구";
+		}
+
+		@Override
+		public String getDetailAddress() {
+			return "";
+		}
+
+		@Override
+		public String getLabel() {
+			return "강남역";
 		}
 	}
 
