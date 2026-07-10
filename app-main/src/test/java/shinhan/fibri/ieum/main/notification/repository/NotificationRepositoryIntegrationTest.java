@@ -126,6 +126,23 @@ class NotificationRepositoryIntegrationTest {
 		assertThat(page).extracting(Notification::getId).containsExactly(tiedEarlierId, 1L);
 	}
 
+	@Test
+	void findsFirstPageSortedForOwner() {
+		OffsetDateTime older = OffsetDateTime.parse("2026-07-01T10:00:00+09:00");
+		OffsetDateTime newer = OffsetDateTime.parse("2026-07-02T10:00:00+09:00");
+
+		insertNotification(1L, "older", older);
+		insertNotification(1L, "newer", newer);
+		insertNotification(2L, "other-user", newer.plusHours(1));
+
+		List<Notification> page = notificationRepository.findByUserIdOrderByCreatedAtDescIdDesc(
+			1L,
+			PageRequest.of(0, 10)
+		);
+
+		assertThat(page).extracting(Notification::getTitle).containsExactly("newer", "older");
+	}
+
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {
 		return jdbcTemplate.queryForObject(
 			"""

@@ -10,15 +10,13 @@ import shinhan.fibri.ieum.main.notification.domain.Notification;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
+	List<Notification> findByUserIdOrderByCreatedAtDescIdDesc(Long userId, Pageable pageable);
+
 	@Query("""
 		SELECT n
 		FROM Notification n
 		WHERE n.userId = :userId
-		  AND (
-			:cursorCreatedAt IS NULL
-			OR n.createdAt < :cursorCreatedAt
-			OR (n.createdAt = :cursorCreatedAt AND n.id < :cursorId)
-		  )
+		  AND (n.createdAt < :cursorCreatedAt OR (n.createdAt = :cursorCreatedAt AND n.id < :cursorId))
 		ORDER BY n.createdAt DESC, n.id DESC
 		""")
 	List<Notification> findPage(
