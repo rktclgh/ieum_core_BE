@@ -10,7 +10,7 @@ class PlaceProxyConfigTest {
 	void rejectsBlankProviderCredentialsAtStartup() {
 		assertThatThrownBy(() -> new PlaceProxyProperties(
 			"https://openapi.naver.com", "", "client-secret",
-			"https://maps.apigw.ntruss.com", "key-id", "key"
+			"https://maps.apigw.ntruss.com", "key-id", "key", 2_000, 3_000, 20
 		))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("naverSearchClientId");
