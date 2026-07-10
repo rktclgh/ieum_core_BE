@@ -100,6 +100,48 @@ class SseConnectionRegistryTest {
 		assertThat(registry.onlineUserIds()).isEmpty();
 	}
 
+	@Test
+	void enqueuesHeartbeatForEveryActiveConnection() {
+		SseConnectionRegistry registry = registry(5);
+		FakeConnection first = new FakeConnection();
+		FakeConnection second = new FakeConnection();
+		registry.register(42L, "sid-1", first);
+		registry.register(99L, "sid-2", second);
+
+		registry.enqueueHeartbeat();
+
+		assertThat(first.sent).extracting(OutboundEvent::kind).containsExactly(OutboundEvent.Kind.heartbeat);
+		assertThat(second.sent).extracting(OutboundEvent::kind).containsExactly(OutboundEvent.Kind.heartbeat);
+	}
+
+	@Test
+	void returnsOnlyConnectionsAssignedToRequestedSessionShard() {
+		SseConnectionRegistry registry = registry(5);
+		String firstShardZero = sessionIdForShard(0, 4, 1);
+		String secondShardZero = sessionIdForShard(0, 4, 2);
+		String shardOne = sessionIdForShard(1, 4, 1);
+		registry.register(42L, firstShardZero, new FakeConnection());
+		registry.register(99L, secondShardZero, new FakeConnection());
+		registry.register(77L, shardOne, new FakeConnection());
+
+		assertThat(registry.activeSessionsInShard(0, 4))
+			.containsExactlyInAnyOrder(
+				new SseSessionConnection(42L, firstShardZero),
+				new SseSessionConnection(99L, secondShardZero)
+			);
+	}
+
+	@Test
+	void returnsSameSessionOnlyOnceWhenItHasMultipleConnections() {
+		SseConnectionRegistry registry = registry(5);
+		String sessionId = sessionIdForShard(0, 4, 1);
+		registry.register(42L, sessionId, new FakeConnection());
+		registry.register(42L, sessionId, new FakeConnection());
+
+		assertThat(registry.activeSessionsInShard(0, 4))
+			.containsExactly(new SseSessionConnection(42L, sessionId));
+	}
+
 	private static SseConnectionRegistry registry(int maxConnectionsPerUser) {
 		NotificationProperties properties = new NotificationProperties(
 			1_800_000L,
@@ -125,6 +167,16 @@ class SseConnectionRegistryTest {
 			id,
 			OffsetDateTime.parse("2026-07-10T12:00:00+09:00")
 		));
+	}
+
+	private static String sessionIdForShard(int shard, int shardCount, int occurrence) {
+		int found = 0;
+		for (int candidate = 0; ; candidate++) {
+			String sessionId = "sid-" + candidate;
+			if (Math.floorMod(sessionId.hashCode(), shardCount) == shard && ++found == occurrence) {
+				return sessionId;
+			}
+		}
 	}
 
 	private static final class FakeConnection implements SseEmitterConnection {

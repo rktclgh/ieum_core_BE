@@ -3,7 +3,9 @@ package shinhan.fibri.ieum.main.notification.sse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,6 +71,33 @@ public class SseConnectionRegistry {
 		for (Connection connection : connections.snapshot()) {
 			connection.enqueue(event);
 		}
+	}
+
+	void enqueueHeartbeat() {
+		for (UserConnections connections : connectionsByUser.values()) {
+			for (Connection connection : connections.snapshot()) {
+				connection.enqueue(OutboundEvent.heartbeat());
+			}
+		}
+	}
+
+	List<SseSessionConnection> activeSessionsInShard(int shard, int shardCount) {
+		if (shardCount < 1 || shard < 0 || shard >= shardCount) {
+			throw new IllegalArgumentException("invalid session shard");
+		}
+
+		Map<String, SseSessionConnection> sessionsById = new LinkedHashMap<>();
+		for (UserConnections connections : connectionsByUser.values()) {
+			for (Connection connection : connections.snapshot()) {
+				if (Math.floorMod(connection.sessionId.hashCode(), shardCount) == shard) {
+					sessionsById.putIfAbsent(
+						connection.sessionId,
+						new SseSessionConnection(connection.userId, connection.sessionId)
+					);
+				}
+			}
+		}
+		return List.copyOf(sessionsById.values());
 	}
 
 	public void closeSession(String sessionId) {
