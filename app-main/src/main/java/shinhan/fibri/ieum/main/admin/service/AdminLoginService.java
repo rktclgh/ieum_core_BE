@@ -20,6 +20,7 @@ import shinhan.fibri.ieum.main.auth.service.LoginService;
 public class AdminLoginService {
 
 	private static final Logger log = LoggerFactory.getLogger(AdminLoginService.class);
+	private static final String INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
 	private final LoginService loginService;
 
@@ -32,13 +33,13 @@ public class AdminLoginService {
 			result = loginService.login(request);
 		} catch (EmailNotVerifiedException | SuspendedUserException exception) {
 			log.warn("Admin login rejected (account state): reason={}", exception.getClass().getSimpleName());
-			throw new InvalidCredentialsException();
+			throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
 		}
 
 		LoginResponse response = result.response();
 		if (response.role() != UserRole.admin) {
 			log.warn("Admin login rejected (not admin): userId={}", response.userId());
-			throw new InvalidCredentialsException();
+			throw new InvalidCredentialsException(INVALID_CREDENTIALS_MESSAGE);
 		}
 
 		return new AdminLoginResult(

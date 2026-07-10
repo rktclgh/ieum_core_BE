@@ -55,7 +55,8 @@ class AdminLoginServiceTest {
 		));
 
 		assertThatThrownBy(() -> service.login(request))
-			.isInstanceOf(InvalidCredentialsException.class);
+			.isInstanceOf(InvalidCredentialsException.class)
+			.hasMessage("Invalid email or password");
 	}
 
 	@Test
@@ -66,7 +67,8 @@ class AdminLoginServiceTest {
 		doThrow(new EmailNotVerifiedException()).when(loginService).login(request);
 
 		assertThatThrownBy(() -> service.login(request))
-			.isInstanceOf(InvalidCredentialsException.class);
+			.isInstanceOf(InvalidCredentialsException.class)
+			.hasMessage("Invalid email or password");
 	}
 
 	@Test
@@ -77,6 +79,7 @@ class AdminLoginServiceTest {
 		doThrow(new SuspendedUserException()).when(loginService).login(request);
 
 		assertThatThrownBy(() -> service.login(request))
-			.isInstanceOf(InvalidCredentialsException.class);
+			.isInstanceOf(InvalidCredentialsException.class)
+			.hasMessage("Invalid email or password");
 	}
 }

@@ -25,22 +25,20 @@ public class AdminAuthExceptionHandler {
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<AuthErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
-		List<AuthErrorResponse.FieldError> fieldErrors = exception.getBindingResult()
-			.getFieldErrors()
-			.stream()
-			.map(fieldError -> new AuthErrorResponse.FieldError(
-				fieldError.getField(),
-				fieldError.getDefaultMessage()
-			))
-			.toList();
-		List<AuthErrorResponse.FieldError> globalErrors = exception.getBindingResult()
-			.getGlobalErrors()
-			.stream()
-			.map(this::toGlobalError)
-			.toList();
-
 		List<AuthErrorResponse.FieldError> validationErrors = java.util.stream.Stream
-			.concat(fieldErrors.stream(), globalErrors.stream())
+			.concat(
+				exception.getBindingResult()
+					.getFieldErrors()
+					.stream()
+					.map(fieldError -> new AuthErrorResponse.FieldError(
+						fieldError.getField(),
+						fieldError.getDefaultMessage()
+					)),
+				exception.getBindingResult()
+					.getGlobalErrors()
+					.stream()
+					.map(this::toGlobalError)
+			)
 			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
 			.toList();
 
