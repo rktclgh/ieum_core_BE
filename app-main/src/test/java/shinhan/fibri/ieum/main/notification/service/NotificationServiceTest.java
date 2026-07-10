@@ -17,7 +17,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.domain.NotificationType;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
+import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
 import shinhan.fibri.ieum.main.notification.exception.InvalidNotificationCursorException;
+import shinhan.fibri.ieum.main.notification.exception.NotificationNotFoundException;
 import shinhan.fibri.ieum.main.notification.repository.NotificationRepository;
 
 class NotificationServiceTest {
@@ -67,6 +69,50 @@ class NotificationServiceTest {
 			.isInstanceOf(InvalidNotificationCursorException.class);
 
 		verifyNoInteractions(notificationRepository);
+	}
+
+	@Test
+	void marksExistingNotificationReadIdempotently() {
+		when(notificationRepository.markReadByIdAndUserId(10L, 42L)).thenReturn(1);
+
+		service.markRead(42L, 10L);
+
+		verify(notificationRepository).markReadByIdAndUserId(10L, 42L);
+	}
+
+	@Test
+	void rejectsMarkReadForMissingOrOtherUsersNotification() {
+		when(notificationRepository.markReadByIdAndUserId(10L, 42L)).thenReturn(0);
+
+		assertThatThrownBy(() -> service.markRead(42L, 10L))
+			.isInstanceOf(NotificationNotFoundException.class);
+	}
+
+	@Test
+	void marksOnlyUnreadNotificationsForUser() {
+		when(notificationRepository.markAllRead(42L)).thenReturn(3);
+
+		NotificationReadAllResponse response = service.markAllRead(42L);
+
+		assertThat(response.updated()).isEqualTo(3);
+		verify(notificationRepository).markAllRead(42L);
+	}
+
+	@Test
+	void deletesOnlyOwnedNotification() {
+		when(notificationRepository.deleteByIdAndUserId(10L, 42L)).thenReturn(1);
+
+		service.delete(42L, 10L);
+
+		verify(notificationRepository).deleteByIdAndUserId(10L, 42L);
+	}
+
+	@Test
+	void rejectsDeleteForMissingOrOtherUsersNotification() {
+		when(notificationRepository.deleteByIdAndUserId(10L, 42L)).thenReturn(0);
+
+		assertThatThrownBy(() -> service.delete(42L, 10L))
+			.isInstanceOf(NotificationNotFoundException.class);
 	}
 
 	private static Notification notification(Long id, String title, String createdAt) {

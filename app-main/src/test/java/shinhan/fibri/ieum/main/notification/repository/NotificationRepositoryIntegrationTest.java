@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -29,7 +30,7 @@ class NotificationRepositoryIntegrationTest {
 	@SuppressWarnings("resource")
 	static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
 		DockerImageName.parse("postgis/postgis:16-3.4-alpine").asCompatibleSubstituteFor("postgres")
-	);
+	).waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2));
 
 	@DynamicPropertySource
 	static void registerDataSourceProperties(DynamicPropertyRegistry registry) {
@@ -151,6 +152,32 @@ class NotificationRepositoryIntegrationTest {
 		jdbcTemplate.update("UPDATE notifications SET is_read = true WHERE notification_id = ?", readId);
 
 		assertThat(notificationRepository.countUnreadByUserId(1L)).isEqualTo(1L);
+	}
+
+	@Test
+	void marksReadIdempotentlyAndOnlyForOwner() {
+		long notificationId = insertNotification(1L, "mine", OffsetDateTime.parse("2026-07-01T10:00:00+09:00"));
+		long otherUserNotificationId = insertNotification(2L, "other", OffsetDateTime.parse("2026-07-02T10:00:00+09:00"));
+
+		assertThat(notificationRepository.markReadByIdAndUserId(notificationId, 1L)).isEqualTo(1);
+		assertThat(notificationRepository.markReadByIdAndUserId(notificationId, 1L)).isEqualTo(1);
+		assertThat(notificationRepository.markReadByIdAndUserId(otherUserNotificationId, 1L)).isZero();
+		assertThat(notificationRepository.countUnreadByUserId(1L)).isZero();
+		assertThat(notificationRepository.countUnreadByUserId(2L)).isEqualTo(1L);
+	}
+
+	@Test
+	void marksAllUnreadAndDeletesOnlyOwnedNotifications() {
+		long readId = insertNotification(1L, "read", OffsetDateTime.parse("2026-07-01T10:00:00+09:00"));
+		insertNotification(1L, "unread", OffsetDateTime.parse("2026-07-02T10:00:00+09:00"));
+		long otherUserNotificationId = insertNotification(2L, "other", OffsetDateTime.parse("2026-07-03T10:00:00+09:00"));
+		jdbcTemplate.update("UPDATE notifications SET is_read = true WHERE notification_id = ?", readId);
+
+		assertThat(notificationRepository.markAllRead(1L)).isEqualTo(1);
+		assertThat(notificationRepository.countUnreadByUserId(1L)).isZero();
+		assertThat(notificationRepository.deleteByIdAndUserId(readId, 1L)).isEqualTo(1);
+		assertThat(notificationRepository.deleteByIdAndUserId(readId, 1L)).isZero();
+		assertThat(notificationRepository.deleteByIdAndUserId(otherUserNotificationId, 1L)).isZero();
 	}
 
 	private long insertNotification(Long userId, String title, OffsetDateTime createdAt) {

@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.notification.domain.Notification;
 import shinhan.fibri.ieum.main.notification.dto.NotificationItem;
 import shinhan.fibri.ieum.main.notification.dto.NotificationListResponse;
+import shinhan.fibri.ieum.main.notification.dto.NotificationReadAllResponse;
+import shinhan.fibri.ieum.main.notification.exception.NotificationNotFoundException;
 import shinhan.fibri.ieum.main.notification.repository.NotificationRepository;
 
 @Service
@@ -42,6 +44,25 @@ public class NotificationService {
 			nextCursor,
 			notificationRepository.countUnreadByUserId(userId)
 		);
+	}
+
+	@Transactional
+	public void markRead(Long userId, Long notificationId) {
+		if (notificationRepository.markReadByIdAndUserId(notificationId, userId) == 0) {
+			throw new NotificationNotFoundException();
+		}
+	}
+
+	@Transactional
+	public NotificationReadAllResponse markAllRead(Long userId) {
+		return new NotificationReadAllResponse(notificationRepository.markAllRead(userId));
+	}
+
+	@Transactional
+	public void delete(Long userId, Long notificationId) {
+		if (notificationRepository.deleteByIdAndUserId(notificationId, userId) == 0) {
+			throw new NotificationNotFoundException();
+		}
 	}
 
 	private int normalizePageSize(Integer size) {
