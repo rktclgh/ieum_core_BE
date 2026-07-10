@@ -10,8 +10,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.Objects;
-import org.hibernate.annotations.JdbcType;
-import org.hibernate.dialect.type.PostgreSQLEnumJdbcType;
 
 @Entity
 @Table(name = "user_sanctions")
@@ -26,7 +24,6 @@ public class UserSanction {
 	private Long userId;
 
 	@Enumerated(EnumType.STRING)
-	@JdbcType(PostgreSQLEnumJdbcType.class)
 	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private SanctionType type;
 
