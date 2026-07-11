@@ -14,11 +14,6 @@ import shinhan.fibri.ieum.ai.report.service.ReportReviewModelGateway;
 public class ReportReviewWorkflowConfiguration {
 
 	@Bean
-	ReportPolicyEvaluator reportPolicyEvaluator() {
-		return new ReportPolicyEvaluator();
-	}
-
-	@Bean
 	ReportReviewInferenceOrchestrator reportReviewInferenceOrchestrator(
 		PolicySnapshotProvider policySnapshotProvider,
 		ReportReviewModelGateway reportReviewModelGateway,

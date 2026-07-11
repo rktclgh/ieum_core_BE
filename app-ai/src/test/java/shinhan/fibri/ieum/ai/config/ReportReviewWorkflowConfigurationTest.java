@@ -28,8 +28,10 @@ class ReportReviewWorkflowConfigurationTest {
 	@Test
 	void createsThePolicyEvaluatorAndInferenceOrchestratorWhenEnabled() {
 		contextRunner
+			.withUserConfiguration(ExistingEvaluator.class)
 			.withPropertyValues("app.ai.features.report-review-enabled=true")
 			.run(context -> {
+				assertThat(context).hasNotFailed();
 				assertThat(context).hasSingleBean(ReportPolicyEvaluator.class);
 				assertThat(context).hasSingleBean(ReportReviewInferenceOrchestrator.class);
 			});
@@ -48,6 +50,15 @@ class ReportReviewWorkflowConfigurationTest {
 			return (preparedReview, policySnapshot, outputValidator) -> {
 				throw new UnsupportedOperationException("not called by this configuration test");
 			};
+		}
+	}
+
+	@Configuration
+	static class ExistingEvaluator {
+
+		@Bean("reportPolicyEvaluator")
+		ReportPolicyEvaluator reportPolicyEvaluator() {
+			return new ReportPolicyEvaluator();
 		}
 	}
 }
