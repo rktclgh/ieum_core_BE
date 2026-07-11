@@ -89,6 +89,54 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 		}
 	}
 
+	@Test
+	void marksCurrentAttemptForRetryAndDoesNotClaimItBeforeItsDueTime() {
+		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
+		ClaimedReport claimed = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS).orElseThrow();
+		OffsetDateTime nextAttemptAt = OffsetDateTime.now().plusMinutes(5);
+
+		assertThat(repository.markRetry(
+			claimed.reportId(), claimed.attemptId(), nextAttemptAt, "AI_TIMEOUT", "AI service timed out"
+		)).isTrue();
+		assertThat(workState(claimed.reportId())).isEqualTo("retry");
+		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+	}
+
+	@Test
+	void rejectsStaleAttemptTransitionsAfterTheReportIsReclaimed() {
+		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
+		ClaimedReport first = repository.claimNext("worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS).orElseThrow();
+		assertThat(repository.markRetry(
+			first.reportId(), first.attemptId(), OffsetDateTime.now().minusSeconds(1), "AI_TIMEOUT", "retry"
+		)).isTrue();
+		ClaimedReport second = repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS).orElseThrow();
+
+		assertThat(repository.markRetry(
+			first.reportId(), first.attemptId(), OffsetDateTime.now().plusMinutes(1), "STALE", "stale retry"
+		)).isFalse();
+		assertThat(repository.markDead(first.reportId(), first.attemptId(), "STALE", "stale dead")).isFalse();
+		assertThat(repository.markDead(second.reportId(), second.attemptId(), "INVALID_RESPONSE", "invalid response")).isTrue();
+		assertThat(workState(second.reportId())).isEqualTo("dead");
+	}
+
+	@Test
+	void recoversAnExpiredFifthAttemptAsDeadWork() {
+		insertDueReport(100L, OffsetDateTime.parse("2026-07-11T00:00:00Z"));
+		ClaimedReport claimed = null;
+		for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+			claimed = repository.claimNext("worker-a", Duration.ofSeconds(1), MAX_ATTEMPTS).orElseThrow();
+			if (attempt < MAX_ATTEMPTS) {
+				assertThat(repository.markRetry(
+					claimed.reportId(), claimed.attemptId(), OffsetDateTime.now().minusSeconds(1), "AI_TIMEOUT", "retry"
+				)).isTrue();
+			}
+		}
+
+		assertThat(repository.recoverExpiredLeases(OffsetDateTime.now().plusMinutes(1), MAX_ATTEMPTS)).isEqualTo(1);
+		assertThat(workState(claimed.reportId())).isEqualTo("dead");
+		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+	}
+
 	private Callable<Optional<ClaimedReport>> claimAfterStart(
 		String workerId,
 		CountDownLatch ready,
@@ -101,6 +149,13 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 				JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE))
 			).claimNext(workerId, Duration.ofMinutes(2), MAX_ATTEMPTS);
 		};
+	}
+
+	private String workState(long reportId) {
+		return jdbc.sql("SELECT ai_review_state::text FROM reports WHERE report_id = :reportId")
+			.param("reportId", reportId)
+			.query(String.class)
+			.single();
 	}
 
 	private void seedUsersAndRoom() {
