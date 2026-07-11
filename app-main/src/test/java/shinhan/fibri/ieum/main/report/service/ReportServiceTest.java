@@ -18,7 +18,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -43,7 +42,6 @@ class ReportServiceTest {
 	private final ChatMemberRepository chatMemberRepository = org.mockito.Mockito.mock(ChatMemberRepository.class);
 	private final ReportRepository reportRepository = org.mockito.Mockito.mock(ReportRepository.class);
 	private final UserRepository userRepository = org.mockito.Mockito.mock(UserRepository.class);
-	private final ReportEventPublisher reportEventPublisher = org.mockito.Mockito.mock(ReportEventPublisher.class);
 	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 	private final ReportContextSnapshotFactory snapshotFactory = new ReportContextSnapshotFactory(objectMapper);
 	private final ReportService service = new ReportService(
@@ -51,7 +49,6 @@ class ReportServiceTest {
 		chatMemberRepository,
 		reportRepository,
 		userRepository,
-		reportEventPublisher,
 		snapshotFactory
 	);
 
@@ -98,13 +95,10 @@ class ReportServiceTest {
 		assertThat(snapshot.get("reported").get("messageId").asLong()).isEqualTo(500L);
 		assertThat(snapshot.get("before").get(0).get("messageId").asLong()).isEqualTo(499L);
 		assertThat(snapshot.get("after").get(0).get("messageId").asLong()).isEqualTo(501L);
-		ArgumentCaptor<ReportCreatedEvent> eventCaptor = ArgumentCaptor.forClass(ReportCreatedEvent.class);
-		verify(reportEventPublisher).reportCreated(eventCaptor.capture());
-		assertThat(eventCaptor.getValue().reportId()).isEqualTo(900L);
 	}
 
 	@Test
-	void createMessageReportPublishesEventAfterCommitWhenTransactionSynchronizationIsActive() {
+	void createMessageReportDoesNotScheduleExternalAfterCommitWork() {
 		User reporter = user(42L, "reporter@example.com", "reporter");
 		User reported = user(77L, "reported@example.com", "reported");
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
@@ -126,15 +120,10 @@ class ReportServiceTest {
 		try {
 			service.create(principal(42L), new CreateReportRequest(500L, ReportReason.abuse, null));
 
-			verifyNoInteractions(reportEventPublisher);
-
-			TransactionSynchronizationManager.getSynchronizations()
-				.forEach(TransactionSynchronization::afterCommit);
+			assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
 		} finally {
 			TransactionSynchronizationManager.clearSynchronization();
 		}
-
-		verify(reportEventPublisher).reportCreated(any(ReportCreatedEvent.class));
 	}
 
 	@Test

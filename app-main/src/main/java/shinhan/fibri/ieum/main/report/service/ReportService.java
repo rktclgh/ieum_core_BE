@@ -4,8 +4,6 @@ import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.UserRepository;
@@ -30,7 +28,6 @@ public class ReportService {
 	private final ChatMemberRepository chatMemberRepository;
 	private final ReportRepository reportRepository;
 	private final UserRepository userRepository;
-	private final ReportEventPublisher reportEventPublisher;
 	private final ReportContextSnapshotFactory snapshotFactory;
 
 	public ReportService(
@@ -38,14 +35,12 @@ public class ReportService {
 		ChatMemberRepository chatMemberRepository,
 		ReportRepository reportRepository,
 		UserRepository userRepository,
-		ReportEventPublisher reportEventPublisher,
 		ReportContextSnapshotFactory snapshotFactory
 	) {
 		this.messageRepository = messageRepository;
 		this.chatMemberRepository = chatMemberRepository;
 		this.reportRepository = reportRepository;
 		this.userRepository = userRepository;
-		this.reportEventPublisher = reportEventPublisher;
 		this.snapshotFactory = snapshotFactory;
 	}
 
@@ -82,21 +77,7 @@ public class ReportService {
 			request.detail(),
 			contextSnapshot
 		));
-		publishAfterCommit(new ReportCreatedEvent(report.getId()));
 		return new CreateReportResponse(report.getId());
-	}
-
-	private void publishAfterCommit(ReportCreatedEvent event) {
-		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			reportEventPublisher.reportCreated(event);
-			return;
-		}
-		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-			@Override
-			public void afterCommit() {
-				reportEventPublisher.reportCreated(event);
-			}
-		});
 	}
 
 }
