@@ -25,12 +25,8 @@ public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 	private final ObjectMapper objectMapper;
 
 	public JdbcPolicySnapshotProvider(JdbcClient jdbc) {
-		this(jdbc, new ObjectMapper());
-	}
-
-	JdbcPolicySnapshotProvider(JdbcClient jdbc, ObjectMapper objectMapper) {
 		this.jdbc = jdbc;
-		this.objectMapper = objectMapper;
+		this.objectMapper = new ObjectMapper();
 	}
 
 	@Override
