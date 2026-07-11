@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.ai.report.service;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.Set;
 
 public record ReportReviewProviderAttempt(
@@ -27,6 +28,7 @@ public record ReportReviewProviderAttempt(
 		return value == null || value.isBlank();
 	}
 
+	@JsonIgnore
 	public boolean isSuccess() {
 		return "success".equals(outcome);
 	}

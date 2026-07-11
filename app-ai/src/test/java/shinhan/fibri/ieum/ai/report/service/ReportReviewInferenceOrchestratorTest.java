@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,5 +78,8 @@ class ReportReviewInferenceOrchestratorTest {
 		assertThat(response.promptVersion()).isEqualTo("report-review-v1");
 		assertThat(response.fallbackUsed()).isFalse();
 		assertThat(response.providerAttempts().get(0).path("provider").asText()).isEqualTo("bedrock");
+		List<String> providerAttemptFields = new ArrayList<>();
+		response.providerAttempts().get(0).fieldNames().forEachRemaining(providerAttemptFields::add);
+		assertThat(providerAttemptFields).containsExactly("provider", "model", "outcome", "errorCode", "latencyMs");
 	}
 }
