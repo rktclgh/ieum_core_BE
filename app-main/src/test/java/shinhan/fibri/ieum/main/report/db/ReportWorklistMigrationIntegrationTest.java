@@ -2,10 +2,12 @@ package shinhan.fibri.ieum.main.report.db;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -18,21 +20,12 @@ class ReportWorklistMigrationIntegrationTest {
 	private static final String DATABASE = "ieum_main_report_worklist";
 
 	@Test
-	void v14InstallsPgcryptoBeforeHashBackfill() throws IOException {
-		try (var input = ReportWorklistMigrationIntegrationTest.class.getClassLoader()
-			.getResourceAsStream("migrations/v14_report_worklist_expand.sql")) {
-			assertThat(input).isNotNull();
-			assertThat(new String(java.util.Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8))
-				.contains("CREATE EXTENSION IF NOT EXISTS pgcrypto");
-		}
-	}
-
-	@Test
 	void v14ExpandsReportsIntoDataPreservingAiWorklist() {
 		CanonicalPostgresContainer.recreateDatabase(DATABASE);
 		SqlScriptRunner.run(DATABASE, "test-baselines/schema-v12.sql", "migrations/v13_app_ai_v2_expand.sql");
 
 		JdbcClient jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE));
+		removePgcrypto(jdbc);
 		seedV13Reports(jdbc);
 
 		List<ReportRow> beforeReports = reportRows(jdbc);
@@ -41,6 +34,7 @@ class ReportWorklistMigrationIntegrationTest {
 
 		SqlScriptRunner.run(DATABASE, "migrations/v14_report_worklist_expand.sql");
 
+		assertThat(pgcryptoIsInstalled(jdbc)).isTrue();
 		List<ReportRow> afterReports = reportRows(jdbc);
 		assertThat(afterReports).usingRecursiveComparison().isEqualTo(beforeReports);
 		assertThat(count(jdbc, "reports")).isEqualTo(4);
@@ -51,6 +45,17 @@ class ReportWorklistMigrationIntegrationTest {
 		assertNonPendingReportsBecameDeadWork(jdbc);
 		assertNullSnapshotHashSemantics(jdbc);
 		assertV14ColumnsConstraintsAndIndexes(jdbc);
+	}
+
+	private static void removePgcrypto(JdbcClient jdbc) {
+		jdbc.sql("DROP EXTENSION pgcrypto").update();
+		assertThat(pgcryptoIsInstalled(jdbc)).isFalse();
+	}
+
+	private static boolean pgcryptoIsInstalled(JdbcClient jdbc) {
+		return jdbc.sql("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto')")
+			.query(Boolean.class)
+			.single();
 	}
 
 	private static void seedV13Reports(JdbcClient jdbc) {
@@ -218,10 +223,16 @@ class ReportWorklistMigrationIntegrationTest {
 	}
 
 	private static String tableFingerprint(JdbcClient jdbc, String tableName) {
-		return jdbc.sql("""
-			SELECT encode(digest(COALESCE(string_agg(to_jsonb(t)::text, ',' ORDER BY to_jsonb(t)::text), ''), 'sha256'), 'hex')
-			FROM %s t
-			""".formatted(tableName)).query(String.class).single();
+		String serializedRows = jdbc.sql("""
+				SELECT COALESCE(string_agg(to_jsonb(t)::text, ',' ORDER BY to_jsonb(t)::text), '')
+				FROM %s t
+				""".formatted(tableName)).query(String.class).single();
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+				.digest(serializedRows.getBytes(StandardCharsets.UTF_8)));
+		} catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 must be available", exception);
+		}
 	}
 
 	private static long count(JdbcClient jdbc, String tableName) {
