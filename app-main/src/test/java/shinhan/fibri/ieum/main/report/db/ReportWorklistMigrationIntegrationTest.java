@@ -2,6 +2,8 @@ package shinhan.fibri.ieum.main.report.db;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -14,6 +16,16 @@ import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 class ReportWorklistMigrationIntegrationTest {
 
 	private static final String DATABASE = "ieum_main_report_worklist";
+
+	@Test
+	void v14InstallsPgcryptoBeforeHashBackfill() throws IOException {
+		try (var input = ReportWorklistMigrationIntegrationTest.class.getClassLoader()
+			.getResourceAsStream("migrations/v14_report_worklist_expand.sql")) {
+			assertThat(input).isNotNull();
+			assertThat(new String(java.util.Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8))
+				.contains("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+		}
+	}
 
 	@Test
 	void v14ExpandsReportsIntoDataPreservingAiWorklist() {
