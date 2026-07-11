@@ -6,8 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import shinhan.fibri.ieum.ai.support.AiPostgresContainer;
-import shinhan.fibri.ieum.ai.support.SqlScriptRunner;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
+import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 class AiQuestionTaskConstraintIntegrationTest {
 
@@ -18,9 +18,9 @@ class AiQuestionTaskConstraintIntegrationTest {
 
 	@BeforeEach
 	void setUpSchema() {
-		AiPostgresContainer.recreateDatabase(DATABASE);
+		CanonicalPostgresContainer.recreateDatabase(DATABASE);
 		SqlScriptRunner.run(DATABASE, "schema.sql");
-		jdbc = JdbcClient.create(AiPostgresContainer.dataSource(DATABASE));
+		jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE));
 		questionId = insertPendingTask(jdbc);
 	}
 

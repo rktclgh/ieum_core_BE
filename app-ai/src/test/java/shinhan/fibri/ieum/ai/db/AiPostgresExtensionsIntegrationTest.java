@@ -6,8 +6,8 @@ import java.net.URL;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import shinhan.fibri.ieum.ai.support.AiPostgresContainer;
-import shinhan.fibri.ieum.ai.support.SqlScriptRunner;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
+import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 class AiPostgresExtensionsIntegrationTest {
 
@@ -21,9 +21,9 @@ class AiPostgresExtensionsIntegrationTest {
 	@Test
 	void providesVectorPostgisAndPgcryptoOnPostgresql16() {
 		String databaseName = "ieum_ai_extensions";
-		AiPostgresContainer.recreateDatabase(databaseName);
+		CanonicalPostgresContainer.recreateDatabase(databaseName);
 
-		JdbcClient jdbc = JdbcClient.create(AiPostgresContainer.dataSource(databaseName));
+		JdbcClient jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(databaseName));
 		jdbc.sql("CREATE EXTENSION IF NOT EXISTS vector").update();
 		jdbc.sql("CREATE EXTENSION IF NOT EXISTS postgis").update();
 		jdbc.sql("CREATE EXTENSION IF NOT EXISTS pgcrypto").update();

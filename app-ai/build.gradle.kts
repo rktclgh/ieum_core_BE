@@ -30,18 +30,13 @@ dependencies {
 
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testImplementation(testFixtures(project(":common")))
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
 	testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
 	testImplementation("org.postgresql:postgresql")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
-}
-
-sourceSets {
-	test {
-		resources.srcDir(rootProject.file("../db"))
-	}
 }
 
 tasks.withType<Test> {

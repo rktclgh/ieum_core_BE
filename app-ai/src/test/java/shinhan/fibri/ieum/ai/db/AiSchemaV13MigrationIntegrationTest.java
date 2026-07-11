@@ -6,17 +6,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import shinhan.fibri.ieum.ai.support.AiPostgresContainer;
-import shinhan.fibri.ieum.ai.support.SqlScriptRunner;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
+import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 class AiSchemaV13MigrationIntegrationTest {
 
 	@Test
 	void upgradesV12AiTablesWithoutLosingRows() {
 		String database = "ieum_ai_v13_migration";
-		AiPostgresContainer.recreateDatabase(database);
+		CanonicalPostgresContainer.recreateDatabase(database);
 		SqlScriptRunner.run(database, "test-baselines/schema-v12.sql");
-		JdbcClient jdbc = JdbcClient.create(AiPostgresContainer.dataSource(database));
+		JdbcClient jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(database));
 		Fixture fixture = insertV12Rows(jdbc);
 		List<String> reportColumnsBefore = columns(jdbc, "reports");
 		List<String> sanctionColumnsBefore = columns(jdbc, "user_sanctions");
@@ -107,9 +107,9 @@ class AiSchemaV13MigrationIntegrationTest {
 	@Test
 	void failsWithDiagnosticWhenExternalReferenceHashesAreDuplicated() {
 		String database = "ieum_ai_v13_dups";
-		AiPostgresContainer.recreateDatabase(database);
+		CanonicalPostgresContainer.recreateDatabase(database);
 		SqlScriptRunner.run(database, "test-baselines/schema-v12.sql");
-		JdbcClient jdbc = JdbcClient.create(AiPostgresContainer.dataSource(database));
+		JdbcClient jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(database));
 
 		insertV12Source(jdbc, "duplicate-source", "d", true);
 		insertV12Source(jdbc, "duplicate-source", "d", true);

@@ -1,4 +1,4 @@
-package shinhan.fibri.ieum.ai.support;
+package shinhan.fibri.ieum.testsupport;
 
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -8,16 +8,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
 
-public final class AiPostgresContainer {
+public final class CanonicalPostgresContainer {
 
-	private static final String IMAGE_NAME = "ieum-ai-postgres:pg16-vector-postgis-issue53-v8";
-	private static final String DEFAULT_DATABASE = "ieum_ai_test";
+	private static final String IMAGE_NAME = "ieum-canonical-postgres:pg16-vector-postgis";
+	private static final String DEFAULT_DATABASE = "ieum_canonical_test";
 	private static final String USERNAME = "postgres";
 	private static final String PASSWORD = "postgres";
 	private static final Pattern DATABASE_NAME_PATTERN = Pattern.compile("[a-z][a-z0-9_]{2,62}");
 	private static final PostgreSQLContainer<?> POSTGRES = createContainer();
 
-	private AiPostgresContainer() {
+	private CanonicalPostgresContainer() {
 	}
 
 	public static DataSource dataSource() {
@@ -67,10 +67,19 @@ public final class AiPostgresContainer {
 		return POSTGRES.getPassword();
 	}
 
+	public static String driverClassName() {
+		return POSTGRES.getDriverClassName();
+	}
+
+	static void validateDatabaseName(String databaseName) {
+		if (databaseName == null || !DATABASE_NAME_PATTERN.matcher(databaseName).matches()) {
+			throw new IllegalArgumentException("Invalid PostgreSQL database name: " + databaseName);
+		}
+	}
+
 	private static PostgreSQLContainer<?> createContainer() {
 		DockerImageName imageName = DockerImageName.parse(builtImageName()).asCompatibleSubstituteFor("postgres");
-		PostgreSQLContainer<?> container = new PostgreSQLContainer<>(
-			imageName)
+		PostgreSQLContainer<?> container = new PostgreSQLContainer<>(imageName)
 			.withDatabaseName(DEFAULT_DATABASE)
 			.withUsername(USERNAME)
 			.withPassword(PASSWORD);
@@ -90,12 +99,6 @@ public final class AiPostgresContainer {
 	private static void ensureStarted() {
 		if (!POSTGRES.isRunning()) {
 			POSTGRES.start();
-		}
-	}
-
-	public static void validateDatabaseName(String databaseName) {
-		if (databaseName == null || !DATABASE_NAME_PATTERN.matcher(databaseName).matches()) {
-			throw new IllegalArgumentException("Invalid PostgreSQL database name: " + databaseName);
 		}
 	}
 }

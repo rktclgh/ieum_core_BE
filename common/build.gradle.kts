@@ -1,5 +1,6 @@
 plugins {
 	`java-library`
+	`java-test-fixtures`
 	id("org.springframework.boot")
 	id("io.spring.dependency-management")
 }
@@ -23,11 +24,20 @@ dependencies {
 	annotationProcessor("org.projectlombok:lombok")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+	testFixturesImplementation("org.springframework.boot:spring-boot-starter-jdbc")
+	testFixturesImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
+	testFixturesImplementation("org.postgresql:postgresql")
 	runtimeOnly("org.postgresql:postgresql")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
+}
+
+sourceSets {
+	testFixtures {
+		resources.srcDir(rootProject.file("../db"))
+	}
 }
 
 tasks.withType<Test> {

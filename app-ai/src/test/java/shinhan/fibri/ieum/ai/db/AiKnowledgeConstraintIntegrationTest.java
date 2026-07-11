@@ -12,8 +12,8 @@ import org.postgresql.PGConnection;
 import org.postgresql.PGNotification;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import shinhan.fibri.ieum.ai.support.AiPostgresContainer;
-import shinhan.fibri.ieum.ai.support.SqlScriptRunner;
+import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
+import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 class AiKnowledgeConstraintIntegrationTest {
 
@@ -27,9 +27,9 @@ class AiKnowledgeConstraintIntegrationTest {
 
 	@BeforeEach
 	void setUpSchema() {
-		AiPostgresContainer.recreateDatabase(DATABASE);
+		CanonicalPostgresContainer.recreateDatabase(DATABASE);
 		SqlScriptRunner.run(DATABASE, "schema.sql");
-		dataSource = AiPostgresContainer.dataSource(DATABASE);
+		dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = JdbcClient.create(dataSource);
 		firstSourceId = insertSource("first-source", "1");
 		firstChunkId = insertChunk(firstSourceId, 0, "gemini-embedding-2");

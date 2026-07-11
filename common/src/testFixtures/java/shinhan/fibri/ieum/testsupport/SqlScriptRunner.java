@@ -1,4 +1,4 @@
-package shinhan.fibri.ieum.ai.support;
+package shinhan.fibri.ieum.testsupport;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -13,15 +13,15 @@ public final class SqlScriptRunner {
 	}
 
 	public static void run(String databaseName, String... classpathResources) {
-		AiPostgresContainer.validateDatabaseName(databaseName);
+		CanonicalPostgresContainer.validateDatabaseName(databaseName);
 		for (String classpathResource : classpathResources) {
-			String containerPath = "/tmp/ieum-ai-sql-" + SEQUENCE.incrementAndGet() + ".sql";
-			AiPostgresContainer.instance().copyFileToContainer(
+			String containerPath = "/tmp/ieum-sql-" + SEQUENCE.incrementAndGet() + ".sql";
+			CanonicalPostgresContainer.instance().copyFileToContainer(
 				Transferable.of(readClasspathBytes(classpathResource), 0644), containerPath);
 
 			try {
-				Container.ExecResult result = AiPostgresContainer.instance().execInContainer(
-					"psql", "-v", "ON_ERROR_STOP=1", "-U", AiPostgresContainer.username(),
+				Container.ExecResult result = CanonicalPostgresContainer.instance().execInContainer(
+					"psql", "-v", "ON_ERROR_STOP=1", "-U", CanonicalPostgresContainer.username(),
 					"-d", databaseName, "-f", containerPath);
 				if (result.getExitCode() != 0) {
 					throw new IllegalStateException("SQL script failed: " + classpathResource + "\n" + result.getStderr());
