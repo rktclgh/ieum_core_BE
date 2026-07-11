@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Objects;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewRequest;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewResponse;
 
 public class RestClientAiServiceClient implements AiServiceClient {
 

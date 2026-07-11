@@ -1,4 +1,4 @@
-package shinhan.fibri.ieum.main.ai.client;
+package shinhan.fibri.ieum.common.ai.report.dto;
 
 import java.util.List;
 import java.util.UUID;

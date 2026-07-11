@@ -19,6 +19,7 @@ dependencies {
 	// api 로 노출해야 app-main / app-ai 가 전이 의존으로 함께 받는다.
 	api("org.springframework.boot:spring-boot-starter-data-jpa")
 	api("org.springframework.boot:spring-boot-starter-validation")
+	api("com.fasterxml.jackson.core:jackson-databind")
 
 	compileOnly("org.projectlombok:lombok")
 	annotationProcessor("org.projectlombok:lombok")

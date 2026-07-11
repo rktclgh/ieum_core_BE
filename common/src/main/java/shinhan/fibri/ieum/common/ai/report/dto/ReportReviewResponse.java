@@ -1,4 +1,4 @@
-package shinhan.fibri.ieum.main.ai.client;
+package shinhan.fibri.ieum.common.ai.report.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;

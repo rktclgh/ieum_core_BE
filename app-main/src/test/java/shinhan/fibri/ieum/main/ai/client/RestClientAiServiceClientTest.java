@@ -15,6 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewMessage;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewRequest;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewResponse;
 
 class RestClientAiServiceClientTest {
 

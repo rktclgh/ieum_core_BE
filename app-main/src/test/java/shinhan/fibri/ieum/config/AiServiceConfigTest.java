@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewRequest;
 import shinhan.fibri.ieum.main.ai.client.AiServiceClient;
-import shinhan.fibri.ieum.main.ai.client.ReportReviewRequest;
 
 class AiServiceConfigTest {
 

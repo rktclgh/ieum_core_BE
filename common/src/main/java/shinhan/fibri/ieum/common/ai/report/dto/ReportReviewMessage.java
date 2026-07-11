@@ -1,4 +1,4 @@
-package shinhan.fibri.ieum.main.ai.client;
+package shinhan.fibri.ieum.common.ai.report.dto;
 
 public record ReportReviewMessage(
 	long messageId,
