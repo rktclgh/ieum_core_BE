@@ -67,6 +67,24 @@ class GeminiReportReviewModelProviderTest {
 			);
 	}
 
+	@Test
+	void mapsUnexpectedClientRuntimeFailuresToTransportErrors() {
+		GeminiReportReviewModelProvider provider = new GeminiReportReviewModelProvider(
+			MODEL,
+			request -> {
+				throw new IllegalStateException("raw Gemini SDK detail must not escape");
+			},
+			new ReportReviewModelPromptFactory(),
+			new ReportReviewModelOutputParser()
+		);
+
+		assertThatThrownBy(() -> provider.review(preparedReview(), policySnapshot()))
+			.isInstanceOfSatisfying(ReportReviewModelProviderException.class, exception -> {
+				assertThat(exception.errorCode()).isEqualTo(ReportReviewProviderErrorCode.transport_error);
+				assertThat(exception).hasMessageNotContaining("raw Gemini SDK detail");
+			});
+	}
+
 	private GeminiReportReviewModelProvider provider(FakeGeminiReportReviewClient client) {
 		return new GeminiReportReviewModelProvider(
 			MODEL,

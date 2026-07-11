@@ -84,8 +84,9 @@ public class GeminiReportReviewModelProvider implements ReportReviewModelProvide
 	@Override
 	public ReportModelReviewOutput review(PreparedReportReview preparedReview, ReportPolicySnapshot policySnapshot) {
 		ReportReviewModelPrompt prompt = promptFactory.create(preparedReview, policySnapshot);
+		String rawOutput;
 		try {
-			String rawOutput = client.generate(new GeminiReportReviewRequest(
+			rawOutput = client.generate(new GeminiReportReviewRequest(
 				model,
 				prompt.systemInstruction(),
 				prompt.userInstruction(),
@@ -93,10 +94,12 @@ public class GeminiReportReviewModelProvider implements ReportReviewModelProvide
 				JSON_MIME_TYPE,
 				false
 			));
-			return outputParser.parse(rawOutput);
 		} catch (GeminiReportReviewClientException exception) {
 			throw new ReportReviewModelProviderException(exception.errorCode());
+		} catch (RuntimeException exception) {
+			throw new ReportReviewModelProviderException(ReportReviewProviderErrorCode.transport_error);
 		}
+		return outputParser.parse(rawOutput);
 	}
 }
 
