@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -14,9 +15,9 @@ class InternalRequestSignerTest {
 	@Test
 	void signsTheExactHmacV1CanonicalRequest() {
 		InternalRequestSigner signer = new InternalRequestSigner(
-			"ieum-main",
+			"app-main",
 			"main-202607",
-			"test-secret-for-hmac-v1-32-bytes!!",
+			Base64.getEncoder().encodeToString("test-secret-for-hmac-v1-32-bytes!!".getBytes(StandardCharsets.UTF_8)),
 			Clock.fixed(Instant.ofEpochSecond(1_784_000_000L), ZoneOffset.UTC)
 		);
 
@@ -28,11 +29,11 @@ class InternalRequestSignerTest {
 			UUID.fromString("123e4567-e89b-12d3-a456-426614174000")
 		);
 
-		assertThat(signed.service()).isEqualTo("ieum-main");
+		assertThat(signed.service()).isEqualTo("app-main");
 		assertThat(signed.keyId()).isEqualTo("main-202607");
 		assertThat(signed.timestamp()).isEqualTo(1_784_000_000L);
 		assertThat(signed.requestId()).isEqualTo("123e4567-e89b-12d3-a456-426614174000");
 		assertThat(signed.bodyHash()).isEqualTo("708ab878bf3a15dae379a8a14681a1ffcd26797a23dd24054a1705c3f6cd91bb");
-		assertThat(signed.signature()).isEqualTo("8739d3500e17b9c3cf444b3afba73badc6079553dc852d98c9ab42df9af4062b");
+		assertThat(signed.signature()).isEqualTo("341dd6d775aedf8ea9c83eb3d0dd72043ed31398352509372c731848e0958a2e");
 	}
 }

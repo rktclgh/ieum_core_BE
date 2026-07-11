@@ -12,6 +12,7 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -26,9 +27,9 @@ class RestClientAiServiceClientTest {
 		RestClient.Builder builder = RestClient.builder().baseUrl("https://ai.example.test");
 		MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
 		InternalRequestSigner signer = new InternalRequestSigner(
-			"ieum-main",
+			"app-main",
 			"main-202607",
-			"test-secret-for-hmac-v1-32-bytes!!",
+			Base64.getEncoder().encodeToString("test-secret-for-hmac-v1-32-bytes!!".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
 			Clock.fixed(Instant.ofEpochSecond(1_784_000_000L), ZoneOffset.UTC)
 		);
 		RestClientAiServiceClient client = new RestClientAiServiceClient(
@@ -49,7 +50,7 @@ class RestClientAiServiceClientTest {
 
 		server.expect(requestTo(URI.create("https://ai.example.test/ai/v1/internal/reports/900/review")))
 			.andExpect(method(POST))
-			.andExpect(header("X-Internal-Service", "ieum-main"))
+			.andExpect(header("X-Internal-Service", "app-main"))
 			.andExpect(header("X-Internal-Key-Id", "main-202607"))
 			.andExpect(header("X-Internal-Timestamp", "1784000000"))
 			.andExpect(header("X-Internal-Request-Id", "123e4567-e89b-12d3-a456-426614174000"))

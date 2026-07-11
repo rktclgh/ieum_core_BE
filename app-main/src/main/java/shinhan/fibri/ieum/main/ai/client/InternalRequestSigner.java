@@ -5,6 +5,7 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
@@ -14,16 +15,17 @@ import javax.crypto.spec.SecretKeySpec;
 public class InternalRequestSigner {
 
 	private static final String HMAC_ALGORITHM = "HmacSHA256";
+	private static final int MIN_SECRET_BYTES = 32;
 
 	private final String service;
 	private final String keyId;
 	private final SecretKeySpec secretKey;
 	private final Clock clock;
 
-	public InternalRequestSigner(String service, String keyId, String secret, Clock clock) {
+	public InternalRequestSigner(String service, String keyId, String secretBase64, Clock clock) {
 		this.service = requiredHeaderValue(service, "service");
 		this.keyId = requiredHeaderValue(keyId, "keyId");
-		this.secretKey = new SecretKeySpec(requiredSecret(secret).getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+		this.secretKey = new SecretKeySpec(decodedSecret(secretBase64), HMAC_ALGORITHM);
 		this.clock = Objects.requireNonNull(clock, "clock must not be null");
 	}
 
@@ -80,11 +82,20 @@ public class InternalRequestSigner {
 		return value;
 	}
 
-	private static String requiredSecret(String secret) {
-		if (secret == null || secret.isBlank()) {
-			throw new IllegalArgumentException("secret must not be blank");
+	private static byte[] decodedSecret(String secretBase64) {
+		if (secretBase64 == null || secretBase64.isBlank()) {
+			throw new IllegalArgumentException("secretBase64 must not be blank");
 		}
-		return secret;
+		try {
+			byte[] decoded = Base64.getDecoder().decode(secretBase64);
+			if (decoded.length < MIN_SECRET_BYTES) {
+				throw new IllegalArgumentException("secretBase64 must be at least " + MIN_SECRET_BYTES + " bytes");
+			}
+			return decoded;
+		} catch (IllegalArgumentException exception) {
+			throw new IllegalArgumentException("secretBase64 must be valid Base64 with at least "
+				+ MIN_SECRET_BYTES + " bytes", exception);
+		}
 	}
 
 	private static String requiredPath(String rawPath) {
