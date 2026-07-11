@@ -100,13 +100,17 @@ class GeminiReportReviewModelProviderTest {
 			"a".repeat(64),
 			List.of(new ReportPolicyRule(
 				"TEXT-SPAM-001",
+				"Spam policy",
 				"spam",
+				"Repeated unsolicited promotional messages",
 				ReportPolicyDecision.hold,
 				ReportPolicySeverity.low,
 				new BigDecimal("0.80"),
 				ReportEvidenceType.text,
 				10,
-				1
+				1,
+				List.of(),
+				List.of()
 			))
 		);
 	}

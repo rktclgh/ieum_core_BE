@@ -1,18 +1,23 @@
 package shinhan.fibri.ieum.ai.report.domain;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
 public record ReportPolicyRule(
 	String ruleCode,
+	String title,
 	String category,
+	String criteria,
 	ReportPolicyDecision decision,
 	ReportPolicySeverity severity,
 	BigDecimal minConfidence,
 	ReportEvidenceType evidenceType,
 	int priority,
-	int revision
+	int revision,
+	List<String> positiveExamples,
+	List<String> negativeExamples
 ) {
 
 	private static final Pattern RULE_CODE = Pattern.compile("^[A-Z0-9][A-Z0-9_-]{2,99}$");
@@ -21,8 +26,14 @@ public record ReportPolicyRule(
 		if (ruleCode == null || !RULE_CODE.matcher(ruleCode).matches()) {
 			throw new IllegalArgumentException("ruleCode must be an uppercase policy code");
 		}
+		if (title == null || title.isBlank()) {
+			throw new IllegalArgumentException("title must not be blank");
+		}
 		if (category == null || category.isBlank()) {
 			throw new IllegalArgumentException("category must not be blank");
+		}
+		if (criteria == null || criteria.isBlank()) {
+			throw new IllegalArgumentException("criteria must not be blank");
 		}
 		Objects.requireNonNull(decision, "decision must not be null");
 		Objects.requireNonNull(severity, "severity must not be null");
@@ -36,11 +47,20 @@ public record ReportPolicyRule(
 		if (revision < 1) {
 			throw new IllegalArgumentException("revision must be positive");
 		}
+		positiveExamples = immutableExamples(positiveExamples, "positiveExamples");
+		negativeExamples = immutableExamples(negativeExamples, "negativeExamples");
 		if (decision == ReportPolicyDecision.suspend && !severity.isAtLeastHigh()) {
 			throw new IllegalArgumentException("suspend rules require high or critical severity");
 		}
 		if (decision == ReportPolicyDecision.normal && severity != ReportPolicySeverity.low) {
 			throw new IllegalArgumentException("normal rules require low severity");
 		}
+	}
+
+	private static List<String> immutableExamples(List<String> examples, String field) {
+		if (examples == null || examples.stream().anyMatch(example -> example == null || example.isBlank())) {
+			throw new IllegalArgumentException(field + " must contain nonblank examples");
+		}
+		return List.copyOf(examples);
 	}
 }

@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import shinhan.fibri.ieum.ai.report.domain.ReportPolicyRule;
 import shinhan.fibri.ieum.ai.report.domain.ReportPolicySnapshot;
 
 public class ReportReviewModelPromptFactory {
@@ -76,7 +77,7 @@ public class ReportReviewModelPromptFactory {
 		String detail,
 		String contextHash,
 		String policySetHash,
-		List<?> policyRules,
+		List<ReportPolicyRule> policyRules,
 		List<?> evidenceMessages,
 		List<AttachedImage> attachedImages
 	) {

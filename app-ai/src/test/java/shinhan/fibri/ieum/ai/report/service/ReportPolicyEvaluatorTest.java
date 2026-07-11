@@ -195,13 +195,17 @@ class ReportPolicyEvaluatorTest {
 	) {
 		return new ReportPolicyRule(
 			ruleCode,
+			ruleCode + " title",
 			ruleCode.toLowerCase(),
+			"Policy criteria",
 			decision,
 			severity,
 			new BigDecimal(minConfidence),
 			ReportEvidenceType.text,
 			priority,
-			1
+			1,
+			List.of(),
+			List.of()
 		);
 	}
 }

@@ -122,13 +122,17 @@ class ReportPolicyEvidenceValidationTest {
 	private ReportPolicyRule rule(ReportEvidenceType evidenceType) {
 		return new ReportPolicyRule(
 			"CONTENT-SUSPEND-001",
+			"Suspend policy",
 			"abuse",
+			"Abusive content criteria",
 			ReportPolicyDecision.suspend,
 			ReportPolicySeverity.high,
 			new BigDecimal("0.80"),
 			evidenceType,
 			1,
-			1
+			1,
+			List.of(),
+			List.of()
 		);
 	}
 }

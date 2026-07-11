@@ -46,6 +46,28 @@ class JdbcPolicySnapshotProviderIntegrationTest {
 	}
 
 	@Test
+	void loadsModelFacingPolicyCriteriaAndExamples() {
+		insertRule("CONTENT-SPAM", "hold", "medium", 10, true, "1");
+		jdbc.sql("""
+			UPDATE ai_report_policy_rules
+			SET title = 'Spam policy',
+			    criteria = 'Repeated unsolicited promotional messages',
+			    positive_examples = '["Buy now: example.com"]'::jsonb,
+			    negative_examples = '["A single relevant recommendation"]'::jsonb
+			WHERE rule_code = 'CONTENT-SPAM'
+			""").update();
+
+		ReportPolicySnapshot snapshot = provider.loadActiveSnapshot();
+
+		assertThat(snapshot.rules()).singleElement().satisfies(rule -> {
+			assertThat(rule.title()).isEqualTo("Spam policy");
+			assertThat(rule.criteria()).isEqualTo("Repeated unsolicited promotional messages");
+			assertThat(rule.positiveExamples()).containsExactly("Buy now: example.com");
+			assertThat(rule.negativeExamples()).containsExactly("A single relevant recommendation");
+		});
+	}
+
+	@Test
 	void producesTheSameHashForTheSameActiveRulesRegardlessOfInsertOrder() {
 		insertRule("CONTENT-B", "hold", "medium", 10, true, "1");
 		insertRule("CONTENT-A", "suspend", "high", 20, true, "2");

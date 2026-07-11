@@ -26,13 +26,17 @@ class ReportReviewInferenceOrchestratorTest {
 		ReportPolicySnapshot snapshot = new ReportPolicySnapshot("a".repeat(64), List.of(
 			new ReportPolicyRule(
 				"CONTENT-ABUSE-001",
+				"Abuse policy",
 				"abuse",
+				"Abusive content criteria",
 				ReportPolicyDecision.hold,
 				ReportPolicySeverity.medium,
 				new BigDecimal("0.8000"),
 				ReportEvidenceType.text,
 				10,
-				3
+				3,
+				List.of(),
+				List.of()
 			)
 		));
 		PreparedReportReview prepared = new PreparedReportReview(

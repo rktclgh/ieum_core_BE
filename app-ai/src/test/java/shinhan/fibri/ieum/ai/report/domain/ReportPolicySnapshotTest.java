@@ -70,13 +70,17 @@ class ReportPolicySnapshotTest {
 	private ReportPolicyRule rule(String ruleCode) {
 		return new ReportPolicyRule(
 			ruleCode,
+			ruleCode + " title",
 			"abuse",
+			"Abusive content criteria",
 			ReportPolicyDecision.suspend,
 			ReportPolicySeverity.high,
 			new BigDecimal("0.8500"),
 			ReportEvidenceType.text,
 			100,
-			1
+			1,
+			List.of(),
+			List.of()
 		);
 	}
 }

@@ -6,6 +6,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import shinhan.fibri.ieum.ai.report.domain.ReportEvidenceType;
@@ -19,16 +22,22 @@ import shinhan.fibri.ieum.ai.report.service.PolicySnapshotProvider;
 public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 
 	private final JdbcClient jdbc;
+	private final ObjectMapper objectMapper;
 
 	public JdbcPolicySnapshotProvider(JdbcClient jdbc) {
+		this(jdbc, new ObjectMapper());
+	}
+
+	JdbcPolicySnapshotProvider(JdbcClient jdbc, ObjectMapper objectMapper) {
 		this.jdbc = jdbc;
+		this.objectMapper = objectMapper;
 	}
 
 	@Override
 	public ReportPolicySnapshot loadActiveSnapshot() {
 		List<PolicyRow> rows = jdbc.sql("""
-			SELECT rule_code, category, decision, severity, min_confidence,
-			       evidence_types, priority, revision, content_hash
+			SELECT rule_code, title, category, criteria, decision, severity, min_confidence,
+			       evidence_types, priority, revision, positive_examples, negative_examples, content_hash
 			FROM ai_report_policy_rules
 			WHERE active = true
 			ORDER BY priority DESC, rule_code ASC, revision DESC
@@ -36,13 +45,17 @@ public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 			.query((resultSet, rowNumber) -> new PolicyRow(
 				new ReportPolicyRule(
 					resultSet.getString("rule_code"),
+					resultSet.getString("title"),
 					resultSet.getString("category"),
+					resultSet.getString("criteria"),
 					ReportPolicyDecision.valueOf(resultSet.getString("decision")),
 					ReportPolicySeverity.valueOf(resultSet.getString("severity")),
 					resultSet.getObject("min_confidence", BigDecimal.class),
 					ReportEvidenceType.valueOf(resultSet.getString("evidence_types")),
 					resultSet.getInt("priority"),
-					resultSet.getInt("revision")
+					resultSet.getInt("revision"),
+					examples(resultSet.getString("positive_examples")),
+					examples(resultSet.getString("negative_examples"))
 				),
 				resultSet.getString("content_hash").trim()
 			))
@@ -52,6 +65,25 @@ public class JdbcPolicySnapshotProvider implements PolicySnapshotProvider {
 			policySetHash(rows),
 			rows.stream().map(PolicyRow::rule).toList()
 		);
+	}
+
+	private List<String> examples(String json) {
+		try {
+			JsonNode root = objectMapper.readTree(json);
+			if (root == null || !root.isArray()) {
+				throw new IllegalStateException("Policy examples must be a JSON array");
+			}
+			List<String> examples = new java.util.ArrayList<>();
+			for (JsonNode example : root) {
+				if (!example.isTextual() || example.textValue().isBlank()) {
+					throw new IllegalStateException("Policy examples must contain nonblank strings");
+				}
+				examples.add(example.textValue());
+			}
+			return List.copyOf(examples);
+		} catch (JsonProcessingException exception) {
+			throw new IllegalStateException("Policy examples must be valid JSON", exception);
+		}
 	}
 
 	private String policySetHash(List<PolicyRow> rows) {
