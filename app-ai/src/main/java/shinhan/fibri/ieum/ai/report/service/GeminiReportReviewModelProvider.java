@@ -57,6 +57,20 @@ public class GeminiReportReviewModelProvider implements ReportReviewModelProvide
 		);
 	}
 
+	public static GeminiReportReviewModelProvider googleGenAi(
+		Client client,
+		String model,
+		ReportReviewModelPromptFactory promptFactory,
+		ReportReviewModelOutputParser outputParser
+	) {
+		return new GeminiReportReviewModelProvider(
+			model,
+			new GeminiGoogleGenAiReportReviewClient(client),
+			promptFactory,
+			outputParser
+		);
+	}
+
 	@Override
 	public String provider() {
 		return PROVIDER;
