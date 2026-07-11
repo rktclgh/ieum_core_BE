@@ -22,15 +22,17 @@ dependencies {
 	implementation("org.springframework.ai:spring-ai-starter-model-bedrock-converse")
 	implementation("com.google.genai:google-genai:1.56.0")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
+	runtimeOnly("org.postgresql:postgresql")
 
 	compileOnly("org.projectlombok:lombok")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 	annotationProcessor("org.projectlombok:lombok")
 
+	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
 	testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
-	testRuntimeOnly("org.postgresql:postgresql")
+	testImplementation("org.postgresql:postgresql")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testCompileOnly("org.projectlombok:lombok")
 	testAnnotationProcessor("org.projectlombok:lombok")
@@ -38,7 +40,7 @@ dependencies {
 
 sourceSets {
 	test {
-		resources.srcDir("../db")
+		resources.srcDir(rootProject.file("../db"))
 	}
 }
 

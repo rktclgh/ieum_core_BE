@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.ai.db;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.URL;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -11,16 +12,21 @@ import shinhan.fibri.ieum.ai.support.SqlScriptRunner;
 class AiPostgresExtensionsIntegrationTest {
 
 	@Test
+	void exposesCanonicalSchemaOnTheTestClasspath() {
+		URL schema = getClass().getClassLoader().getResource("schema.sql");
+
+		assertThat(schema).isNotNull();
+	}
+
+	@Test
 	void providesVectorPostgisAndPgcryptoOnPostgresql16() {
 		String databaseName = "ieum_ai_extensions";
 		AiPostgresContainer.recreateDatabase(databaseName);
-		SqlScriptRunner.run(databaseName, """
-			CREATE EXTENSION IF NOT EXISTS vector;
-			CREATE EXTENSION IF NOT EXISTS postgis;
-			CREATE EXTENSION IF NOT EXISTS pgcrypto;
-			""");
 
 		JdbcClient jdbc = JdbcClient.create(AiPostgresContainer.dataSource(databaseName));
+		jdbc.sql("CREATE EXTENSION IF NOT EXISTS vector").update();
+		jdbc.sql("CREATE EXTENSION IF NOT EXISTS postgis").update();
+		jdbc.sql("CREATE EXTENSION IF NOT EXISTS pgcrypto").update();
 
 		Map<String, String> versions = jdbc.sql("""
 			SELECT extname, extversion

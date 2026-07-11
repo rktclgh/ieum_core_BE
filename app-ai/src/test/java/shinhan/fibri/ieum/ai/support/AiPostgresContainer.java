@@ -1,13 +1,9 @@
 package shinhan.fibri.ieum.ai.support;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.postgresql.ds.PGSimpleDataSource;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
@@ -18,7 +14,7 @@ public final class AiPostgresContainer {
 	private static final String DEFAULT_DATABASE = "ieum_ai_test";
 	private static final String USERNAME = "postgres";
 	private static final String PASSWORD = "postgres";
-	private static final Pattern DATABASE_NAME_PATTERN = Pattern.compile("[a-z][a-z0-9_]{0,62}");
+	private static final Pattern DATABASE_NAME_PATTERN = Pattern.compile("[a-z][a-z0-9_]{2,62}");
 	private static final PostgreSQLContainer<?> POSTGRES = createContainer();
 
 	private AiPostgresContainer() {
@@ -29,8 +25,11 @@ public final class AiPostgresContainer {
 	}
 
 	public static DataSource dataSource(String databaseName) {
-		DriverManagerDataSource dataSource = new DriverManagerDataSource(jdbcUrl(databaseName), USERNAME, PASSWORD);
-		dataSource.setDriverClassName("org.postgresql.Driver");
+		validateDatabaseName(databaseName);
+		PGSimpleDataSource dataSource = new PGSimpleDataSource();
+		dataSource.setURL(jdbcUrl(databaseName));
+		dataSource.setUser(username());
+		dataSource.setPassword(password());
 		return dataSource;
 	}
 
@@ -50,20 +49,22 @@ public final class AiPostgresContainer {
 	public static void recreateDatabase(String databaseName) {
 		validateDatabaseName(databaseName);
 		ensureStarted();
-		try (Connection connection = dataSource("postgres").getConnection();
-			 Statement statement = connection.createStatement()) {
-			statement.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '" + databaseName + "'");
-			statement.execute("DROP DATABASE IF EXISTS \"" + databaseName + "\"");
-			statement.execute("CREATE DATABASE \"" + databaseName + "\"");
-		}
-		catch (SQLException exception) {
-			throw new IllegalStateException("Failed to recreate test database: " + databaseName, exception);
-		}
+		JdbcClient admin = JdbcClient.create(dataSource("postgres"));
+		admin.sql("DROP DATABASE IF EXISTS " + databaseName + " WITH (FORCE)").update();
+		admin.sql("CREATE DATABASE " + databaseName).update();
 	}
 
-	static PostgreSQLContainer<?> container() {
+	public static PostgreSQLContainer<?> instance() {
 		ensureStarted();
 		return POSTGRES;
+	}
+
+	public static String username() {
+		return POSTGRES.getUsername();
+	}
+
+	public static String password() {
+		return POSTGRES.getPassword();
 	}
 
 	private static PostgreSQLContainer<?> createContainer() {
@@ -83,18 +84,7 @@ public final class AiPostgresContainer {
 
 	private static ImageFromDockerfile imageFromDockerfile() {
 		return new ImageFromDockerfile(IMAGE_NAME, false)
-			.withDockerfile(repositoryRoot().resolve("db/test-support/postgres-ai/Dockerfile"));
-	}
-
-	private static Path repositoryRoot() {
-		Path current = Path.of("").toAbsolutePath();
-		while (current != null) {
-			if (Files.exists(current.resolve("settings.gradle.kts"))) {
-				return current;
-			}
-			current = current.getParent();
-		}
-		throw new IllegalStateException("Could not locate repository root");
+			.withFileFromClasspath("Dockerfile", "test-support/postgres-ai/Dockerfile");
 	}
 
 	private static void ensureStarted() {
@@ -103,7 +93,7 @@ public final class AiPostgresContainer {
 		}
 	}
 
-	static void validateDatabaseName(String databaseName) {
+	public static void validateDatabaseName(String databaseName) {
 		if (databaseName == null || !DATABASE_NAME_PATTERN.matcher(databaseName).matches()) {
 			throw new IllegalArgumentException("Invalid PostgreSQL database name: " + databaseName);
 		}

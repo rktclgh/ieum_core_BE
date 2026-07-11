@@ -1,40 +1,51 @@
 package shinhan.fibri.ieum.ai.support;
 
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.testcontainers.containers.Container;
 import org.testcontainers.images.builder.Transferable;
 
 public final class SqlScriptRunner {
+	private static final AtomicLong SEQUENCE = new AtomicLong();
 
 	private SqlScriptRunner() {
 	}
 
-	public static void run(String databaseName, String sql) {
+	public static void run(String databaseName, String... classpathResources) {
 		AiPostgresContainer.validateDatabaseName(databaseName);
-		String containerPath = "/tmp/ieum-ai-sql-" + UUID.randomUUID() + ".sql";
-		AiPostgresContainer.container()
-			.copyFileToContainer(Transferable.of(sql.getBytes(StandardCharsets.UTF_8)), containerPath);
+		for (String classpathResource : classpathResources) {
+			String containerPath = "/tmp/ieum-ai-sql-" + SEQUENCE.incrementAndGet() + ".sql";
+			AiPostgresContainer.instance().copyFileToContainer(
+				Transferable.of(readClasspathBytes(classpathResource), 0644), containerPath);
 
-		try {
-			Container.ExecResult result = AiPostgresContainer.container()
-				.execInContainer("psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", databaseName, "-f", containerPath);
-			if (result.getExitCode() != 0) {
-				throw new IllegalStateException("""
-					psql failed with exit code %d
-					stdout:
-					%s
-					stderr:
-					%s
-					""".formatted(result.getExitCode(), result.getStdout(), result.getStderr()));
+			try {
+				Container.ExecResult result = AiPostgresContainer.instance().execInContainer(
+					"psql", "-v", "ON_ERROR_STOP=1", "-U", AiPostgresContainer.username(),
+					"-d", databaseName, "-f", containerPath);
+				if (result.getExitCode() != 0) {
+					throw new IllegalStateException("SQL script failed: " + classpathResource + "\n" + result.getStderr());
+				}
+			}
+			catch (IOException exception) {
+				throw new UncheckedIOException("Failed to execute " + classpathResource, exception);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new IllegalStateException("Interrupted while executing " + classpathResource, exception);
 			}
 		}
-		catch (InterruptedException exception) {
-			Thread.currentThread().interrupt();
-			throw new IllegalStateException("Interrupted while running SQL script", exception);
+	}
+
+	private static byte[] readClasspathBytes(String resourceName) {
+		try (var input = SqlScriptRunner.class.getClassLoader().getResourceAsStream(resourceName)) {
+			if (input == null) {
+				throw new IllegalArgumentException("Classpath SQL resource not found: " + resourceName);
+			}
+			return input.readAllBytes();
 		}
-		catch (Exception exception) {
-			throw new IllegalStateException("Failed to run SQL script", exception);
+		catch (IOException exception) {
+			throw new UncheckedIOException("Failed to read classpath SQL resource: " + resourceName, exception);
 		}
 	}
 }
