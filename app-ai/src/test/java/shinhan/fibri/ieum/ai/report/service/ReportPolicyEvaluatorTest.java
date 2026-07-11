@@ -14,6 +14,7 @@ import shinhan.fibri.ieum.ai.report.domain.ReportPolicyDecision;
 import shinhan.fibri.ieum.ai.report.domain.ReportPolicyRule;
 import shinhan.fibri.ieum.ai.report.domain.ReportPolicySeverity;
 import shinhan.fibri.ieum.ai.report.domain.ReportPolicySnapshot;
+import shinhan.fibri.ieum.ai.report.domain.ReportReviewEvidenceMessage;
 
 class ReportPolicyEvaluatorTest {
 
@@ -21,7 +22,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void qualifiedSuspendWinsOverHoldAndNormal() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(
+		ReportPolicyEvaluationResult result = evaluate(
 			snapshot(
 				rule("CONTENT-SUSPEND-001", ReportPolicyDecision.suspend, ReportPolicySeverity.high, "0.80", 1),
 				rule("CONTENT-HOLD-001", ReportPolicyDecision.hold, ReportPolicySeverity.medium, "0.80", 100),
@@ -45,7 +46,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void qualifiedSuspendUsesSeverityThenPriorityToChooseTheExplanation() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(
+		ReportPolicyEvaluationResult result = evaluate(
 			snapshot(
 				rule("CONTENT-SUSPEND-LOW", ReportPolicyDecision.suspend, ReportPolicySeverity.high, "0.80", 100),
 				rule("CONTENT-SUSPEND-HIGH", ReportPolicyDecision.suspend, ReportPolicySeverity.critical, "0.80", 1),
@@ -64,7 +65,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void sameSeverityAndPriorityUsesRuleCodeAscending() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(
+		ReportPolicyEvaluationResult result = evaluate(
 			snapshot(
 				rule("CONTENT-SUSPEND-Z", ReportPolicyDecision.suspend, ReportPolicySeverity.critical, "0.80", 10),
 				rule("CONTENT-SUSPEND-A", ReportPolicyDecision.suspend, ReportPolicySeverity.critical, "0.80", 10)
@@ -77,7 +78,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void qualifiedHoldReturnsTheRuleBackedHold() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(
+		ReportPolicyEvaluationResult result = evaluate(
 			snapshot(rule("CONTENT-HOLD-001", ReportPolicyDecision.hold, ReportPolicySeverity.medium, "0.80", 1)),
 			output(false, match("CONTENT-HOLD-001", "0.80"))
 		);
@@ -89,7 +90,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void subthresholdSuspendBecomesRuleBackedHold() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(
+		ReportPolicyEvaluationResult result = evaluate(
 			snapshot(rule("CONTENT-SUSPEND-001", ReportPolicyDecision.suspend, ReportPolicySeverity.high, "0.90", 1)),
 			output(false, match("CONTENT-SUSPEND-001", "0.89"))
 		);
@@ -102,7 +103,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void uncertainWithoutAnyRuleMatchUsesTheSystemHoldContract() {
-		ReportPolicyEvaluationResult result = evaluator.evaluate(snapshot(), output(true));
+		ReportPolicyEvaluationResult result = evaluate(snapshot(), output(true));
 
 		assertThat(result.decision()).isEqualTo(ReportPolicyDecision.hold);
 		assertThat(result.category()).isEqualTo("model_uncertain");
@@ -116,11 +117,11 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void qualifyingNormalReturnsNormalAndNoMatchStaysNormal() {
-		ReportPolicyEvaluationResult qualified = evaluator.evaluate(
+		ReportPolicyEvaluationResult qualified = evaluate(
 			snapshot(rule("CONTENT-NORMAL-001", ReportPolicyDecision.normal, ReportPolicySeverity.low, "0.80", 1)),
 			output(false, match("CONTENT-NORMAL-001", "0.80"))
 		);
-		ReportPolicyEvaluationResult noMatch = evaluator.evaluate(snapshot(), output(false));
+		ReportPolicyEvaluationResult noMatch = evaluate(snapshot(), output(false));
 
 		assertThat(qualified.decision()).isEqualTo(ReportPolicyDecision.normal);
 		assertThat(qualified.severity()).isEqualTo(ReportPolicySeverity.low);
@@ -131,18 +132,18 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void rejectsAProviderMatchForAnUnknownPolicyRule() {
-		assertThatThrownBy(() -> evaluator.evaluate(snapshot(), output(false, match("CONTENT-UNKNOWN-001", "0.99"))))
+		assertThatThrownBy(() -> evaluate(snapshot(), output(false, match("CONTENT-UNKNOWN-001", "0.99"))))
 			.isInstanceOf(InvalidReportModelOutputException.class)
 			.hasMessageContaining("Unknown policy rule");
 	}
 
 	@Test
 	void subthresholdHoldStaysRuleBackedHoldAndNormalDoesNotEscalate() {
-		ReportPolicyEvaluationResult subthresholdHold = evaluator.evaluate(
+		ReportPolicyEvaluationResult subthresholdHold = evaluate(
 			snapshot(rule("CONTENT-HOLD-001", ReportPolicyDecision.hold, ReportPolicySeverity.medium, "0.90", 1)),
 			output(false, match("CONTENT-HOLD-001", "0.89"))
 		);
-		ReportPolicyEvaluationResult subthresholdNormal = evaluator.evaluate(
+		ReportPolicyEvaluationResult subthresholdNormal = evaluate(
 			snapshot(rule("CONTENT-NORMAL-001", ReportPolicyDecision.normal, ReportPolicySeverity.low, "0.90", 1)),
 			output(false, match("CONTENT-NORMAL-001", "0.89"))
 		);
@@ -155,7 +156,7 @@ class ReportPolicyEvaluatorTest {
 
 	@Test
 	void uncertainDoesNotOverrideQualifiedRuleBackedDecisions() {
-		ReportPolicyEvaluationResult qualifiedHold = evaluator.evaluate(
+		ReportPolicyEvaluationResult qualifiedHold = evaluate(
 			snapshot(rule("CONTENT-HOLD-001", ReportPolicyDecision.hold, ReportPolicySeverity.medium, "0.80", 1)),
 			output(true, match("CONTENT-HOLD-001", "0.80"))
 		);
@@ -175,6 +176,14 @@ class ReportPolicyEvaluatorTest {
 
 	private ReportModelRuleMatch match(String ruleCode, String confidence) {
 		return new ReportModelRuleMatch(ruleCode, new BigDecimal(confidence), List.of(2L), ruleCode + " reason");
+	}
+
+	private ReportPolicyEvaluationResult evaluate(ReportPolicySnapshot snapshot, ReportModelReviewOutput output) {
+		return evaluator.evaluate(snapshot, output, context());
+	}
+
+	private List<ReportReviewEvidenceMessage> context() {
+		return List.of(new ReportReviewEvidenceMessage(2L, "reported_user", "content", true));
 	}
 
 	private ReportPolicyRule rule(
