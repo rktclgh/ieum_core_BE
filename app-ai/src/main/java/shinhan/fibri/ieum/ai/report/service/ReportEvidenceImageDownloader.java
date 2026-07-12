@@ -12,7 +12,6 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,12 +26,14 @@ public class ReportEvidenceImageDownloader implements ReportEvidenceImageFetcher
 	private final ReportEvidenceImageUrlValidator urlValidator;
 	private final long maxBytes;
 	private final Duration downloadTimeout;
+	private final ExecutorService bodyReadExecutor;
 
 	public ReportEvidenceImageDownloader(
 		HttpClient httpClient,
 		ReportEvidenceImageUrlValidator urlValidator,
 		long maxBytes,
-		Duration downloadTimeout
+		Duration downloadTimeout,
+		ExecutorService bodyReadExecutor
 	) {
 		this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
 		this.urlValidator = Objects.requireNonNull(urlValidator, "urlValidator must not be null");
@@ -47,6 +48,7 @@ public class ReportEvidenceImageDownloader implements ReportEvidenceImageFetcher
 		}
 		this.maxBytes = maxBytes;
 		this.downloadTimeout = downloadTimeout;
+		this.bodyReadExecutor = Objects.requireNonNull(bodyReadExecutor, "bodyReadExecutor must not be null");
 	}
 
 	public VerifiedReportEvidenceImage download(ReportReviewImage image) {
@@ -111,8 +113,7 @@ public class ReportEvidenceImageDownloader implements ReportEvidenceImageFetcher
 			throw failed("image download timed out");
 		}
 
-		ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-		Future<byte[]> future = executor.submit(() -> readBounded(body, maxAllowedBytes));
+		Future<byte[]> future = bodyReadExecutor.submit(() -> readBounded(body, maxAllowedBytes));
 		try {
 			return future.get(remainingNanos, TimeUnit.NANOSECONDS);
 		} catch (TimeoutException exception) {
@@ -133,8 +134,6 @@ public class ReportEvidenceImageDownloader implements ReportEvidenceImageFetcher
 				throw failed("image download failed", ioException);
 			}
 			throw failed("image download failed", cause);
-		} finally {
-			executor.shutdownNow();
 		}
 	}
 

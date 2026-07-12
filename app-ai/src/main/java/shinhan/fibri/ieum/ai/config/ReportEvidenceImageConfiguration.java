@@ -1,6 +1,8 @@
 package shinhan.fibri.ieum.ai.config;
 
 import java.net.http.HttpClient;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -28,17 +30,24 @@ public class ReportEvidenceImageConfiguration {
 			.build();
 	}
 
+	@Bean(destroyMethod = "close")
+	ExecutorService reportEvidenceImageDownloadExecutor() {
+		return Executors.newVirtualThreadPerTaskExecutor();
+	}
+
 	@Bean
 	ReportEvidenceImageDownloader reportEvidenceImageDownloader(
 		HttpClient reportEvidenceImageHttpClient,
 		ReportEvidenceImageUrlValidator reportEvidenceImageUrlValidator,
-		ReportReviewProperties properties
+		ReportReviewProperties properties,
+		ExecutorService reportEvidenceImageDownloadExecutor
 	) {
 		return new ReportEvidenceImageDownloader(
 			reportEvidenceImageHttpClient,
 			reportEvidenceImageUrlValidator,
 			properties.imageMaxBytes(),
-			properties.imageDownloadTimeout()
+			properties.imageDownloadTimeout(),
+			reportEvidenceImageDownloadExecutor
 		);
 	}
 

@@ -21,17 +21,32 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import shinhan.fibri.ieum.common.ai.report.dto.ReportReviewImage;
 
 class ReportEvidenceImageDownloaderTest {
 
 	private static final String ALLOWED_HOST = "ieum-files.s3.ap-northeast-2.amazonaws.com";
 	private static final Duration DOWNLOAD_TIMEOUT = Duration.ofSeconds(5);
+	private ExecutorService bodyReadExecutor;
+
+	@BeforeEach
+	void setUp() {
+		bodyReadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+	}
+
+	@AfterEach
+	void tearDown() {
+		bodyReadExecutor.close();
+	}
 
 	@Test
 	void downloadsAValidatedWebpImageWithABoundedGetRequest() {
@@ -106,7 +121,8 @@ class ReportEvidenceImageDownloaderTest {
 			new StubHttpClient(response(200, "image/webp", webpBytes()), HttpClient.Redirect.NORMAL),
 			new ReportEvidenceImageUrlValidator(Set.of(ALLOWED_HOST)),
 			12L,
-			DOWNLOAD_TIMEOUT
+			DOWNLOAD_TIMEOUT,
+			bodyReadExecutor
 		))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("redirect");
@@ -166,7 +182,8 @@ class ReportEvidenceImageDownloaderTest {
 			client,
 			new ReportEvidenceImageUrlValidator(Set.of(ALLOWED_HOST)),
 			maxBytes,
-			timeout
+			timeout,
+			bodyReadExecutor
 		);
 	}
 
