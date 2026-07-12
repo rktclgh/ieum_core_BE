@@ -203,7 +203,7 @@ class ChatServiceTest {
 		pinnedMember.setPinned(true, OffsetDateTime.parse("2026-07-08T12:00:00+09:00"));
 		Message normalLast = message(501L, normalRoom, friend, "normal", "2026-07-08T11:00:00+09:00");
 		Message pinnedLast = message(502L, pinnedRoom, me, "pinned", "2026-07-08T10:00:00+09:00");
-		when(chatRoomRepository.findActiveRoomsByUserId(42L, null)).thenReturn(List.of(normalRoom, pinnedRoom));
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(normalRoom, pinnedRoom));
 		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(normalMember, pinnedMember));
 		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
@@ -219,6 +219,17 @@ class ChatServiceTest {
 		assertThat(response.get(0).pinned()).isTrue();
 		assertThat(response.get(0).lastMessage().content()).isEqualTo("pinned");
 		assertThat(response.get(1).unreadCount()).isEqualTo(3L);
+	}
+
+	@Test
+	void listRoomsUsesTypeSpecificQueryWhenTypeIsPresent() {
+		when(chatRoomRepository.findActiveRoomsByUserIdAndRoomType(42L, RoomType.direct))
+			.thenReturn(List.of());
+
+		assertThat(service.listRooms(principal(42L), RoomType.direct)).isEmpty();
+
+		verify(chatRoomRepository).findActiveRoomsByUserIdAndRoomType(42L, RoomType.direct);
+		verify(chatRoomRepository, never()).findActiveRoomsByUserId(42L);
 	}
 
 	@Test
@@ -268,12 +279,8 @@ class ChatServiceTest {
 		Message next = message(502L, room, me, "next", "2026-07-08T11:00:00+09:00");
 		Message lookahead = message(501L, room, friend, "lookahead", "2026-07-08T10:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
-		when(messageRepository.findMessagesBeforeCursor(
-			org.mockito.Mockito.eq(100L),
-			org.mockito.Mockito.isNull(),
-			org.mockito.Mockito.isNull(),
-			any()
-		)).thenReturn(List.of(newest, next, lookahead));
+		when(messageRepository.findRecentMessages(org.mockito.Mockito.eq(100L), any()))
+			.thenReturn(List.of(newest, next, lookahead));
 
 		var response = service.listMessages(principal(42L), 100L, null, 2);
 
@@ -281,6 +288,37 @@ class ChatServiceTest {
 			.extracting(message -> message.messageId())
 			.containsExactly(503L, 502L);
 		assertThat(ChatMessageCursor.decode(response.nextCursor()).messageId()).isEqualTo(502L);
+	}
+
+	@Test
+	void listMessagesUsesCursorSpecificQueryWhenCursorIsPresent() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		OffsetDateTime cursorCreatedAt = OffsetDateTime.parse("2026-07-08T11:00:00+09:00");
+		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
+		when(messageRepository.findMessagesBeforeCursor(
+			org.mockito.Mockito.eq(100L),
+			org.mockito.Mockito.eq(cursorCreatedAt),
+			org.mockito.Mockito.eq(502L),
+			any()
+		)).thenReturn(List.of());
+
+		var response = service.listMessages(
+			principal(42L),
+			100L,
+			ChatMessageCursor.encode(cursorCreatedAt, 502L),
+			2
+		);
+
+		assertThat(response.items()).isEmpty();
+		verify(messageRepository).findMessagesBeforeCursor(
+			org.mockito.Mockito.eq(100L),
+			org.mockito.Mockito.eq(cursorCreatedAt),
+			org.mockito.Mockito.eq(502L),
+			any()
+		);
+		verify(messageRepository, never()).findRecentMessages(org.mockito.Mockito.eq(100L), any());
 	}
 
 	@Test

@@ -48,10 +48,10 @@ class ChatRepositoryTest {
 		ChatMember leftMember = chatMemberRepository.save(ChatMember.join(left, me));
 		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
 
-		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId(), null))
+		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId()))
 			.extracting(ChatRoom::getId)
 			.containsExactlyInAnyOrder(direct.getId(), question.getId());
-		assertThat(chatRoomRepository.findActiveRoomsByUserId(me.getId(), RoomType.direct))
+		assertThat(chatRoomRepository.findActiveRoomsByUserIdAndRoomType(me.getId(), RoomType.direct))
 			.extracting(ChatRoom::getId)
 			.containsExactly(direct.getId());
 	}
@@ -146,7 +146,7 @@ class ChatRepositoryTest {
 		entityManager.flush();
 		entityManager.clear();
 
-		assertThat(messageRepository.findMessagesBeforeCursor(room.getId(), null, null, PageRequest.of(0, 3)))
+		assertThat(messageRepository.findRecentMessages(room.getId(), PageRequest.of(0, 3)))
 			.extracting(Message::getContent)
 			.containsExactly("third", "second", "first");
 		assertThat(messageRepository.findMessagesBeforeCursor(room.getId(), base.plusMinutes(2), third.getId(), PageRequest.of(0, 2)))
