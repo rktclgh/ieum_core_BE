@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.report.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -135,6 +136,13 @@ class JdbcReportAiWorkRepositoryIntegrationTest {
 		assertThat(repository.recoverExpiredLeases(OffsetDateTime.now().plusMinutes(1), MAX_ATTEMPTS)).isEqualTo(1);
 		assertThat(workState(claimed.reportId())).isEqualTo("dead");
 		assertThat(repository.claimNext("worker-b", Duration.ofMinutes(2), MAX_ATTEMPTS)).isEmpty();
+	}
+
+	@Test
+	void rejectsALeaseShorterThanOneSecond() {
+		assertThatThrownBy(() -> repository.claimNext("worker-a", Duration.ofMillis(999), MAX_ATTEMPTS))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("at least one second");
 	}
 
 	private Callable<Optional<ClaimedReport>> claimAfterStart(

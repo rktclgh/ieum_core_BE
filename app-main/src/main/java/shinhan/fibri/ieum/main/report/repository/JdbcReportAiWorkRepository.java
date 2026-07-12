@@ -160,8 +160,8 @@ public class JdbcReportAiWorkRepository implements ReportAiWorkRepository {
 		if (workerId == null || workerId.isBlank() || workerId.length() > 120) {
 			throw new IllegalArgumentException("workerId must contain 1 to 120 characters");
 		}
-		if (lease == null || lease.isZero() || lease.isNegative()) {
-			throw new IllegalArgumentException("lease must be positive");
+		if (lease == null || lease.isZero() || lease.isNegative() || lease.toSeconds() < 1) {
+			throw new IllegalArgumentException("lease must be at least one second");
 		}
 		validateMaxAttempts(maxAttempts);
 	}
