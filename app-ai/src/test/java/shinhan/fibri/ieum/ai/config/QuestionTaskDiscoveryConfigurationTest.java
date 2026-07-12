@@ -22,6 +22,7 @@ class QuestionTaskDiscoveryConfigurationTest {
 	@Test
 	void doesNotRegisterTheSchedulerWhenTheFeatureIsDisabled() {
 		contextRunner.run(context -> {
+			assertThat(context).hasNotFailed();
 			assertThat(context).doesNotHaveBean(QuestionTaskDiscoveryScheduler.class);
 		});
 	}
