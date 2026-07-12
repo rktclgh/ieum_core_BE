@@ -18,7 +18,12 @@ CREATE TABLE IF NOT EXISTS countries (
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_nationality') THEN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_users_nationality'
+      AND conrelid = 'users'::regclass
+  ) THEN
     ALTER TABLE users ADD CONSTRAINT fk_users_nationality
       FOREIGN KEY (nationality) REFERENCES countries(code);
   END IF;
