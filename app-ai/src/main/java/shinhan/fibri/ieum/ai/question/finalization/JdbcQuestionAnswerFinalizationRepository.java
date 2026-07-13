@@ -29,6 +29,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
+			  AND cancel_requested_at IS NULL
 			FOR UPDATE
 			""")
 			.param("questionId", fence.questionId())
@@ -114,6 +115,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
+			  AND cancel_requested_at IS NULL
 			""")
 			.param("embedding", vectorLiteral(context.embedding()))
 			.param("embeddingModel", context.embeddingModel())
@@ -170,6 +172,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
+			  AND cancel_requested_at IS NULL
 			""")
 			.param("embedding", vectorLiteral(context.embedding()))
 			.param("embeddingModel", context.embeddingModel())

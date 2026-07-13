@@ -237,6 +237,43 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 	}
 
 	@Test
+	void cancelRequestedTaskCannotFinalizeAGroundedAnswer() {
+		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().plusMinutes(2));
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = CURRENT_TIMESTAMP WHERE question_id = :questionId")
+			.param("questionId", fence.questionId())
+			.update();
+
+		assertThatThrownBy(() -> service.completeGrounded(grounded(fence)))
+			.isInstanceOf(StaleQuestionTaskFinalizationException.class);
+
+		assertThat(answerCount(fence.questionId())).isZero();
+		assertThat(taskRow(fence.questionId()))
+			.containsEntry("status", "processing")
+			.containsEntry("answer_id", null);
+	}
+
+	@Test
+	void cancelRequestedTaskCannotFinalizeAsInsufficientEvidence() {
+		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().plusMinutes(2));
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = CURRENT_TIMESTAMP WHERE question_id = :questionId")
+			.param("questionId", fence.questionId())
+			.update();
+
+		assertThatThrownBy(() -> service.completeInsufficient(new InsufficientQuestionAnswerFinalization(
+			fence,
+			insufficientContext()
+		))).isInstanceOf(StaleQuestionTaskFinalizationException.class);
+
+		assertThat(answerCount(fence.questionId())).isZero();
+		assertThat(taskRow(fence.questionId()))
+			.containsEntry("status", "processing")
+			.containsEntry("answer_id", null)
+			.containsEntry("answer_outcome", null)
+			.containsEntry("grounding_status", null)
+			.containsEntry("completed_at", null);
+	}
+
+	@Test
 	void staleWorkerCannotFinalizeButCurrentFenceCan() {
 		QuestionTaskFence current = insertProcessingTask("worker-b", OffsetDateTime.now().plusMinutes(2));
 		QuestionTaskFence stale = new QuestionTaskFence(
