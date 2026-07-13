@@ -25,6 +25,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			FROM ai_question_tasks
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND stage = 'persisting'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
@@ -56,6 +57,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND stage = 'persisting'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
@@ -108,6 +110,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND stage = 'persisting'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()
@@ -163,6 +166,7 @@ public class JdbcQuestionAnswerFinalizationRepository {
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND stage = 'persisting'
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
 			  AND lease_until > clock_timestamp()

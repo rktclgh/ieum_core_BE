@@ -222,6 +222,21 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 	}
 
 	@Test
+	void rejectsFinalizationBeforeThePersistingStage() {
+		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().plusMinutes(2));
+		jdbc.sql("UPDATE ai_question_tasks SET stage = 'validating' WHERE question_id = :questionId")
+			.param("questionId", fence.questionId())
+			.update();
+
+		assertThatThrownBy(() -> service.completeGrounded(grounded(fence)))
+			.isInstanceOf(StaleQuestionTaskFinalizationException.class);
+
+		assertThat(answerCount(fence.questionId())).isZero();
+		assertThat(taskRow(fence.questionId()).get("status")).isEqualTo("processing");
+		assertThat(taskRow(fence.questionId()).get("stage")).isEqualTo("validating");
+	}
+
+	@Test
 	void staleWorkerCannotFinalizeButCurrentFenceCan() {
 		QuestionTaskFence current = insertProcessingTask("worker-b", OffsetDateTime.now().plusMinutes(2));
 		QuestionTaskFence stale = new QuestionTaskFence(
@@ -602,7 +617,7 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 			    question_id, status, stage, attempts, lease_until, locked_by, lease_token, started_at
 			)
 			VALUES (
-			    :questionId, 'processing', 'validating', 1, :leaseUntil, :workerId, :leaseToken, CURRENT_TIMESTAMP
+			    :questionId, 'processing', 'persisting', 1, :leaseUntil, :workerId, :leaseToken, CURRENT_TIMESTAMP
 			)
 			""")
 			.param("questionId", questionId)
