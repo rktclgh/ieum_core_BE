@@ -25,13 +25,14 @@ public class InquiryService {
 
 	@Transactional
 	public CreateInquiryResponse create(AuthenticatedUser principal, CreateInquiryRequest request) {
+		String content = requireContent(request.content());
 		userRepository.findByIdAndDeletedAtIsNull(principal.userId())
 			.orElseThrow(UserNotFoundException::new);
 
 		Inquiry inquiry = inquiryRepository.save(Inquiry.create(
 			principal.userId(),
-			normalizeTitle(request.title(), request.content()),
-			request.content()
+			normalizeTitle(request.title(), content),
+			content
 		));
 		return new CreateInquiryResponse(inquiry.getId());
 	}
@@ -42,6 +43,13 @@ public class InquiryService {
 			.stream()
 			.map(InquiryItem::from)
 			.toList());
+	}
+
+	private String requireContent(String content) {
+		if (content == null || content.isBlank()) {
+			throw new IllegalArgumentException("content must not be blank");
+		}
+		return content;
 	}
 
 	private String normalizeTitle(String title, String content) {

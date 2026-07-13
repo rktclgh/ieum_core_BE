@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -82,6 +83,15 @@ class InquiryServiceTest {
 
 		assertThatThrownBy(() -> service.create(principal(UserStatus.active), new CreateInquiryRequest(null, "문의 내용")))
 			.isInstanceOf(UserNotFoundException.class);
+	}
+
+	@Test
+	void rejectsNullContentBeforeAccessingRepositories() {
+		assertThatThrownBy(() -> service.create(principal(UserStatus.active), new CreateInquiryRequest(null, null)))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("content must not be blank");
+
+		verifyNoInteractions(userRepository, inquiryRepository);
 	}
 
 	@Test
