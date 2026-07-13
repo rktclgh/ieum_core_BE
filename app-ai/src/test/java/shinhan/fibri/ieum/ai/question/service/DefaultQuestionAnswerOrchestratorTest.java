@@ -17,6 +17,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -64,6 +65,15 @@ import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyResult;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalResult;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedAnswer;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedCitation;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPrompt;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPromptFactory;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingRegion;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebQuestionEvidenceAssembler;
 
 class DefaultQuestionAnswerOrchestratorTest {
 
@@ -234,6 +244,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(command.getValue().context().promptVersion()).isNull();
 		assertThat(command.getValue().context().groundingScore()).isEqualByComparingTo(BigDecimal.ZERO);
 		assertThat(command.getValue().context().evidence()).isEmpty();
+		assertThat(command.getValue().context().fallbackReason()).isEqualTo("empty_evidence");
 		verify(fixture.checkpointService).guardAndAdvance(
 			fixture.task,
 			QuestionTaskStage.RETRIEVING,
@@ -250,11 +261,239 @@ class DefaultQuestionAnswerOrchestratorTest {
 	}
 
 	@Test
+	void completesWebGroundedWhenLocalEvidenceIsInsufficientAndWebIsEnabled() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+
+		fixture.orchestrator.process(fixture.task);
+
+		verifyNoInteractions(fixture.answerGateway, fixture.groundingGateway, fixture.citationAssembler);
+		verify(fixture.webGroundingPromptFactory).create(
+			same(fixture.snapshot),
+			eq(RegionContext.korea("서울특별시", "중구", "태평로1가", null))
+		);
+		verify(fixture.webGroundingGateway).ground(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(45))
+		);
+		verify(fixture.webEvidenceAssembler).assemble(same(fixture.webAnswer));
+		verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
+		verify(fixture.checkpointService).guardCurrentStage(
+			fixture.task,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
+		verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.WEB_GROUNDING,
+			QuestionTaskStage.PERSISTING,
+			Fixture.LEASE
+		);
+		ArgumentCaptor<GroundedQuestionAnswerFinalization> command = ArgumentCaptor.forClass(
+			GroundedQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeGrounded(command.capture());
+		assertThat(command.getValue().answerMode()).isEqualTo(QuestionAnswerMode.WEB_GROUNDED);
+		assertThat(command.getValue().content()).isEqualTo(fixture.webAnswer.answer());
+		assertThat(command.getValue().context().generationProvider()).isEqualTo("gemini");
+		assertThat(command.getValue().context().generationModel()).isEqualTo("gemini-3.1-flash-lite");
+		assertThat(command.getValue().context().promptVersion()).isEqualTo("question-web-grounding-v1");
+		assertThat(command.getValue().context().groundingScore()).isEqualByComparingTo("0.93");
+		assertThat(command.getValue().context().fallbackReason()).isEqualTo("empty_evidence");
+		assertThat(command.getValue().context().evidence()).containsExactly(fixture.webEvidence);
+		verify(fixture.callbackWake).wake(fixture.task.questionId());
+	}
+
+	@Test
+	void fallsBackToWebOnlyAfterOneRepairAlsoFailsValidation() {
+		Fixture fixture = new Fixture();
+		GroundingValidationResult first = fixture.validation(false, "0.25");
+		GroundingValidationResult second = fixture.validation(false, "0.44");
+		GeneratedAnswer repaired = fixture.answerWithFallback(
+			"여전히 불충분",
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"repair-v1",
+			"provider_fallback"
+		);
+		when(fixture.groundingGateway.validate(any(), any())).thenReturn(first, second);
+		when(fixture.groundingGateway.repair(any(), same(first.validation()), any())).thenReturn(repaired);
+		fixture.enableWebGrounding();
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.groundingGateway, org.mockito.Mockito.times(2)).validate(any(), any());
+		verify(fixture.groundingGateway).repair(any(), same(first.validation()), any());
+		verify(fixture.webGroundingGateway).ground(same(fixture.webPrompt), eq(Duration.ofSeconds(45)));
+		ArgumentCaptor<GroundedQuestionAnswerFinalization> command = ArgumentCaptor.forClass(
+			GroundedQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeGrounded(command.capture());
+		assertThat(command.getValue().answerMode()).isEqualTo(QuestionAnswerMode.WEB_GROUNDED);
+		assertThat(command.getValue().context().fallbackReason())
+			.isEqualTo("grounding_unsupported_after_repair");
+	}
+
+	@Test
+	void skipsWebStageAndProviderWhenSanitizationLeavesNoPrompt() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.webGroundingPromptFactory.create(any(), any())).thenReturn(Optional.empty());
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.webGroundingGateway, never()).ground(any(), any());
+		verifyNoInteractions(fixture.webEvidenceAssembler);
+		verify(fixture.checkpointService, never()).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		);
+		ArgumentCaptor<InsufficientQuestionAnswerFinalization> command = ArgumentCaptor.forClass(
+			InsufficientQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeInsufficient(command.capture());
+		assertThat(command.getValue().context().fallbackReason())
+			.isEqualTo("web_prompt_empty_after_sanitization");
+	}
+
+	@Test
+	void completesInsufficientAfterWebStageWhenProviderReturnsNoValidAnswer() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.webGroundingGateway.ground(any(), any())).thenReturn(Optional.empty());
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.webGroundingGateway).ground(same(fixture.webPrompt), eq(Duration.ofSeconds(45)));
+		verifyNoInteractions(fixture.webEvidenceAssembler);
+		verify(fixture.checkpointService).guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.WEB_GROUNDING,
+			QuestionTaskStage.PERSISTING,
+			Fixture.LEASE
+		);
+		ArgumentCaptor<InsufficientQuestionAnswerFinalization> command = ArgumentCaptor.forClass(
+			InsufficientQuestionAnswerFinalization.class
+		);
+		verify(fixture.finalizationService).completeInsufficient(command.capture());
+		assertThat(command.getValue().context().fallbackReason())
+			.isEqualTo("web_grounding_no_valid_answer");
+		verifyNoInteractions(fixture.callbackWake);
+	}
+
+	@Test
+	void stopsBeforeWebProviderWhenWebStageAdvanceCancels() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.checkpointService.guardAndAdvance(
+			fixture.task,
+			QuestionTaskStage.RETRIEVING,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		)).thenReturn(QuestionCheckpointResult.CANCELLED);
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.webGroundingGateway, never()).ground(any(), any());
+		verifyNoInteractions(fixture.webEvidenceAssembler, fixture.finalizationService, fixture.callbackWake);
+	}
+
+	@Test
+	void stopsAfterWebProviderWhenPostCallGuardCancels() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		when(fixture.checkpointService.guardCurrentStage(
+			fixture.task,
+			QuestionTaskStage.WEB_GROUNDING,
+			Fixture.LEASE
+		)).thenReturn(QuestionCheckpointResult.CANCELLED);
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.webGroundingGateway).ground(same(fixture.webPrompt), eq(Duration.ofSeconds(45)));
+		verifyNoInteractions(fixture.webEvidenceAssembler, fixture.finalizationService, fixture.callbackWake);
+	}
+
+	@Test
+	void usesStoredAddressRegionForWebPromptInsteadOfModelRegion() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		QueryAnalysis modelAnalysis = new QueryAnalysis(
+			GeoScope.local,
+			new BigDecimal("0.84"),
+			RegionContext.korea("부산광역시", "해운대구", "우동", "모델 생성 장소"),
+			"transport",
+			false,
+			List.of("버스"),
+			List.of("버스 승하차"),
+			"query-analysis-v1"
+		);
+		when(fixture.analyzer.analyze(any())).thenReturn(modelAnalysis);
+
+		fixture.orchestrator.process(fixture.task);
+
+		verify(fixture.webGroundingPromptFactory).create(
+			same(fixture.snapshot),
+			eq(RegionContext.korea("서울특별시", "중구", "태평로1가", null))
+		);
+	}
+
+	@Test
+	void doesNotFallbackToWebForALocalProviderTechnicalFailure() {
+		Fixture fixture = new Fixture();
+		fixture.enableWebGrounding();
+		IllegalStateException failure = new IllegalStateException("local provider failed");
+		when(fixture.answerGateway.generate(any(), any())).thenThrow(failure);
+
+		assertThatThrownBy(() -> fixture.orchestrator.process(fixture.task)).isSameAs(failure);
+
+		verify(fixture.webGroundingGateway, never()).ground(any(), any());
+	}
+
+	@Test
+	void propagatesWebTechnicalFailureWithoutRetry() {
+		Fixture fixture = new Fixture();
+		fixture.localEvidenceInsufficient();
+		fixture.enableWebGrounding();
+		QuestionWebGroundingUnavailableException failure = new QuestionWebGroundingUnavailableException(
+			WebGroundingFailureCode.timeout
+		);
+		when(fixture.webGroundingGateway.ground(any(), any())).thenThrow(failure);
+
+		assertThatThrownBy(() -> fixture.orchestrator.process(fixture.task)).isSameAs(failure);
+
+		verify(fixture.webGroundingGateway, org.mockito.Mockito.times(1)).ground(
+			same(fixture.webPrompt),
+			eq(Duration.ofSeconds(45))
+		);
+		verifyNoInteractions(fixture.webEvidenceAssembler, fixture.finalizationService, fixture.callbackWake);
+	}
+
+	@Test
 	void completesInsufficientWithRepairProvenanceWhenSecondValidationIsUnsupported() {
 		Fixture fixture = new Fixture();
 		GroundingValidationResult first = fixture.validation(false, "0.25");
 		GroundingValidationResult second = fixture.validation(false, "0.44");
-		GeneratedAnswer repaired = fixture.answer("여전히 불충분", "gemini", "gemini-3.1-flash-lite", "repair-v1");
+		GeneratedAnswer repaired = fixture.answerWithFallback(
+			"여전히 불충분",
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"repair-v1",
+			"provider_fallback"
+		);
 		when(fixture.groundingGateway.validate(any(), any())).thenReturn(first, second);
 		when(fixture.groundingGateway.repair(any(), same(first.validation()), any())).thenReturn(repaired);
 
@@ -270,6 +509,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(command.getValue().context().promptVersion()).isEqualTo("repair-v1");
 		assertThat(command.getValue().context().groundingScore()).isEqualByComparingTo("0.44");
 		assertThat(command.getValue().context().evidence()).isEmpty();
+		assertThat(command.getValue().context().fallbackReason()).isEqualTo("provider_fallback");
 		verify(fixture.checkpointService).guardAndAdvance(
 			fixture.task,
 			QuestionTaskStage.VALIDATING,
@@ -359,6 +599,74 @@ class DefaultQuestionAnswerOrchestratorTest {
 		assertThat(transactional.propagation()).isEqualTo(Propagation.NEVER);
 	}
 
+	@Test
+	void rejectsLeaseExtensionShorterThanTheMaximumSequentialProviderSegmentAndMargin() {
+		Fixture fixture = new Fixture();
+
+		assertThatThrownBy(() -> fixture.newOrchestrator(Duration.ofSeconds(60)))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("leaseExtension must be at least 65 seconds");
+		assertThatCode(() -> fixture.newOrchestrator(Duration.ofSeconds(65))).doesNotThrowAnyException();
+		assertThatCode(() -> fixture.newOrchestrator(Duration.ofMinutes(2))).doesNotThrowAnyException();
+	}
+
+	@Test
+	void rejectsNullWebDependencies() {
+		Fixture fixture = new Fixture();
+
+		assertThatThrownBy(() -> fixture.newOrchestrator(
+			Fixture.LEASE,
+			null,
+			fixture.webGroundingPromptFactory,
+			fixture.webEvidenceAssembler,
+			Duration.ofSeconds(30),
+			Duration.ofSeconds(30)
+		)).isInstanceOf(NullPointerException.class)
+			.hasMessage("webGroundingGateway must not be null");
+		assertThatThrownBy(() -> fixture.newOrchestrator(
+			Fixture.LEASE,
+			fixture.webGroundingGateway,
+			null,
+			fixture.webEvidenceAssembler,
+			Duration.ofSeconds(30),
+			Duration.ofSeconds(30)
+		)).isInstanceOf(NullPointerException.class)
+			.hasMessage("webGroundingPromptFactory must not be null");
+		assertThatThrownBy(() -> fixture.newOrchestrator(
+			Fixture.LEASE,
+			fixture.webGroundingGateway,
+			fixture.webGroundingPromptFactory,
+			null,
+			Duration.ofSeconds(30),
+			Duration.ofSeconds(30)
+		)).isInstanceOf(NullPointerException.class)
+			.hasMessage("webEvidenceAssembler must not be null");
+	}
+
+	@Test
+	void keepsBothLocalProviderTimeoutsFixedAtThirtySeconds() {
+		Fixture fixture = new Fixture();
+
+		assertThatThrownBy(() -> fixture.newOrchestrator(
+			Fixture.LEASE,
+			fixture.webGroundingGateway,
+			fixture.webGroundingPromptFactory,
+			fixture.webEvidenceAssembler,
+			Duration.ofSeconds(29),
+			Duration.ofSeconds(30)
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("answerTimeout must be 30 seconds");
+		assertThatThrownBy(() -> fixture.newOrchestrator(
+			Fixture.LEASE,
+			fixture.webGroundingGateway,
+			fixture.webGroundingPromptFactory,
+			fixture.webEvidenceAssembler,
+			Duration.ofSeconds(30),
+			Duration.ofSeconds(31)
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("groundingTimeout must be 30 seconds");
+	}
+
 	private static final class Fixture {
 
 		private static final Duration LEASE = Duration.ofMinutes(2);
@@ -378,6 +686,9 @@ class DefaultQuestionAnswerOrchestratorTest {
 		private final QuestionAnswerCitationAssembler citationAssembler = mock(
 			QuestionAnswerCitationAssembler.class
 		);
+		private final WebGroundingGateway webGroundingGateway = mock(WebGroundingGateway.class);
+		private final WebGroundingPromptFactory webGroundingPromptFactory = mock(WebGroundingPromptFactory.class);
+		private final WebQuestionEvidenceAssembler webEvidenceAssembler = mock(WebQuestionEvidenceAssembler.class);
 		private final QuestionAnswerFinalizationService finalizationService = mock(
 			QuestionAnswerFinalizationService.class
 		);
@@ -424,6 +735,31 @@ class DefaultQuestionAnswerOrchestratorTest {
 		private final List<VectorKnowledgeEvidence> revalidatedEvidence = List.copyOf(evidence);
 		private final GeneratedAnswer generated = answer("앞문으로 타고 뒷문으로 내립니다.", "bedrock", "nova-micro", "local-answer-v1");
 		private final GroundingValidationResult supported = validation(true, "0.91");
+		private final WebGroundingPrompt webPrompt = new WebGroundingPrompt(
+			"버스는 어떻게 타나요?",
+			"승하차 방법을 알려주세요.",
+			new WebGroundingRegion("KR", "서울특별시", "중구")
+		);
+		private final WebGroundedAnswer webAnswer = new WebGroundedAnswer(
+			"웹 답변",
+			List.of(new WebGroundedCitation(
+				"대중교통 안내",
+				URI.create("https://example.com/transit"),
+				"웹 답변",
+				new BigDecimal("0.93"),
+				0,
+				4
+			)),
+			"gemini",
+			"gemini-3.1-flash-lite",
+			"question-web-grounding-v1",
+			Instant.parse("2026-07-13T02:00:00Z"),
+			50,
+			12,
+			"request-web",
+			new BigDecimal("0.93")
+		);
+		private final JsonNode webEvidence = webEvidence();
 		private final DefaultQuestionAnswerOrchestrator orchestrator;
 
 		private Fixture() {
@@ -449,6 +785,11 @@ class DefaultQuestionAnswerOrchestratorTest {
 				));
 			when(answerGateway.generate(any(), eq(Duration.ofSeconds(30)))).thenReturn(generated);
 			when(groundingGateway.validate(any(), eq(Duration.ofSeconds(30)))).thenReturn(supported);
+			when(webGroundingGateway.enabled()).thenReturn(false);
+			when(webGroundingPromptFactory.create(any(), any())).thenReturn(Optional.of(webPrompt));
+			when(webGroundingGateway.ground(any(), eq(Duration.ofSeconds(45))))
+				.thenReturn(Optional.of(webAnswer));
+			when(webEvidenceAssembler.assemble(same(webAnswer))).thenReturn(List.of(webEvidence));
 			when(citationAssembler.assemble(
 				eq(generated.answer()),
 				same(revalidatedEvidence),
@@ -458,7 +799,29 @@ class DefaultQuestionAnswerOrchestratorTest {
 				.thenReturn(new QuestionAnswerFinalizationResult(task.questionId(), 900L));
 			when(finalizationService.completeInsufficient(any()))
 				.thenReturn(new QuestionAnswerFinalizationResult(task.questionId(), null));
-			orchestrator = new DefaultQuestionAnswerOrchestrator(
+			orchestrator = newOrchestrator(LEASE);
+		}
+
+		private DefaultQuestionAnswerOrchestrator newOrchestrator(Duration leaseExtension) {
+			return newOrchestrator(
+				leaseExtension,
+				webGroundingGateway,
+				webGroundingPromptFactory,
+				webEvidenceAssembler,
+				Duration.ofSeconds(30),
+				Duration.ofSeconds(30)
+			);
+		}
+
+		private DefaultQuestionAnswerOrchestrator newOrchestrator(
+			Duration leaseExtension,
+			WebGroundingGateway webGateway,
+			WebGroundingPromptFactory promptFactory,
+			WebQuestionEvidenceAssembler evidenceAssembler,
+			Duration answerTimeout,
+			Duration groundingTimeout
+		) {
+			return new DefaultQuestionAnswerOrchestrator(
 				snapshotRepository,
 				new StoredAddressRegionParser(),
 				analyzer,
@@ -469,14 +832,29 @@ class DefaultQuestionAnswerOrchestratorTest {
 				sufficiencyPolicy,
 				answerGateway,
 				groundingGateway,
+				webGateway,
+				promptFactory,
+				evidenceAssembler,
 				citationAssembler,
 				finalizationService,
 				callbackWake,
 				objectMapper,
-				LEASE,
-				Duration.ofSeconds(30),
-				Duration.ofSeconds(30)
+				leaseExtension,
+				answerTimeout,
+				groundingTimeout
 			);
+		}
+
+		private void enableWebGrounding() {
+			when(webGroundingGateway.enabled()).thenReturn(true);
+		}
+
+		private void localEvidenceInsufficient() {
+			when(sufficiencyPolicy.evaluate(any(), any(Boolean.class)))
+				.thenReturn(new GroundingSufficiencyResult(
+					GroundingSufficiencyResult.Decision.INSUFFICIENT,
+					GroundingSufficiencyResult.Reason.EMPTY_EVIDENCE
+				));
 		}
 
 		private GroundingValidationResult validation(boolean supported, String score) {
@@ -498,6 +876,16 @@ class DefaultQuestionAnswerOrchestratorTest {
 		}
 
 		private GeneratedAnswer answer(String content, String provider, String model, String promptVersion) {
+			return answerWithFallback(content, provider, model, promptVersion, null);
+		}
+
+		private GeneratedAnswer answerWithFallback(
+			String content,
+			String provider,
+			String model,
+			String promptVersion,
+			String fallbackReason
+		) {
 			return new GeneratedAnswer(
 				content,
 				List.of(new AnswerCitation(0, 0, Math.min(3, content.length()))),
@@ -508,7 +896,7 @@ class DefaultQuestionAnswerOrchestratorTest {
 				100,
 				20,
 				"request-answer",
-				null
+				fallbackReason
 			);
 		}
 
@@ -549,6 +937,20 @@ class DefaultQuestionAnswerOrchestratorTest {
 				.put("startIndex", 0)
 				.put("endIndex", 3)
 				.put("retrievedAt", "2026-07-13T00:00:00Z");
+		}
+
+		private JsonNode webEvidence() {
+			return objectMapper.createObjectNode()
+				.put("type", "web")
+				.put("title", "대중교통 안내")
+				.put("excerpt", "웹 답변")
+				.put("url", "https://example.com/transit")
+				.put("domain", "example.com")
+				.put("contentHash", "b".repeat(64))
+				.put("score", 0.93d)
+				.put("startIndex", 0)
+				.put("endIndex", 4)
+				.put("retrievedAt", "2026-07-13T02:00:01Z");
 		}
 	}
 }

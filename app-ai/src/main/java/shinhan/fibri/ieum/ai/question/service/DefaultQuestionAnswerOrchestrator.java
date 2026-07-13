@@ -50,11 +50,18 @@ import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeEvidence;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalRequest;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorKnowledgeRetrievalResult;
 import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundedAnswer;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPrompt;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPromptFactory;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebQuestionEvidenceAssembler;
 
 public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestrator {
 
 	private static final Logger log = LoggerFactory.getLogger(DefaultQuestionAnswerOrchestrator.class);
 	private static final Duration REQUIRED_MODEL_TIMEOUT = Duration.ofSeconds(30);
+	private static final Duration WEB_GROUNDING_TIMEOUT = Duration.ofSeconds(45);
+	private static final Duration MINIMUM_LEASE_EXTENSION = Duration.ofSeconds(65);
 
 	private final QuestionSnapshotRepository snapshotRepository;
 	private final StoredAddressRegionParser regionParser;
@@ -66,6 +73,9 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 	private final GroundingSufficiencyPolicy sufficiencyPolicy;
 	private final LocalAnswerGateway answerGateway;
 	private final LocalGroundingGateway groundingGateway;
+	private final WebGroundingGateway webGroundingGateway;
+	private final WebGroundingPromptFactory webGroundingPromptFactory;
+	private final WebQuestionEvidenceAssembler webEvidenceAssembler;
 	private final QuestionAnswerCitationAssembler citationAssembler;
 	private final QuestionAnswerFinalizationService finalizationService;
 	private final QuestionCompletionCallbackWake callbackWake;
@@ -85,6 +95,9 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		GroundingSufficiencyPolicy sufficiencyPolicy,
 		LocalAnswerGateway answerGateway,
 		LocalGroundingGateway groundingGateway,
+		WebGroundingGateway webGroundingGateway,
+		WebGroundingPromptFactory webGroundingPromptFactory,
+		WebQuestionEvidenceAssembler webEvidenceAssembler,
 		QuestionAnswerCitationAssembler citationAssembler,
 		QuestionAnswerFinalizationService finalizationService,
 		QuestionCompletionCallbackWake callbackWake,
@@ -103,11 +116,23 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		this.sufficiencyPolicy = Objects.requireNonNull(sufficiencyPolicy, "sufficiencyPolicy must not be null");
 		this.answerGateway = Objects.requireNonNull(answerGateway, "answerGateway must not be null");
 		this.groundingGateway = Objects.requireNonNull(groundingGateway, "groundingGateway must not be null");
+		this.webGroundingGateway = Objects.requireNonNull(
+			webGroundingGateway,
+			"webGroundingGateway must not be null"
+		);
+		this.webGroundingPromptFactory = Objects.requireNonNull(
+			webGroundingPromptFactory,
+			"webGroundingPromptFactory must not be null"
+		);
+		this.webEvidenceAssembler = Objects.requireNonNull(
+			webEvidenceAssembler,
+			"webEvidenceAssembler must not be null"
+		);
 		this.citationAssembler = Objects.requireNonNull(citationAssembler, "citationAssembler must not be null");
 		this.finalizationService = Objects.requireNonNull(finalizationService, "finalizationService must not be null");
 		this.callbackWake = Objects.requireNonNull(callbackWake, "callbackWake must not be null");
 		this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
-		this.leaseExtension = requirePositive(leaseExtension, "leaseExtension");
+		this.leaseExtension = requireLeaseExtension(leaseExtension);
 		this.answerTimeout = requireModelTimeout(answerTimeout, "answerTimeout");
 		this.groundingTimeout = requireModelTimeout(groundingTimeout, "groundingTimeout");
 	}
@@ -159,9 +184,11 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			analysis.highRiskDomain()
 		);
 		if (sufficiency.decision() == GroundingSufficiencyResult.Decision.INSUFFICIENT) {
-			completeInsufficient(
+			fallbackToWebOrCompleteInsufficient(
 				task,
 				QuestionTaskStage.RETRIEVING,
+				snapshot,
+				coarseRegion,
 				embedding,
 				analysis,
 				retrieval.retrievalConfigVersion(),
@@ -220,9 +247,11 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		}
 
 		if (!validation.validation().supported()) {
-			completeInsufficient(
+			fallbackToWebOrCompleteInsufficient(
 				task,
 				QuestionTaskStage.VALIDATING,
+				snapshot,
+				coarseRegion,
 				embedding,
 				analysis,
 				retrieval.retrievalConfigVersion(),
@@ -264,6 +293,121 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 					validation.validation().score(),
 					citationEvidence,
 					answer.fallbackReason()
+				)
+			)
+		);
+		wakeCallbackAfterCommit(result);
+	}
+
+	private void fallbackToWebOrCompleteInsufficient(
+		ClaimedQuestionTask task,
+		QuestionTaskStage currentStage,
+		QuestionInputSnapshot snapshot,
+		RegionContext trustedCoarseRegion,
+		QuestionEmbedding embedding,
+		QueryAnalysis analysis,
+		String retrievalConfigVersion,
+		GeneratedAnswer rejectedLocalAnswer,
+		BigDecimal localGroundingScore,
+		String localFallbackReason
+	) {
+		if (!webGroundingGateway.enabled()) {
+			completeInsufficient(
+				task,
+				currentStage,
+				embedding,
+				analysis,
+				retrievalConfigVersion,
+				rejectedLocalAnswer,
+				localGroundingScore,
+				localFallbackReason
+			);
+			return;
+		}
+
+		Optional<WebGroundingPrompt> optionalPrompt = webGroundingPromptFactory.create(
+			snapshot,
+			trustedCoarseRegion
+		);
+		if (optionalPrompt.isEmpty()) {
+			completeInsufficient(
+				task,
+				currentStage,
+				embedding,
+				analysis,
+				retrievalConfigVersion,
+				rejectedLocalAnswer,
+				localGroundingScore,
+				"web_prompt_empty_after_sanitization"
+			);
+			return;
+		}
+
+		if (cancelled(checkpointService.guardAndAdvance(
+			task,
+			currentStage,
+			QuestionTaskStage.WEB_GROUNDING,
+			leaseExtension
+		))) {
+			return;
+		}
+		Optional<WebGroundedAnswer> optionalWebAnswer = webGroundingGateway.ground(
+			optionalPrompt.get(),
+			WEB_GROUNDING_TIMEOUT
+		);
+		if (cancelled(checkpointService.guardCurrentStage(
+			task,
+			QuestionTaskStage.WEB_GROUNDING,
+			leaseExtension
+		))) {
+			return;
+		}
+		if (optionalWebAnswer.isEmpty()) {
+			completeInsufficient(
+				task,
+				QuestionTaskStage.WEB_GROUNDING,
+				embedding,
+				analysis,
+				retrievalConfigVersion,
+				rejectedLocalAnswer,
+				localGroundingScore,
+				"web_grounding_no_valid_answer"
+			);
+			return;
+		}
+
+		WebGroundedAnswer webAnswer = optionalWebAnswer.get();
+		List<com.fasterxml.jackson.databind.JsonNode> webEvidence = webEvidenceAssembler.assemble(webAnswer);
+		if (cancelled(checkpointService.guardAndAdvance(
+			task,
+			QuestionTaskStage.WEB_GROUNDING,
+			QuestionTaskStage.PERSISTING,
+			leaseExtension
+		))) {
+			return;
+		}
+		if (cancelled(checkpointService.guardCurrentStage(
+			task,
+			QuestionTaskStage.PERSISTING,
+			leaseExtension
+		))) {
+			return;
+		}
+		String webFallbackReason = currentStage == QuestionTaskStage.VALIDATING
+			? "grounding_unsupported_after_repair"
+			: localFallbackReason;
+		QuestionAnswerFinalizationResult result = finalizationService.completeGrounded(
+			new GroundedQuestionAnswerFinalization(
+				fence(task),
+				QuestionAnswerMode.WEB_GROUNDED,
+				webAnswer.answer(),
+				webContext(
+					embedding,
+					analysis,
+					retrievalConfigVersion,
+					webAnswer,
+					webEvidence,
+					webFallbackReason
 				)
 			)
 		);
@@ -326,6 +470,30 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			fallbackReason,
 			answer == null ? null : answer.promptVersion(),
 			groundingScore,
+			evidence
+		);
+	}
+
+	private QuestionAnswerFinalizationContext webContext(
+		QuestionEmbedding embedding,
+		QueryAnalysis analysis,
+		String retrievalConfigVersion,
+		WebGroundedAnswer answer,
+		List<com.fasterxml.jackson.databind.JsonNode> evidence,
+		String fallbackReason
+	) {
+		return new QuestionAnswerFinalizationContext(
+			embedding.values(),
+			embedding.model(),
+			shinhan.fibri.ieum.ai.question.retrieval.GeoScope.valueOf(analysis.geoScope().name()),
+			analysis.confidence(),
+			regionJson(analysis.regionContext()),
+			answer.provider(),
+			answer.model(),
+			retrievalConfigVersion,
+			fallbackReason,
+			answer.promptVersion(),
+			answer.groundingScore(),
 			evidence
 		);
 	}
@@ -410,9 +578,9 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		return result == QuestionCheckpointResult.CANCELLED;
 	}
 
-	private Duration requirePositive(Duration value, String field) {
-		if (value == null || value.isZero() || value.isNegative() || value.toSeconds() < 1) {
-			throw new IllegalArgumentException(field + " must be at least one second");
+	private Duration requireLeaseExtension(Duration value) {
+		if (value == null || value.compareTo(MINIMUM_LEASE_EXTENSION) < 0) {
+			throw new IllegalArgumentException("leaseExtension must be at least 65 seconds");
 		}
 		return value;
 	}
