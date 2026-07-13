@@ -19,7 +19,6 @@ class InquiryTest {
 		assertThat(inquiry.getAnswer()).isNull();
 		assertThat(inquiry.getAnsweredBy()).isNull();
 		assertThat(inquiry.getAnsweredAt()).isNull();
-		assertThat(inquiry.getCreatedAt()).isNotNull();
 	}
 
 	@Test
@@ -27,5 +26,14 @@ class InquiryTest {
 		Field userId = Inquiry.class.getDeclaredField("userId");
 
 		assertThat(userId.getAnnotation(Column.class).updatable()).isFalse();
+	}
+
+	@Test
+	void delegatesCreationTimestampToTheDatabase() throws NoSuchFieldException {
+		Field createdAt = Inquiry.class.getDeclaredField("createdAt");
+		Column column = createdAt.getAnnotation(Column.class);
+
+		assertThat(column.insertable()).isFalse();
+		assertThat(column.updatable()).isFalse();
 	}
 }

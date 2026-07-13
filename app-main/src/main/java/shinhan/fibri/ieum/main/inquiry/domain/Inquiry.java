@@ -42,7 +42,7 @@ public class Inquiry {
 	@Column(name = "answered_by")
 	private Long answeredBy;
 
-	@Column(name = "created_at", nullable = false, updatable = false)
+	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private OffsetDateTime createdAt;
 
 	@Column(name = "answered_at")
@@ -56,7 +56,6 @@ public class Inquiry {
 		this.title = Objects.requireNonNull(title, "title must not be null");
 		this.content = Objects.requireNonNull(content, "content must not be null");
 		this.status = InquiryStatus.pending;
-		this.createdAt = OffsetDateTime.now();
 	}
 
 	public static Inquiry create(Long userId, String title, String content) {
