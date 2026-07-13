@@ -26,6 +26,12 @@ public interface QuestionCheckpointRepository {
 		Duration leaseExtension
 	);
 
+	boolean renewLeaseAtStage(
+		ClaimedQuestionTask claim,
+		QuestionTaskStage expectedStage,
+		Duration leaseExtension
+	);
+
 	boolean advanceStage(
 		ClaimedQuestionTask claim,
 		QuestionTaskStage expectedStage,

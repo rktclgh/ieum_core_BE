@@ -72,6 +72,20 @@ public class QuestionCheckpointService {
 		);
 	}
 
+	@Transactional
+	public QuestionCheckpointResult guardCurrentStage(
+		ClaimedQuestionTask claim,
+		QuestionTaskStage expectedStage,
+		Duration leaseExtension
+	) {
+		Objects.requireNonNull(expectedStage, "expectedStage must not be null");
+		validateInputs(claim, leaseExtension);
+		return applyCheckpoint(
+			claim,
+			() -> repository.renewLeaseAtStage(claim, expectedStage, leaseExtension)
+		);
+	}
+
 	private QuestionCheckpointResult applyCheckpoint(
 		ClaimedQuestionTask claim,
 		BooleanSupplier update

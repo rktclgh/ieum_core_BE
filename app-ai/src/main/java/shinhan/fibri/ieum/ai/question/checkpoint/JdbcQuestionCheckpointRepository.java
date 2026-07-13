@@ -140,6 +140,33 @@ public class JdbcQuestionCheckpointRepository implements QuestionCheckpointRepos
 	}
 
 	@Override
+	public boolean renewLeaseAtStage(
+		ClaimedQuestionTask claim,
+		QuestionTaskStage expectedStage,
+		Duration leaseExtension
+	) {
+		return jdbc.sql("""
+			UPDATE ai_question_tasks
+			SET lease_until = GREATEST(
+			    lease_until,
+			    clock_timestamp() + (:leaseSeconds * INTERVAL '1 second')
+			)
+			WHERE question_id = :questionId
+			  AND status = 'processing'
+			  AND stage = CAST(:expectedStage AS ai_job_stage)
+			  AND locked_by = :workerId
+			  AND lease_token = :leaseToken
+			  AND lease_until > clock_timestamp()
+			""")
+			.param("leaseSeconds", leaseExtension.toSeconds())
+			.param("questionId", claim.questionId())
+			.param("expectedStage", expectedStage.databaseValue())
+			.param("workerId", claim.workerId())
+			.param("leaseToken", claim.leaseToken())
+			.update() == 1;
+	}
+
+	@Override
 	public boolean advanceStage(
 		ClaimedQuestionTask claim,
 		QuestionTaskStage expectedStage,

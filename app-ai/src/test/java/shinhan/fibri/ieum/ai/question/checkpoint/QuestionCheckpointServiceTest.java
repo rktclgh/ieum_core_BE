@@ -48,6 +48,62 @@ class QuestionCheckpointServiceTest {
 	}
 
 	@Test
+	void guardsTheCurrentStageAndRenewsTheLeaseAfterTheDomainLock() {
+		ClaimedQuestionTask claim = claim();
+		Duration extension = Duration.ofMinutes(2);
+		when(repository.lockCurrentFence(claim))
+			.thenReturn(Optional.of(new LockedQuestionCheckpoint(false)));
+		when(repository.lockActiveQuestion(claim.questionId())).thenReturn(true);
+		when(repository.renewLeaseAtStage(
+			claim,
+			QuestionTaskStage.GENERATING,
+			extension
+		)).thenReturn(true);
+
+		QuestionCheckpointResult result = service.guardCurrentStage(
+			claim,
+			QuestionTaskStage.GENERATING,
+			extension
+		);
+
+		assertThat(result).isEqualTo(QuestionCheckpointResult.APPLIED);
+		InOrder order = inOrder(repository);
+		order.verify(repository).lockCurrentFence(claim);
+		order.verify(repository).lockActiveQuestion(claim.questionId());
+		order.verify(repository).renewLeaseAtStage(
+			claim,
+			QuestionTaskStage.GENERATING,
+			extension
+		);
+		order.verifyNoMoreInteractions();
+	}
+
+	@Test
+	void guardCancellationUsesTheCurrentFenceWithoutRenewingTheLease() {
+		ClaimedQuestionTask claim = claim();
+		when(repository.lockCurrentFence(claim))
+			.thenReturn(Optional.of(new LockedQuestionCheckpoint(true)));
+		when(repository.cancelCurrentFence(claim)).thenReturn(true);
+
+		QuestionCheckpointResult result = service.guardCurrentStage(
+			claim,
+			QuestionTaskStage.GENERATING,
+			Duration.ofMinutes(2)
+		);
+
+		assertThat(result).isEqualTo(QuestionCheckpointResult.CANCELLED);
+		InOrder order = inOrder(repository);
+		order.verify(repository).lockCurrentFence(claim);
+		order.verify(repository).cancelCurrentFence(claim);
+		order.verifyNoMoreInteractions();
+		verify(repository, never()).renewLeaseAtStage(
+			claim,
+			QuestionTaskStage.GENERATING,
+			Duration.ofMinutes(2)
+		);
+	}
+
+	@Test
 	void cancellationRequestUsesTheSameFenceAndSkipsDomainLock() {
 		ClaimedQuestionTask claim = claim();
 		when(repository.lockCurrentFence(claim))

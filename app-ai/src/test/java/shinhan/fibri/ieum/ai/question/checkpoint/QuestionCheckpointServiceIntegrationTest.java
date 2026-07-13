@@ -78,6 +78,8 @@ class QuestionCheckpointServiceIntegrationTest {
 	void resetRows() {
 		jdbc.sql("DROP TRIGGER IF EXISTS test_hold_checkpoint_update ON ai_question_tasks").update();
 		jdbc.sql("DROP FUNCTION IF EXISTS test_hold_checkpoint_update()").update();
+		jdbc.sql("DROP TRIGGER IF EXISTS test_hold_guard_update ON ai_question_tasks").update();
+		jdbc.sql("DROP FUNCTION IF EXISTS test_hold_guard_update()").update();
 		jdbc.sql("TRUNCATE ai_question_tasks, answers, questions, pins, users RESTART IDENTITY CASCADE")
 			.update();
 	}
@@ -136,6 +138,116 @@ class QuestionCheckpointServiceIntegrationTest {
 		assertThat(row.get("embedding_model")).isEqualTo("gemini-embedding-2");
 		assertThat(((Timestamp) row.get("lease_until")).toInstant())
 			.isAfter(OffsetDateTime.now().plusSeconds(110).toInstant());
+	}
+
+	@Test
+	void guardCurrentStageRenewsOnlyTheLeaseWithoutAdvancingTheStage() {
+		TaskFixture fixture = insertProcessingTask(
+			"generating",
+			false,
+			false,
+			false,
+			OffsetDateTime.now().plusSeconds(30)
+		);
+		OffsetDateTime before = OffsetDateTime.now();
+
+		QuestionCheckpointResult result = service.guardCurrentStage(
+			fixture.claim(),
+			QuestionTaskStage.GENERATING,
+			Duration.ofMinutes(3)
+		);
+
+		assertThat(result).isEqualTo(QuestionCheckpointResult.APPLIED);
+		var row = taskRow(fixture.claim().questionId());
+		assertThat(row.get("stage")).isEqualTo("generating");
+		assertThat(row.get("analysis_version")).isNull();
+		assertThat(((Timestamp) row.get("lease_until")).toInstant())
+			.isAfter(before.plusSeconds(175).toInstant());
+	}
+
+	@Test
+	void guardCurrentStageNeverShortensAnExistingLongerLease() {
+		TaskFixture fixture = insertProcessingTask(
+			"generating",
+			false,
+			false,
+			false,
+			OffsetDateTime.now().plusMinutes(10)
+		);
+		var leaseBefore = ((Timestamp) taskRow(fixture.claim().questionId()).get("lease_until")).toInstant();
+
+		QuestionCheckpointResult result = service.guardCurrentStage(
+			fixture.claim(),
+			QuestionTaskStage.GENERATING,
+			Duration.ofMinutes(2)
+		);
+
+		assertThat(result).isEqualTo(QuestionCheckpointResult.APPLIED);
+		var leaseAfter = ((Timestamp) taskRow(fixture.claim().questionId()).get("lease_until")).toInstant();
+		assertThat(leaseAfter).isEqualTo(leaseBefore);
+	}
+
+	@Test
+	void guardCurrentStageCancelsForRequestDeletedQuestionOrDeletedPin() {
+		TaskFixture requested = insertProcessingTask("generating", true, false, false, activeLease());
+		TaskFixture deletedQuestion = insertProcessingTask("generating", false, true, false, activeLease());
+		TaskFixture deletedPin = insertProcessingTask("generating", false, false, true, activeLease());
+
+		for (TaskFixture fixture : List.of(requested, deletedQuestion, deletedPin)) {
+			QuestionCheckpointResult result = service.guardCurrentStage(
+				fixture.claim(),
+				QuestionTaskStage.GENERATING,
+				Duration.ofMinutes(2)
+			);
+
+			assertThat(result).isEqualTo(QuestionCheckpointResult.CANCELLED);
+			var row = taskRow(fixture.claim().questionId());
+			assertThat(row.get("status")).isEqualTo("cancelled");
+			assertThat(row.get("lease_until")).isNull();
+			assertThat(row.get("locked_by")).isNull();
+			assertThat(row.get("lease_token")).isNull();
+		}
+	}
+
+	@Test
+	void guardCurrentStageRejectsWrongWorkerTokenStageOrExpiredLease() {
+		TaskFixture base = insertProcessingTask("generating", false, false, false, activeLease());
+		ClaimedQuestionTask wrongWorker = new ClaimedQuestionTask(
+			base.claim().questionId(),
+			"other-worker",
+			base.claim().leaseToken(),
+			base.claim().leaseUntil(),
+			base.claim().attempts()
+		);
+		ClaimedQuestionTask wrongToken = new ClaimedQuestionTask(
+			base.claim().questionId(),
+			base.claim().workerId(),
+			UUID.randomUUID(),
+			base.claim().leaseUntil(),
+			base.claim().attempts()
+		);
+		TaskFixture wrongStage = insertProcessingTask("validating", false, false, false, activeLease());
+		TaskFixture expired = insertProcessingTask(
+			"generating",
+			false,
+			false,
+			false,
+			OffsetDateTime.now().minusSeconds(1)
+		);
+
+		for (ClaimedQuestionTask stale : List.of(wrongWorker, wrongToken, expired.claim())) {
+			assertThatThrownBy(() -> service.guardCurrentStage(
+				stale,
+				QuestionTaskStage.GENERATING,
+				Duration.ofMinutes(2)
+			)).isInstanceOf(StaleQuestionCheckpointException.class);
+		}
+		assertThatThrownBy(() -> service.guardCurrentStage(
+			wrongStage.claim(),
+			QuestionTaskStage.GENERATING,
+			Duration.ofMinutes(2)
+		)).isInstanceOf(StaleQuestionCheckpointException.class);
+		assertThat(stage(wrongStage.claim().questionId())).isEqualTo("validating");
 	}
 
 	@Test
@@ -279,6 +391,41 @@ class QuestionCheckpointServiceIntegrationTest {
 	}
 
 	@Test
+	void ticketFirstGuardLockCompletesConcurrentDeletionWithoutDeadlock() throws Exception {
+		TaskFixture fixture = insertProcessingTask("generating", false, false, false, activeLease());
+		installGuardAdvisoryLock();
+
+		try (Connection blocker = DATA_SOURCE.getConnection();
+			 ExecutorService executor = Executors.newFixedThreadPool(2)) {
+			blocker.setAutoCommit(false);
+			try (PreparedStatement statement = blocker.prepareStatement("SELECT pg_advisory_xact_lock(?)")) {
+				statement.setLong(1, ADVISORY_LOCK_ID);
+				statement.execute();
+			}
+
+			Future<QuestionCheckpointResult> guard = executor.submit(() -> service.guardCurrentStage(
+				fixture.claim(),
+				QuestionTaskStage.GENERATING,
+				Duration.ofMinutes(2)
+			));
+			awaitLockWaiter("advisory");
+			Future<Integer> deletion = executor.submit(() -> softDeleteTicketQuestionAndPin(fixture));
+			awaitLockWaiter("transactionid");
+
+			blocker.commit();
+
+			assertThat(guard.get(10, TimeUnit.SECONDS)).isEqualTo(QuestionCheckpointResult.APPLIED);
+			assertThat(deletion.get(10, TimeUnit.SECONDS)).isEqualTo(3);
+		}
+
+		assertThat(stage(fixture.claim().questionId())).isEqualTo("generating");
+		assertThat(jdbc.sql("SELECT deleted_at IS NOT NULL FROM questions WHERE question_id = :questionId")
+			.param("questionId", fixture.claim().questionId())
+			.query(Boolean.class)
+			.single()).isTrue();
+	}
+
+	@Test
 	void leaseThatExpiresWhileWaitingForTheTicketLockIsStale() throws Exception {
 		TaskFixture fixture = insertProcessingTask(
 			"analyzing",
@@ -312,6 +459,41 @@ class QuestionCheckpointServiceIntegrationTest {
 
 		assertThat(stage(fixture.claim().questionId())).isEqualTo("analyzing");
 		assertThat(taskRow(fixture.claim().questionId()).get("analysis_version")).isNull();
+	}
+
+	@Test
+	void guardLeaseThatExpiresWhileWaitingForTheTicketLockIsStale() throws Exception {
+		TaskFixture fixture = insertProcessingTask(
+			"generating",
+			false,
+			false,
+			false,
+			OffsetDateTime.now().plusSeconds(2)
+		);
+
+		try (Connection blocker = DATA_SOURCE.getConnection();
+			 ExecutorService executor = Executors.newSingleThreadExecutor()) {
+			blocker.setAutoCommit(false);
+			executeUpdate(
+				blocker,
+				"UPDATE ai_question_tasks SET updated_at = updated_at WHERE question_id = ?",
+				fixture.claim().questionId()
+			);
+
+			Future<QuestionCheckpointResult> guard = executor.submit(() -> service.guardCurrentStage(
+				fixture.claim(),
+				QuestionTaskStage.GENERATING,
+				Duration.ofMinutes(2)
+			));
+			awaitLockWaiter("transactionid");
+			Thread.sleep(2_200L);
+			blocker.commit();
+
+			assertThatThrownBy(() -> guard.get(10, TimeUnit.SECONDS))
+				.hasCauseInstanceOf(StaleQuestionCheckpointException.class);
+		}
+
+		assertThat(stage(fixture.claim().questionId())).isEqualTo("generating");
 	}
 
 	@Test
@@ -508,6 +690,29 @@ class QuestionCheckpointServiceIntegrationTest {
 			CREATE TRIGGER test_hold_checkpoint_update
 			BEFORE UPDATE ON ai_question_tasks
 			FOR EACH ROW EXECUTE FUNCTION test_hold_checkpoint_update()
+			""").update();
+	}
+
+	private void installGuardAdvisoryLock() {
+		jdbc.sql("""
+			CREATE FUNCTION test_hold_guard_update()
+			RETURNS trigger
+			LANGUAGE plpgsql
+			AS $$
+			BEGIN
+			    IF NEW.status = 'processing'
+			       AND NEW.stage = OLD.stage
+			       AND NEW.lease_until IS DISTINCT FROM OLD.lease_until THEN
+			        PERFORM pg_advisory_xact_lock(77331144);
+			    END IF;
+			    RETURN NEW;
+			END;
+			$$
+			""").update();
+		jdbc.sql("""
+			CREATE TRIGGER test_hold_guard_update
+			BEFORE UPDATE ON ai_question_tasks
+			FOR EACH ROW EXECUTE FUNCTION test_hold_guard_update()
 			""").update();
 	}
 
