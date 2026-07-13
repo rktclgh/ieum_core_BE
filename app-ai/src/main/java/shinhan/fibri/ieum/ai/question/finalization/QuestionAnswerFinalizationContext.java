@@ -31,11 +31,11 @@ public record QuestionAnswerFinalizationContext(
 		geoScope = Objects.requireNonNull(geoScope, "geoScope must not be null");
 		geoScopeConfidence = requireProbability(geoScopeConfidence, "geoScopeConfidence");
 		regionContext = requireObject(regionContext, "regionContext");
-		generationProvider = requireText(generationProvider, "generationProvider");
-		generationModel = requireText(generationModel, "generationModel");
+		generationProvider = normalizeNullableText(generationProvider, "generationProvider");
+		generationModel = normalizeNullableText(generationModel, "generationModel");
 		retrievalConfigVersion = requireText(retrievalConfigVersion, "retrievalConfigVersion");
 		fallbackReason = normalizeOptionalText(fallbackReason);
-		promptVersion = requireText(promptVersion, "promptVersion");
+		promptVersion = normalizeNullableText(promptVersion, "promptVersion");
 		groundingScore = requireProbability(groundingScore, "groundingScore");
 		evidence = copyEvidence(evidence);
 	}
@@ -96,6 +96,16 @@ public record QuestionAnswerFinalizationContext(
 
 	private static String normalizeOptionalText(String value) {
 		return value == null || value.isBlank() ? null : value.trim();
+	}
+
+	private static String normalizeNullableText(String value, String field) {
+		if (value == null) {
+			return null;
+		}
+		if (value.isBlank()) {
+			throw new IllegalArgumentException(field + " must not be blank when present");
+		}
+		return value.trim();
 	}
 
 	private static List<JsonNode> copyEvidence(List<JsonNode> evidence) {

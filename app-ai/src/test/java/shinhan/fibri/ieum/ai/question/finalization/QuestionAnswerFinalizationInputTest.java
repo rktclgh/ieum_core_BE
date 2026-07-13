@@ -278,6 +278,46 @@ class QuestionAnswerFinalizationInputTest {
 			.isNotNull();
 	}
 
+	@Test
+	void insufficientMayOmitGenerationProvenanceButGroundedMayNot() {
+		QuestionAnswerFinalizationContext withoutGeneration = new QuestionAnswerFinalizationContext(
+			embedding(),
+			"gemini-embedding-2",
+			GeoScope.general,
+			BigDecimal.ONE,
+			objectMapper.createObjectNode(),
+			null,
+			null,
+			"hybrid-rag-v1",
+			"no_local_evidence",
+			null,
+			BigDecimal.ZERO,
+			List.of()
+		);
+
+		assertThat(new InsufficientQuestionAnswerFinalization(fence(), withoutGeneration)).isNotNull();
+		assertThatThrownBy(() -> new GroundedQuestionAnswerFinalization(
+			fence(),
+			QuestionAnswerMode.LOCAL_GROUNDED,
+			"answer",
+			new QuestionAnswerFinalizationContext(
+				embedding(),
+				"gemini-embedding-2",
+				GeoScope.general,
+				BigDecimal.ONE,
+				objectMapper.createObjectNode(),
+				null,
+				null,
+				"hybrid-rag-v1",
+				null,
+				null,
+				BigDecimal.ONE,
+				List.of(evidence())
+			)
+		)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("generation");
+	}
+
 	private QuestionTaskFence fence() {
 		return new QuestionTaskFence(1L, "worker-a", UUID.randomUUID());
 	}

@@ -167,7 +167,7 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 		QuestionTaskFence fence = insertProcessingTask("worker-a", OffsetDateTime.now().plusMinutes(2));
 		InsufficientQuestionAnswerFinalization command = new InsufficientQuestionAnswerFinalization(
 			fence,
-			context(List.of())
+			insufficientContext()
 		);
 
 		QuestionAnswerFinalizationResult result = service.completeInsufficient(command);
@@ -176,13 +176,34 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 		assertThat(result.hasAnswer()).isFalse();
 		assertThat(result.answerId()).isNull();
 		assertThat(answerCount(fence.questionId())).isZero();
-		var task = taskRow(fence.questionId());
+		var task = jdbc.sql("""
+			SELECT status::text,
+			       stage::text,
+			       answer_id,
+			       answer_outcome,
+			       grounding_status,
+			       evidence::text,
+			       generation_provider,
+			       generation_model,
+			       prompt_version,
+			       completed_at,
+			       lease_until,
+			       locked_by,
+			       lease_token
+			FROM ai_question_tasks
+			WHERE question_id = :questionId
+			""")
+			.param("questionId", fence.questionId())
+			.query().singleRow();
 		assertThat(task.get("status")).isEqualTo("completed");
 		assertThat(task.get("stage")).isEqualTo("persisting");
 		assertThat(task.get("answer_id")).isNull();
 		assertThat(task.get("answer_outcome")).isEqualTo("insufficient_evidence");
 		assertThat(task.get("grounding_status")).isEqualTo("insufficient_evidence");
 		assertThat(task.get("evidence")).isEqualTo("[]");
+		assertThat(task.get("generation_provider")).isNull();
+		assertThat(task.get("generation_model")).isNull();
+		assertThat(task.get("prompt_version")).isNull();
 		assertThat(task.get("completed_at")).isNotNull();
 		assertThat(task.get("lease_until")).isNull();
 		assertThat(task.get("locked_by")).isNull();
@@ -453,6 +474,23 @@ class QuestionAnswerFinalizationServiceIntegrationTest {
 			"question-answer-v1",
 			new BigDecimal("0.91"),
 			evidence
+		);
+	}
+
+	private QuestionAnswerFinalizationContext insufficientContext() {
+		return new QuestionAnswerFinalizationContext(
+			embedding(),
+			"gemini-embedding-2",
+			GeoScope.general,
+			BigDecimal.ZERO,
+			objectMapper.createObjectNode(),
+			null,
+			null,
+			"hybrid-rag-v1",
+			"no_local_evidence",
+			null,
+			BigDecimal.ZERO,
+			List.of()
 		);
 	}
 

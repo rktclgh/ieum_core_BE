@@ -19,6 +19,11 @@ public record GroundedQuestionAnswerFinalization(
 		if (context.evidence().isEmpty() || context.evidence().size() > 8) {
 			throw new IllegalArgumentException("grounded evidence must contain 1 to 8 items");
 		}
+		if (context.generationProvider() == null
+			|| context.generationModel() == null
+			|| context.promptVersion() == null) {
+			throw new IllegalArgumentException("grounded answers require generation provenance");
+		}
 		QuestionAnswerEvidenceValidator.validateForAnswer(
 			answerMode,
 			content,
