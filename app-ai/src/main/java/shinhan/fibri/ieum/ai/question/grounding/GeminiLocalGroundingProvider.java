@@ -11,10 +11,13 @@ import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
 import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProviderFailureCode;
@@ -287,8 +290,9 @@ final class GeminiLocalGroundingProvider implements LocalGroundingProvider {
 
 		static ClientException failure(GenAiIOException exception) {
 			Objects.requireNonNull(exception, "exception must not be null");
+			Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 			Throwable current = exception;
-			while (current != null) {
+			while (current != null && visited.add(current)) {
 				if (current instanceof SocketTimeoutException
 					|| current instanceof InterruptedIOException
 					|| current instanceof TimeoutException) {

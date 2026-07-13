@@ -3,8 +3,11 @@ package shinhan.fibri.ieum.ai.question.grounding;
 import java.net.SocketTimeoutException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import org.springframework.ai.bedrock.converse.BedrockChatOptions;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -115,8 +118,9 @@ final class BedrockNovaLocalGroundingProvider implements LocalGroundingProvider 
 	}
 
 	private LocalAnswerProviderFailureCode errorCode(RuntimeException exception) {
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 		Throwable current = exception;
-		while (current != null) {
+		while (current != null && visited.add(current)) {
 			if (current instanceof SdkServiceException serviceException) {
 				if (serviceException.isThrottlingException() || serviceException.statusCode() == 429) {
 					return LocalAnswerProviderFailureCode.rate_limited;

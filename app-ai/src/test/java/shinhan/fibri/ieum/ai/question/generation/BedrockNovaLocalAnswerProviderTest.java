@@ -97,6 +97,19 @@ class BedrockNovaLocalAnswerProviderTest {
 			});
 	}
 
+	@Test
+	void cyclicCauseChainTerminatesWithUnavailableCode() {
+		BedrockNovaLocalAnswerProvider provider = provider(new CapturingChatModel(prompt -> {
+			throw new FailOnRepeatedCauseAccessException();
+		}));
+
+		assertThatThrownBy(() -> provider.generate(prompt()))
+			.isInstanceOfSatisfying(LocalAnswerProviderException.class, exception ->
+				assertThat(exception.failureCode())
+					.isEqualTo(LocalAnswerProviderFailureCode.provider_unavailable)
+			);
+	}
+
 	private BedrockNovaLocalAnswerProvider provider(ChatModel chatModel) {
 		LocalAnswerProperties properties = properties();
 		return new BedrockNovaLocalAnswerProvider(
@@ -154,6 +167,20 @@ class BedrockNovaLocalAnswerProviderTest {
 		public ChatResponse call(Prompt prompt) {
 			this.prompt = prompt;
 			return function.apply(prompt);
+		}
+	}
+
+	private static final class FailOnRepeatedCauseAccessException extends RuntimeException {
+
+		private boolean causeAccessed;
+
+		@Override
+		public synchronized Throwable getCause() {
+			if (causeAccessed) {
+				throw new AssertionError("cyclic cause chain was traversed repeatedly");
+			}
+			causeAccessed = true;
+			return this;
 		}
 	}
 }

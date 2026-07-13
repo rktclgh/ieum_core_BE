@@ -99,6 +99,20 @@ class GeminiLocalAnswerProviderTest {
 		assertThat(sanitized.getCause()).isNull();
 	}
 
+	@Test
+	void stopsTraversingWhenGeminiIoCauseChainContainsACycle() {
+		BoundedCyclicCause first = new BoundedCyclicCause("first");
+		BoundedCyclicCause second = new BoundedCyclicCause("second");
+		first.linkTo(second);
+		second.linkTo(first);
+		GenAiIOException sdkException = new GenAiIOException("raw SDK message", first);
+
+		GeminiLocalAnswerClientException sanitized = GeminiGoogleGenAiLocalAnswerClient.failure(sdkException);
+
+		assertThat(sanitized.failureCode()).isEqualTo(LocalAnswerProviderFailureCode.provider_unavailable);
+		assertThat(sanitized.getCause()).isNull();
+	}
+
 	private GeminiLocalAnswerProvider provider(GeminiLocalAnswerClient client) {
 		return new GeminiLocalAnswerProvider(
 			client,
@@ -138,6 +152,28 @@ class GeminiLocalAnswerProviderTest {
 			new InterruptedIOException("raw interrupted I/O"),
 			new TimeoutException("raw future timeout")
 		);
+	}
+
+	private static final class BoundedCyclicCause extends RuntimeException {
+
+		private Throwable next;
+		private int traversalCount;
+
+		private BoundedCyclicCause(String message) {
+			super(message);
+		}
+
+		private void linkTo(Throwable next) {
+			this.next = next;
+		}
+
+		@Override
+		public synchronized Throwable getCause() {
+			if (++traversalCount > 1) {
+				throw new AssertionError("cyclic cause was traversed more than once");
+			}
+			return next;
+		}
 	}
 
 	private static final class CapturingGeminiClient implements GeminiLocalAnswerClient {

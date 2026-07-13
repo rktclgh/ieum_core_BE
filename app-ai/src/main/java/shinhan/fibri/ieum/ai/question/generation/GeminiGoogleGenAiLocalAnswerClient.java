@@ -10,8 +10,11 @@ import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.Part;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 final class GeminiGoogleGenAiLocalAnswerClient implements GeminiLocalAnswerClient {
@@ -51,8 +54,9 @@ final class GeminiGoogleGenAiLocalAnswerClient implements GeminiLocalAnswerClien
 
 	static GeminiLocalAnswerClientException failure(GenAiIOException exception) {
 		Objects.requireNonNull(exception, "exception must not be null");
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 		Throwable current = exception;
-		while (current != null) {
+		while (current != null && visited.add(current)) {
 			if (current instanceof SocketTimeoutException
 				|| current instanceof InterruptedIOException
 				|| current instanceof TimeoutException) {
