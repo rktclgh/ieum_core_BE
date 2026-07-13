@@ -1,5 +1,12 @@
 -- ============================================================
--- FiBri Schema v14
+-- FiBri Schema v15
+-- v14 대비 변경:
+--   [16] 질문 AI 공유 티켓과 답변 알림:
+--        app-main이 질문 생성 TX에서 ai_question_tasks pending 티켓을 함께 생성하고,
+--        app-ai가 처리 결과와 AI 답변을 기록하며, app-main이 완료 티켓을 알림으로 ACK한다.
+--        질문 query checkpoint HNSW 제거, Gemini Embedding 2 모델 CHECK,
+--        notifications 답변 출처·event key와 완료 티켓 ACK를 추가한다.
+--        기존 DB 증분: db/migrations/v15_question_ai_ticket_notification.sql
 -- v13 대비 변경:
 --   [15] 신고 AI 검토 작업목록 확장:
 --        reports에 스냅샷 해시, 작업 상태/시도/리스/오류, 구조화된 판단 결과를 추가한다.
@@ -25,7 +32,7 @@
 --        기존 DB 증분: db/migrations/v8_pin_location_snapshot.sql
 -- v9 대비 변경:
 --   [11] app-ai 책임 분리: 질문 불변·soft-delete, AI 작업/임베딩/KG 테이블 분리,
---        질문 생성 Redis 이벤트 폐기(app-ai 자율 스윕), 신고 AI 권고와 app-main 집행 분리.
+--        질문 생성 Redis 이벤트 폐기(공유 DB 티켓 co-commit), 신고 AI 권고와 app-main 집행 분리.
 -- v8 대비 변경:
 --   [10] 모임 타입·일정·반복 규칙 (설계 v2):
 --        meetings.type(one_time/recurring) + meeting_schedules + meeting_recurrence_rules.
@@ -40,7 +47,7 @@
 --       국기·피커 목록은 프론트가 code/api/nationalities.csv 번들 소유(백엔드 미서빙).
 --       시드 db/seed_countries.sql (199개국)
 -- v5 대비 변경:
---   [1] embedding 차원 1536 → 768 (google gemini-embedding-001 최적값)
+--   [1] embedding 차원 1536 → 768 (현재 모델: gemini-embedding-2)
 --   [2] AI 답변 표현: answers.is_ai 추가, author_id NULL 허용
 --       (AI 답변 = is_ai=TRUE & author_id IS NULL — CHECK로 강제.
 --        AI 시스템 유저 시딩 방식은 채택하지 않음: 사유는 db/DESIGN.md)
@@ -303,9 +310,11 @@ CREATE TABLE answer_images (
 CREATE INDEX idx_aimages_file ON answer_images(file_id);
 
 -- ============================================================
--- app-ai owned: compact question processing / embedding / answer provenance
---   app-main은 질문·핀·신고·사용자 상태를 소유한다.
---   질문당 하나의 task row가 작업 상태·embedding·답변 metadata·evidence를 함께 소유한다.
+-- shared integration ticket: compact question processing / embedding / answer provenance
+--   app-main은 question_id 티켓 생성, cancel_requested_at 명령,
+--   answer_notification_processed_at ACK만 소유한다.
+--   app-ai는 status/lease/embedding/evidence/AI answer 결과 전이를 소유한다.
+--   질문당 하나의 row가 요청 티켓·작업 상태·embedding·답변 metadata·완료 신호를 함께 소유한다.
 -- ============================================================
 CREATE TABLE ai_question_tasks (
     question_id BIGINT PRIMARY KEY REFERENCES questions(question_id) ON DELETE CASCADE,
@@ -321,6 +330,7 @@ CREATE TABLE ai_question_tasks (
     region_context JSONB NOT NULL DEFAULT '{}'::jsonb,
     embedding vector(768),
     embedding_model VARCHAR(100),
+    legacy_embedding_model_migrated BOOLEAN NOT NULL DEFAULT FALSE,
     answer_id BIGINT UNIQUE REFERENCES answers(answer_id) ON DELETE SET NULL,
     answer_outcome VARCHAR(32),
     generation_provider VARCHAR(40),
@@ -337,12 +347,24 @@ CREATE TABLE ai_question_tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
+    cancel_requested_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ,
+    answer_notification_processed_at TIMESTAMPTZ,
     CONSTRAINT ck_ai_question_tasks_processing_lease
         CHECK ((status = 'processing') = (lease_until IS NOT NULL AND locked_by IS NOT NULL AND lease_token IS NOT NULL)),
     CHECK ((embedding IS NULL) = (embedding_model IS NULL)),
     CONSTRAINT ck_ai_question_tasks_embedding_model
-        CHECK (embedding_model IS NULL OR embedding_model = 'gemini-embedding-2'),
+        CHECK (
+            (
+                NOT legacy_embedding_model_migrated
+                AND (embedding_model IS NULL OR embedding_model = 'gemini-embedding-2')
+            )
+            OR (
+                legacy_embedding_model_migrated
+                AND status = 'completed'
+                AND embedding_model = 'gemini-embedding-001'
+            )
+        ),
     CHECK (jsonb_typeof(evidence) = 'array' AND jsonb_array_length(evidence) <= 8),
     CONSTRAINT ck_ai_question_tasks_geo_scope
         CHECK (geo_scope IS NULL OR geo_scope IN ('general','regional','local','place_specific')),
@@ -368,7 +390,9 @@ CREATE TABLE ai_question_tasks (
                 AND jsonb_array_length(evidence) > 0)
         )
     )),
-    CHECK (status <> 'cancelled' OR cancelled_at IS NOT NULL)
+    CHECK (status <> 'cancelled' OR cancelled_at IS NOT NULL),
+    CONSTRAINT ck_ai_question_tasks_answer_notification
+        CHECK (answer_notification_processed_at IS NULL OR (status = 'completed' AND answer_id IS NOT NULL))
 );
 CREATE INDEX idx_ai_question_tasks_claim
     ON ai_question_tasks(status, next_attempt_at, created_at)
@@ -376,9 +400,12 @@ CREATE INDEX idx_ai_question_tasks_claim
 CREATE INDEX idx_ai_question_tasks_expired_lease
     ON ai_question_tasks(lease_until)
     WHERE status = 'processing';
-CREATE INDEX idx_ai_question_tasks_embedding_hnsw
-    ON ai_question_tasks USING hnsw (embedding vector_cosine_ops)
-    WHERE embedding IS NOT NULL;
+CREATE INDEX idx_ai_question_tasks_pending_notification
+    ON ai_question_tasks(completed_at, question_id)
+    INCLUDE (answer_id)
+    WHERE status = 'completed'
+      AND answer_id IS NOT NULL
+      AND answer_notification_processed_at IS NULL;
 
 -- ============================================================
 -- app-ai owned: hybrid RAG knowledge store (same PostgreSQL)
@@ -745,10 +772,17 @@ CREATE TABLE notifications (
     title VARCHAR(200) NOT NULL,
     body TEXT,
     ref_id BIGINT,
+    answer_is_ai BOOLEAN,
+    event_key VARCHAR(120),
     is_read BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_notifications_answer_is_ai
+        CHECK (answer_is_ai IS NULL OR type = 'question'::notification_type)
 );
 CREATE INDEX idx_notif_user ON notifications(user_id, created_at DESC);
+CREATE UNIQUE INDEX uidx_notifications_user_event_key
+    ON notifications(user_id, event_key)
+    WHERE event_key IS NOT NULL;
 
 CREATE TABLE login_logs (
     log_id BIGSERIAL PRIMARY KEY,
@@ -769,6 +803,23 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION protect_ai_question_task_legacy_embedding_marker()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF (TG_OP = 'INSERT' AND NEW.legacy_embedding_model_migrated)
+        OR (TG_OP = 'UPDATE'
+            AND NEW.legacy_embedding_model_migrated IS DISTINCT FROM OLD.legacy_embedding_model_migrated) THEN
+        RAISE EXCEPTION
+            'ck_ai_question_tasks_embedding_model: legacy migration marker is immutable'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'ck_ai_question_tasks_embedding_model';
+    END IF;
+    RETURN NEW;
+END
+$$;
 
 CREATE OR REPLACE FUNCTION sync_knowledge_source_active_compat()
 RETURNS TRIGGER
@@ -799,6 +850,9 @@ CREATE TRIGGER trg_users_updated     BEFORE UPDATE ON users         FOR EACH ROW
 CREATE TRIGGER trg_questions_updated BEFORE UPDATE ON questions     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_answers_updated   BEFORE UPDATE ON answers       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_ai_question_tasks_updated BEFORE UPDATE ON ai_question_tasks FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_ai_question_tasks_legacy_embedding_marker
+    BEFORE INSERT OR UPDATE OF legacy_embedding_model_migrated ON ai_question_tasks
+    FOR EACH ROW EXECUTE FUNCTION protect_ai_question_task_legacy_embedding_marker();
 CREATE TRIGGER trg_knowledge_sources_updated BEFORE UPDATE ON knowledge_sources FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_knowledge_source_active_compat
     BEFORE INSERT OR UPDATE OF status ON knowledge_sources

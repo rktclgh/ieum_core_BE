@@ -31,6 +31,7 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			    WHERE task.status IN ('pending', 'retry')
 			      AND task.next_attempt_at <= CURRENT_TIMESTAMP
 			      AND task.attempts < :maxAttempts
+			      AND task.cancel_requested_at IS NULL
 			      AND question.deleted_at IS NULL
 			      AND pin.deleted_at IS NULL
 			    ORDER BY task.next_attempt_at, task.created_at, task.question_id
