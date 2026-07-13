@@ -12,7 +12,7 @@ class QuestionEmbeddingConfigurationTest {
 		.withUserConfiguration(QuestionEmbeddingConfiguration.class);
 
 	@Test
-	void doesNotRegisterEmbeddingGatewayWhenQuestionRecommendationsAreDisabledByDefault() {
+	void doesNotRegisterEmbeddingGatewayWhenQuestionAnswerIsDisabledByDefault() {
 		contextRunner.run(context -> {
 			assertThat(context).hasNotFailed();
 			assertThat(context).doesNotHaveBean(QuestionEmbeddingGateway.class);
@@ -21,20 +21,20 @@ class QuestionEmbeddingConfigurationTest {
 	}
 
 	@Test
-	void failsFastForBlankApiKeyWhenQuestionRecommendationsAreEnabled() {
+	void failsFastForBlankApiKeyWhenQuestionAnswerIsEnabled() {
 		contextRunner
 			.withPropertyValues(
-				"app.ai.features.question-recommendations-enabled=true",
+				"app.ai.features.question-answer-enabled=true",
 				QuestionEmbeddingProperties.API_KEY_ENVIRONMENT_VARIABLE + "="
 			)
 			.run(context -> assertThat(context).hasFailed());
 	}
 
 	@Test
-	void wiresGeminiEmbeddingGatewayWhenQuestionRecommendationsAreEnabled() {
+	void wiresGeminiEmbeddingGatewayWhenQuestionAnswerIsEnabled() {
 		contextRunner
 			.withPropertyValues(
-				"app.ai.features.question-recommendations-enabled=true",
+				"app.ai.features.question-answer-enabled=true",
 				QuestionEmbeddingProperties.API_KEY_ENVIRONMENT_VARIABLE + "=test-only-not-a-real-key"
 			)
 			.run(context -> {

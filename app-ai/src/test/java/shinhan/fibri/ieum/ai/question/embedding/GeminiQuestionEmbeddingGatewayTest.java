@@ -11,14 +11,15 @@ import shinhan.fibri.ieum.ai.question.service.EmbeddingUnavailableException;
 class GeminiQuestionEmbeddingGatewayTest {
 
 	@Test
-	void embedsQueryWithGeminiEmbedding2And768DimensionsWithoutTaskType() {
+	void embedsQuestionAnsweringQueryWithGeminiEmbedding2And768DimensionsWithoutTaskType() {
 		FakeGeminiEmbeddingClient client = new FakeGeminiEmbeddingClient(validEmbedding());
 		QuestionEmbeddingGateway gateway = new GeminiQuestionEmbeddingGateway(client);
 
 		QuestionEmbedding embedding = gateway.embed("퇴직연금 수령 조건은?");
 
 		assertThat(client.requestedModel).isEqualTo("gemini-embedding-2");
-		assertThat(client.requestedText).isEqualTo("퇴직연금 수령 조건은?");
+		assertThat(client.requestedText)
+			.isEqualTo("task: question answering | query: 퇴직연금 수령 조건은?");
 		assertThat(client.requestedOutputDimensionality).isEqualTo(768);
 		assertThat(client.taskTypeSet).isFalse();
 		assertThat(embedding.model()).isEqualTo("gemini-embedding-2");

@@ -8,6 +8,7 @@ public class GeminiQuestionEmbeddingGateway implements QuestionEmbeddingGateway 
 
 	static final String MODEL = "gemini-embedding-2";
 	static final int OUTPUT_DIMENSIONALITY = 768;
+	private static final String QUESTION_ANSWERING_PREFIX = "task: question answering | query: ";
 	private static final String UNAVAILABLE_MESSAGE = "Question embedding is unavailable";
 
 	private final GeminiEmbeddingClient client;
@@ -18,7 +19,11 @@ public class GeminiQuestionEmbeddingGateway implements QuestionEmbeddingGateway 
 
 	@Override
 	public QuestionEmbedding embed(String text) {
-		GeminiEmbeddingRequest request = new GeminiEmbeddingRequest(MODEL, text, OUTPUT_DIMENSIONALITY);
+		GeminiEmbeddingRequest request = new GeminiEmbeddingRequest(
+			MODEL,
+			questionAnsweringQuery(text),
+			OUTPUT_DIMENSIONALITY
+		);
 		List<Float> values;
 		try {
 			values = client.embed(request);
@@ -29,6 +34,13 @@ public class GeminiQuestionEmbeddingGateway implements QuestionEmbeddingGateway 
 			throw unavailable();
 		}
 		return new QuestionEmbedding(MODEL, values);
+	}
+
+	private String questionAnsweringQuery(String text) {
+		if (text == null || text.isBlank()) {
+			throw new IllegalArgumentException("text must not be blank");
+		}
+		return QUESTION_ANSWERING_PREFIX + text.trim();
 	}
 
 	private boolean valid(List<Float> values) {

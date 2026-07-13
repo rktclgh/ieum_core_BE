@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConditionalOnProperty(prefix = "app.ai.features", name = "question-recommendations-enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "app.ai.features", name = "question-answer-enabled", havingValue = "true")
 class QuestionEmbeddingConfiguration {
 
 	@Bean
