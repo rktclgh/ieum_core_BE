@@ -14,10 +14,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailure;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
@@ -27,6 +31,7 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 	private static final int MAX_ATTEMPTS = 5;
 	private static final AtomicLong SEQUENCE = new AtomicLong();
 
+	private DataSource dataSource;
 	private JdbcClient jdbc;
 	private QuestionTaskWorkRepository repository;
 
@@ -41,7 +46,8 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 	void setUp() {
 		CanonicalPostgresContainer.recreateDatabase(DATABASE);
 		SqlScriptRunner.run(DATABASE, "schema.sql");
-		jdbc = JdbcClient.create(CanonicalPostgresContainer.dataSource(DATABASE));
+		dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
+		jdbc = JdbcClient.create(dataSource);
 		repository = new JdbcQuestionTaskWorkRepository(jdbc);
 	}
 
@@ -207,13 +213,15 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			questionId,
 			"worker-a",
 			UUID.randomUUID(),
-			Duration.ofSeconds(10)
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
 		)).isFalse();
 		assertThat(repository.markRetry(
 			questionId,
 			"worker-a",
 			claimed.leaseToken(),
-			Duration.ofSeconds(10)
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
 		)).isTrue();
 		var row = jdbc.sql("""
 			SELECT status::text, last_error_code, last_error_message
@@ -223,8 +231,8 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			.param("questionId", questionId)
 			.query().singleRow();
 		assertThat(row.get("status")).isEqualTo("retry");
-		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_PROCESSING_FAILED");
-		assertThat(row.get("last_error_message")).isEqualTo("Question answer processing failed");
+		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_PROVIDER_TIMEOUT");
+		assertThat(row.get("last_error_message")).isEqualTo("Question answer provider timed out");
 		OffsetDateTime nextAttemptAt = jdbc.sql("""
 			SELECT next_attempt_at
 			FROM ai_question_tasks
@@ -236,6 +244,63 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 		assertThat(nextAttemptAt)
 			.isAfter(OffsetDateTime.now().plusSeconds(8))
 			.isBefore(OffsetDateTime.now().plusSeconds(12));
+	}
+
+	@Test
+	void failureTransitionUsesWallClockInsteadOfTheTransactionStartClockForLeaseExpiry() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+
+		Boolean transitioned = transaction.execute(status -> {
+			ClaimedQuestionTask claimed = repository.claimByQuestionId(
+				questionId, "worker-a", Duration.ofSeconds(1), MAX_ATTEMPTS
+			).orElseThrow();
+			jdbc.sql("SELECT pg_sleep(1.1)")
+				.query((resultSet, rowNumber) -> Boolean.TRUE)
+				.single();
+			return repository.markRetry(
+				questionId,
+				"worker-a",
+				claimed.leaseToken(),
+				Duration.ofSeconds(10),
+				QuestionTaskFailure.PROVIDER_TIMEOUT
+			);
+		});
+
+		assertThat(transitioned).isFalse();
+		assertThat(taskStatus(questionId)).isEqualTo("processing");
+	}
+
+	@Test
+	void cancellationRequestWinsOverRetryAndDeadFailureTransitions() {
+		long questionId = insertQuestion(false, false);
+		OffsetDateTime dueAt = OffsetDateTime.parse("2026-07-01T00:00:00Z");
+		insertTask(questionId, dueAt, 0, dueAt);
+		ClaimedQuestionTask claimed = repository.claimByQuestionId(
+			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
+		).orElseThrow();
+		jdbc.sql("UPDATE ai_question_tasks SET cancel_requested_at = CURRENT_TIMESTAMP WHERE question_id = :questionId")
+			.param("questionId", questionId)
+			.update();
+
+		assertThat(repository.markRetry(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			Duration.ofSeconds(10),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
+		)).isFalse();
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			QuestionTaskFailure.PROVIDER_TIMEOUT
+		)).isFalse();
+		assertThat(taskStatus(questionId)).isEqualTo("processing");
+		assertThat(repository.cleanupCancelledOrDeleted(1)).isEqualTo(1);
+		assertThat(taskStatus(questionId)).isEqualTo("cancelled");
 	}
 
 	@Test
@@ -269,8 +334,18 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 			questionId, "worker-a", Duration.ofMinutes(2), MAX_ATTEMPTS
 		).orElseThrow();
 
-		assertThat(repository.markDead(questionId, "worker-a", UUID.randomUUID())).isFalse();
-		assertThat(repository.markDead(questionId, "worker-a", claimed.leaseToken())).isTrue();
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			UUID.randomUUID(),
+			QuestionTaskFailure.PERMANENT_INPUT
+		)).isFalse();
+		assertThat(repository.markDead(
+			questionId,
+			"worker-a",
+			claimed.leaseToken(),
+			QuestionTaskFailure.PERMANENT_INPUT
+		)).isTrue();
 
 		var row = jdbc.sql("""
 			SELECT status::text, lease_until, locked_by, lease_token, last_error_code, last_error_message
@@ -283,8 +358,8 @@ class JdbcQuestionTaskWorkRepositoryIntegrationTest {
 		assertThat(row.get("lease_until")).isNull();
 		assertThat(row.get("locked_by")).isNull();
 		assertThat(row.get("lease_token")).isNull();
-		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_PROCESSING_FAILED");
-		assertThat(row.get("last_error_message")).isEqualTo("Question answer processing failed");
+		assertThat(row.get("last_error_code")).isEqualTo("QUESTION_ANSWER_INVALID_INPUT");
+		assertThat(row.get("last_error_message")).isEqualTo("Question answer input is invalid");
 	}
 
 	@Test

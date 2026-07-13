@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailure;
 
 public interface QuestionTaskWorkRepository {
 
@@ -26,8 +27,14 @@ public interface QuestionTaskWorkRepository {
 		long questionId,
 		String workerId,
 		UUID leaseToken,
-		Duration retryDelay
+		Duration retryDelay,
+		QuestionTaskFailure failure
 	);
 
-	boolean markDead(long questionId, String workerId, UUID leaseToken);
+	boolean markDead(
+		long questionId,
+		String workerId,
+		UUID leaseToken,
+		QuestionTaskFailure failure
+	);
 }

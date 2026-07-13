@@ -8,6 +8,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailure;
+import shinhan.fibri.ieum.ai.question.service.QuestionTaskFailureDisposition;
 
 @Repository
 public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepository {
@@ -223,38 +225,47 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		long questionId,
 		String workerId,
 		UUID leaseToken,
-		Duration retryDelay
+		Duration retryDelay,
+		QuestionTaskFailure failure
 	) {
 		validateFailureTransition(questionId, workerId, leaseToken);
 		validateRetryDelay(retryDelay);
+		validateFailure(failure, QuestionTaskFailureDisposition.RETRY);
 		return jdbc.sql("""
 			UPDATE ai_question_tasks
 			SET status = 'retry',
 			    lease_until = NULL,
 			    locked_by = NULL,
 			    lease_token = NULL,
-			    next_attempt_at = CURRENT_TIMESTAMP + (:retryDelaySeconds * INTERVAL '1 second'),
+			    next_attempt_at = clock_timestamp() + (:retryDelaySeconds * INTERVAL '1 second'),
 			    last_error_code = :errorCode,
 			    last_error_message = :errorMessage,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND cancel_requested_at IS NULL
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			""")
 			.param("questionId", questionId)
 			.param("workerId", workerId)
 			.param("leaseToken", leaseToken)
 			.param("retryDelaySeconds", retryDelay.toSeconds())
-			.param("errorCode", PROCESSING_FAILURE_CODE)
-			.param("errorMessage", PROCESSING_FAILURE_MESSAGE)
+			.param("errorCode", failure.errorCode())
+			.param("errorMessage", failure.safeMessage())
 			.update() == 1;
 	}
 
 	@Override
-	public boolean markDead(long questionId, String workerId, UUID leaseToken) {
+	public boolean markDead(
+		long questionId,
+		String workerId,
+		UUID leaseToken,
+		QuestionTaskFailure failure
+	) {
 		validateFailureTransition(questionId, workerId, leaseToken);
+		validateFailure(failure, QuestionTaskFailureDisposition.DEAD, QuestionTaskFailureDisposition.RETRY);
 		return jdbc.sql("""
 			UPDATE ai_question_tasks
 			SET status = 'dead',
@@ -266,15 +277,16 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE question_id = :questionId
 			  AND status = 'processing'
+			  AND cancel_requested_at IS NULL
 			  AND locked_by = :workerId
 			  AND lease_token = :leaseToken
-			  AND lease_until > CURRENT_TIMESTAMP
+			  AND lease_until > clock_timestamp()
 			""")
 			.param("questionId", questionId)
 			.param("workerId", workerId)
 			.param("leaseToken", leaseToken)
-			.param("errorCode", PROCESSING_FAILURE_CODE)
-			.param("errorMessage", PROCESSING_FAILURE_MESSAGE)
+			.param("errorCode", failure.errorCode())
+			.param("errorMessage", failure.safeMessage())
 			.update() == 1;
 	}
 
@@ -330,5 +342,20 @@ public class JdbcQuestionTaskWorkRepository implements QuestionTaskWorkRepositor
 		if (retryDelay == null || retryDelay.isNegative() || retryDelay.isZero() || retryDelay.toSeconds() < 1) {
 			throw new IllegalArgumentException("retryDelay must be at least one second");
 		}
+	}
+
+	private void validateFailure(
+		QuestionTaskFailure failure,
+		QuestionTaskFailureDisposition... allowedDispositions
+	) {
+		if (failure == null) {
+			throw new IllegalArgumentException("failure must not be null");
+		}
+		for (QuestionTaskFailureDisposition allowed : allowedDispositions) {
+			if (failure.disposition() == allowed) {
+				return;
+			}
+		}
+		throw new IllegalArgumentException("failure disposition is not valid for this transition");
 	}
 }
