@@ -63,10 +63,10 @@ class AiKnowledgeConstraintIntegrationTest {
 	}
 
 	@Test
-	void rejectsDuplicateExternalReferenceHash() {
+	void rejectsDuplicateActiveExternalReference() {
 		assertThatThrownBy(() -> insertSource("first-source", "1"))
 			.isInstanceOf(DataAccessException.class)
-			.hasMessageContaining("uidx_knowledge_source_external_hash");
+			.hasMessageContaining("uidx_knowledge_source_active_external_ref");
 	}
 
 	@Test

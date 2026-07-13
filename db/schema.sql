@@ -1,5 +1,10 @@
 -- ============================================================
--- FiBri Schema v18
+-- FiBri Schema v19
+-- v18 대비 변경:
+--   [20] 지식 원천 import lifecycle:
+--        retry 상태 컬럼, active logical external-ref unique, active location GiST index.
+--        과거 revision은 inactive로 보존하고 같은 논리 원천의 active revision은 하나만 허용한다.
+--        기존 DB 증분: db/migrations/v19_knowledge_import_lifecycle.sql
 -- v17 대비 변경:
 --   [19] 지식 원천 content hash 무결성:
 --        knowledge_sources.content_hash를 lowercase SHA-256으로 DB에서도 강제한다.
@@ -474,6 +479,8 @@ CREATE TABLE knowledge_sources (
     deactivation_reason VARCHAR(200),
     ingestion_token UUID,
     ingestion_lease_until TIMESTAMPTZ,
+    ingestion_attempts SMALLINT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ,
     geo_scope VARCHAR(24),
     region_context JSONB NOT NULL DEFAULT '{}'::jsonb,
     anchor_location GEOGRAPHY(Point,4326),
@@ -498,7 +505,9 @@ CREATE TABLE knowledge_sources (
     CONSTRAINT ck_knowledge_sources_content_hash
         CHECK (btrim(content_hash) ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_knowledge_sources_ingestion_lease
-        CHECK ((status = 'pending') = (ingestion_token IS NOT NULL AND ingestion_lease_until IS NOT NULL))
+        CHECK ((status = 'pending') = (ingestion_token IS NOT NULL AND ingestion_lease_until IS NOT NULL)),
+    CONSTRAINT ck_knowledge_sources_ingestion_attempts
+        CHECK (ingestion_attempts >= 0)
 );
 CREATE UNIQUE INDEX uidx_knowledge_source_answer
     ON knowledge_sources(answer_id) WHERE answer_id IS NOT NULL;
@@ -507,9 +516,12 @@ CREATE INDEX idx_knowledge_sources_active
 CREATE INDEX idx_knowledge_sources_expired_ingestion
     ON knowledge_sources(ingestion_lease_until, source_id)
     WHERE status = 'pending';
-CREATE UNIQUE INDEX uidx_knowledge_source_external_hash
-    ON knowledge_sources(source_type, external_ref, content_hash)
-    WHERE external_ref IS NOT NULL;
+CREATE UNIQUE INDEX uidx_knowledge_source_active_external_ref
+    ON knowledge_sources(source_type, external_ref)
+    WHERE active AND external_ref IS NOT NULL;
+CREATE INDEX idx_knowledge_sources_active_anchor_location
+    ON knowledge_sources USING gist(anchor_location)
+    WHERE anchor_location IS NOT NULL AND active;
 
 CREATE TABLE knowledge_chunks (
     chunk_id BIGSERIAL PRIMARY KEY,
