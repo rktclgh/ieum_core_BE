@@ -3,9 +3,9 @@ package shinhan.fibri.ieum.ai.question.generation;
 import java.util.List;
 import shinhan.fibri.ieum.ai.question.citation.AnswerCitation;
 
-record ParsedLocalAnswer(String answer, List<AnswerCitation> citations) {
+public record ParsedLocalAnswer(String answer, List<AnswerCitation> citations) {
 
-	ParsedLocalAnswer {
+	public ParsedLocalAnswer {
 		if (answer == null || answer.isBlank()) {
 			throw new IllegalArgumentException("answer must not be blank");
 		}

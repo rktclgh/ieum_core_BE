@@ -12,14 +12,14 @@ import java.util.Objects;
 import java.util.Set;
 import shinhan.fibri.ieum.ai.question.citation.AnswerCitation;
 
-final class LocalAnswerOutputParser {
+public final class LocalAnswerOutputParser {
 
 	private static final Set<String> ROOT_FIELDS = Set.of("answer", "citations");
 	private static final Set<String> CITATION_FIELDS = Set.of("evidenceIndex", "startIndex", "endIndex");
 
 	private final ObjectReader strictReader;
 
-	LocalAnswerOutputParser(ObjectMapper objectMapper) {
+	public LocalAnswerOutputParser(ObjectMapper objectMapper) {
 		Objects.requireNonNull(objectMapper, "objectMapper must not be null");
 		this.strictReader = objectMapper.readerFor(JsonNode.class).with(
 			DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
@@ -27,7 +27,7 @@ final class LocalAnswerOutputParser {
 		);
 	}
 
-	ParsedLocalAnswer parse(String rawOutput, LocalAnswerPrompt prompt) {
+	public ParsedLocalAnswer parse(String rawOutput, LocalAnswerPrompt prompt) {
 		Objects.requireNonNull(prompt, "prompt must not be null");
 		if (rawOutput == null || rawOutput.isBlank()) {
 			throw invalid(LocalAnswerProviderFailureCode.empty_response);

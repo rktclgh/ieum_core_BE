@@ -5,7 +5,7 @@ import shinhan.fibri.ieum.ai.question.generation.GeneratedAnswer;
 
 public interface LocalGroundingGateway {
 
-	GroundingValidation validate(LocalGroundingRequest request, Duration timeout);
+	GroundingValidationResult validate(LocalGroundingRequest request, Duration timeout);
 
 	GeneratedAnswer repair(
 		LocalGroundingRequest request,
