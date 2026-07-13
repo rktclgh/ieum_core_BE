@@ -23,6 +23,8 @@ import shinhan.fibri.ieum.ai.question.generation.QuestionGenerationUnavailableEx
 import shinhan.fibri.ieum.ai.question.grounding.QuestionGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
+import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
 class QuestionAnswerTaskProcessorTest {
@@ -298,6 +300,43 @@ class QuestionAnswerTaskProcessorTest {
 		);
 	}
 
+	@ParameterizedTest
+	@CsvSource({
+		"timeout, PROVIDER_TIMEOUT",
+		"rate_limited, PROVIDER_RATE_LIMITED",
+		"provider_unavailable, PROVIDER_UNAVAILABLE",
+		"permanent_configuration, PERMANENT_CONFIGURATION"
+	})
+	void classifiesDirectWebGroundingFailuresWithOnlyTheCanonicalFailure(
+		WebGroundingFailureCode failureCode,
+		QuestionTaskFailure expectedFailure
+	) {
+		assertWebGroundingFailureClassification(
+			new QuestionWebGroundingUnavailableException(failureCode),
+			expectedFailure
+		);
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"timeout, PROVIDER_TIMEOUT",
+		"rate_limited, PROVIDER_RATE_LIMITED",
+		"provider_unavailable, PROVIDER_UNAVAILABLE",
+		"permanent_configuration, PERMANENT_CONFIGURATION"
+	})
+	void classifiesWrappedWebGroundingFailuresWithoutPersistingRawProviderMessages(
+		WebGroundingFailureCode failureCode,
+		QuestionTaskFailure expectedFailure
+	) {
+		assertWebGroundingFailureClassification(
+			new IllegalStateException(
+				"raw Gemini provider payload must not be persisted",
+				new QuestionWebGroundingUnavailableException(failureCode)
+			),
+			expectedFailure
+		);
+	}
+
 	@Test
 	void wrappedStaleFailureStillDiscardsWithoutAStateTransition() {
 		ClaimedQuestionTask claim = claim(1);
@@ -506,6 +545,49 @@ class QuestionAnswerTaskProcessorTest {
 			fallbackFailure
 		);
 		assertTransientClassification(exception, expectedFailure);
+	}
+
+	private void assertWebGroundingFailureClassification(
+		RuntimeException exception,
+		QuestionTaskFailure expectedFailure
+	) {
+		ClaimedQuestionTask claim = claim(1);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(exception).when(orchestrator).process(claim);
+
+		processor.process(42L);
+
+		if (expectedFailure.disposition() == QuestionTaskFailureDisposition.DEAD) {
+			verify(repository).markDead(
+				42L,
+				"worker-1",
+				claim.leaseToken(),
+				expectedFailure
+			);
+			verify(repository, never()).markRetry(
+				org.mockito.ArgumentMatchers.anyLong(),
+				org.mockito.ArgumentMatchers.anyString(),
+				org.mockito.ArgumentMatchers.any(),
+				org.mockito.ArgumentMatchers.any(),
+				org.mockito.ArgumentMatchers.any()
+			);
+			return;
+		}
+
+		verify(repository).markRetry(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			Duration.ofSeconds(10),
+			expectedFailure
+		);
+		verify(repository, never()).markDead(
+			org.mockito.ArgumentMatchers.anyLong(),
+			org.mockito.ArgumentMatchers.anyString(),
+			org.mockito.ArgumentMatchers.any(),
+			org.mockito.ArgumentMatchers.any()
+		);
 	}
 
 	private enum StaleFailure {
