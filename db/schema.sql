@@ -341,6 +341,8 @@ CREATE TABLE ai_question_tasks (
     CONSTRAINT ck_ai_question_tasks_processing_lease
         CHECK ((status = 'processing') = (lease_until IS NOT NULL AND locked_by IS NOT NULL AND lease_token IS NOT NULL)),
     CHECK ((embedding IS NULL) = (embedding_model IS NULL)),
+    CONSTRAINT ck_ai_question_tasks_embedding_model
+        CHECK (embedding_model IS NULL OR embedding_model = 'gemini-embedding-2'),
     CHECK (jsonb_typeof(evidence) = 'array' AND jsonb_array_length(evidence) <= 8),
     CONSTRAINT ck_ai_question_tasks_geo_scope
         CHECK (geo_scope IS NULL OR geo_scope IN ('general','regional','local','place_specific')),
