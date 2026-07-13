@@ -1,5 +1,10 @@
 -- ============================================================
--- FiBri Schema v15
+-- FiBri Schema v16
+-- v15 대비 변경:
+--   [17] 질문 AI finalization 잠금:
+--        active question+pin 잠금 함수를 추가하고 AI answer 함수도 두 row를 함께 잠근다.
+--        두 SECURITY DEFINER 함수는 pg_catalog search_path와 완전 수식 객체를 사용한다.
+--        기존 DB 증분: db/migrations/v16_question_ai_finalization_lock.sql
 -- v14 대비 변경:
 --   [16] 질문 AI 공유 티켓과 답변 알림:
 --        app-main이 질문 생성 TX에서 ai_question_tasks pending 티켓을 함께 생성하고,
@@ -257,10 +262,37 @@ CREATE INDEX idx_answers_author ON answers(author_id);
 CREATE UNIQUE INDEX uidx_accepted_answer ON answers(question_id) WHERE is_accepted;
 CREATE UNIQUE INDEX uidx_one_ai_answer_per_question ON answers(question_id) WHERE is_ai;
 
+-- ieum_ai role에는 domain table row lock 대신 이 함수 EXECUTE만 허용한다.
+-- checkpoint/final persist TX 안에서 호출하며, question과 pin이 모두 active일 때만 잠근다.
+CREATE OR REPLACE FUNCTION public.ai_lock_active_question(p_question_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    PERFORM 1
+      FROM public.questions q
+      JOIN public.pins p ON p.pin_id = q.pin_id
+     WHERE q.question_id = p_question_id
+       AND q.deleted_at IS NULL
+       AND p.deleted_at IS NULL
+       FOR SHARE OF q, p;
+
+    RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_lock_active_question(BIGINT) FROM PUBLIC;
+
 -- ieum_ai role에는 answers 직접 INSERT 대신 이 함수 EXECUTE만 허용한다.
 -- final AI persist TX 안에서 호출하며, 삭제 질문에는 답변을 만들지 않는다.
-CREATE OR REPLACE FUNCTION insert_ai_answer_if_active(p_question_id BIGINT, p_content TEXT)
-RETURNS BIGINT AS $$
+CREATE OR REPLACE FUNCTION public.insert_ai_answer_if_active(p_question_id BIGINT, p_content TEXT)
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
 DECLARE
     v_answer_id BIGINT;
 BEGIN
@@ -269,36 +301,41 @@ BEGIN
     END IF;
 
     PERFORM 1
-      FROM questions q
-      JOIN pins p ON p.pin_id = q.pin_id
+      FROM public.questions q
+      JOIN public.pins p ON p.pin_id = q.pin_id
      WHERE q.question_id = p_question_id
        AND q.deleted_at IS NULL
        AND p.deleted_at IS NULL
-       FOR SHARE OF q;
+       FOR SHARE OF q, p;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Active question not found' USING ERRCODE = 'P0002';
     END IF;
 
-    SELECT answer_id INTO v_answer_id
-      FROM answers
-     WHERE question_id = p_question_id AND is_ai;
+    SELECT answer_id
+      INTO v_answer_id
+      FROM public.answers
+     WHERE question_id = p_question_id
+       AND is_ai;
     IF v_answer_id IS NOT NULL THEN
         RETURN v_answer_id;
     END IF;
 
-    INSERT INTO answers(question_id, author_id, is_ai, content)
+    INSERT INTO public.answers(question_id, author_id, is_ai, content)
     VALUES (p_question_id, NULL, TRUE, p_content)
     RETURNING answer_id INTO v_answer_id;
     RETURN v_answer_id;
 EXCEPTION
     WHEN unique_violation THEN
-        SELECT answer_id INTO v_answer_id
-          FROM answers
-         WHERE question_id = p_question_id AND is_ai;
+        SELECT answer_id
+          INTO v_answer_id
+          FROM public.answers
+         WHERE question_id = p_question_id
+           AND is_ai;
         RETURN v_answer_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-REVOKE ALL ON FUNCTION insert_ai_answer_if_active(BIGINT, TEXT) FROM PUBLIC;
+$$;
+
+REVOKE ALL ON FUNCTION public.insert_ai_answer_if_active(BIGINT, TEXT) FROM PUBLIC;
 
 CREATE TABLE answer_images (
     image_id BIGSERIAL PRIMARY KEY,
