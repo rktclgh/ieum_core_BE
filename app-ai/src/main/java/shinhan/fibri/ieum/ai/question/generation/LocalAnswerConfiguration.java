@@ -5,6 +5,7 @@ import com.google.genai.Client;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -83,7 +84,10 @@ public class LocalAnswerConfiguration {
 		Objects.requireNonNull(properties, "properties must not be null");
 		return HttpOptions.builder()
 			.timeout(Math.toIntExact(properties.modelTimeout().toMillis()))
-			.retryOptions(HttpRetryOptions.builder().attempts(1).build())
+			.retryOptions(HttpRetryOptions.builder()
+				.attempts(1)
+				.httpStatusCodes(List.of())
+				.build())
 			.build();
 	}
 }

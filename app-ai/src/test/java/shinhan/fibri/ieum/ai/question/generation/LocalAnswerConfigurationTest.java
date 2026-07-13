@@ -50,6 +50,7 @@ class LocalAnswerConfigurationTest {
 				assertThat(options.timeout()).contains(30_000);
 				assertThat(options.retryOptions()).isPresent();
 				assertThat(options.retryOptions().orElseThrow().attempts()).contains(1);
+				assertThat(options.retryOptions().orElseThrow().httpStatusCodes()).contains(List.of());
 			});
 	}
 
