@@ -47,7 +47,12 @@ class ReportReviewInternalControllerTest {
 	@BeforeEach
 	void setUp() {
 		mockMvc = MockMvcBuilders
-			.standaloneSetup(new ReportReviewInternalController(preparationService, inferenceOrchestrator, observationLogger))
+			.standaloneSetup(new ReportReviewInternalController(
+				preparationService,
+				inferenceOrchestrator,
+				observationLogger,
+				objectMapper
+			))
 			.setControllerAdvice(new ReportReviewInternalExceptionHandler(observationLogger))
 			.build();
 	}
@@ -64,6 +69,10 @@ class ReportReviewInternalControllerTest {
 				.content(objectMapper.writeValueAsBytes(request)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.decision").value("hold"))
+			.andExpect(jsonPath("$.evidence[0].messageId").value(2))
+			.andExpect(jsonPath("$.matchedRules[0].ruleCode").value("HARASSMENT-CONTEXTUAL-001"))
+			.andExpect(jsonPath("$.policySnapshot.rules[0].ruleCode").value("HARASSMENT-CONTEXTUAL-001"))
+			.andExpect(jsonPath("$.providerAttempts[0].provider").value("bedrock"))
 			.andExpect(jsonPath("$.modelVersion").value("amazon.nova-lite-v1:0"))
 			.andExpect(jsonPath("$.fallbackUsed").value(false));
 
@@ -215,10 +224,20 @@ class ReportReviewInternalControllerTest {
 	}
 
 	private ReportReviewResponse response() {
+		var evidence = objectMapper.createArrayNode();
+		evidence.addObject().put("messageId", 2L).put("type", "text");
+		var matchedRules = objectMapper.createArrayNode();
+		matchedRules.addObject().put("ruleCode", "HARASSMENT-CONTEXTUAL-001").put("revision", 1);
+		var policySnapshot = objectMapper.createObjectNode();
+		policySnapshot.putArray("rules").addObject()
+			.put("ruleCode", "HARASSMENT-CONTEXTUAL-001")
+			.put("revision", 1);
+		var providerAttempts = objectMapper.createArrayNode();
+		providerAttempts.addObject().put("provider", "bedrock").put("outcome", "success");
 		return new ReportReviewResponse(
 			"hold", "harassment", "medium", new BigDecimal("0.91"), "reason",
-			objectMapper.createArrayNode(), objectMapper.createArrayNode(), "b".repeat(64), objectMapper.createObjectNode(),
-			"amazon.nova-lite-v1:0", "report-review-v1", false, objectMapper.createArrayNode()
+			evidence, matchedRules, "b".repeat(64), policySnapshot,
+			"amazon.nova-lite-v1:0", "report-review-v1", false, providerAttempts
 		);
 	}
 }
