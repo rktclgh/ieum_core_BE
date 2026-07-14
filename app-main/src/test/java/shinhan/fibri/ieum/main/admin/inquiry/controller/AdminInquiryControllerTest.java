@@ -36,8 +36,9 @@ import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem;
+import shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryListRequest;
 import shinhan.fibri.ieum.main.admin.inquiry.dto.AnswerInquiryRequest;
-import shinhan.fibri.ieum.main.admin.inquiry.dto.InquiryAdminListResponse;
+import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryAlreadyAnsweredException;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryNotFoundException;
 import shinhan.fibri.ieum.main.admin.inquiry.service.AdminInquiryAnswerService;
@@ -66,7 +67,8 @@ class AdminInquiryControllerTest {
 
 	@Test
 	void listsAdminInquiriesFilteredByStatus() throws Exception {
-		when(queryService.list(InquiryStatus.pending)).thenReturn(new InquiryAdminListResponse(List.of(item())));
+		when(queryService.list(new AdminInquiryListRequest(InquiryStatus.pending, null, null)))
+			.thenReturn(new CursorPage<>(List.of(item()), "next"));
 
 		mockMvc.perform(get("/api/v1/admin/inquiries")
 				.with(admin())
@@ -74,7 +76,20 @@ class AdminInquiryControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].inquiryId", is(90)))
 			.andExpect(jsonPath("$.items[0].userEmail", is("user@example.com")))
-			.andExpect(jsonPath("$.items[0].status", is("pending")));
+			.andExpect(jsonPath("$.items[0].status", is("pending")))
+			.andExpect(jsonPath("$.nextCursor", is("next")));
+	}
+
+	@Test
+	void rejectsInquiryListSizeGreaterThanFifty() throws Exception {
+		mockMvc.perform(get("/api/v1/admin/inquiries")
+				.with(admin())
+				.param("size", "51"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[*].field", hasItems("size")));
+
+		verifyNoInteractions(queryService);
 	}
 
 	@Test

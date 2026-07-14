@@ -66,7 +66,7 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 
 	@Test
 	void findAdminItemsFiltersByPostgresEnumStatusAndProjectsJoinedUserEmail() {
-		List<AdminInquiryItem> items = repository.findAdminItems(InquiryStatus.pending);
+		List<AdminInquiryItem> items = repository.findAdminItems(InquiryStatus.pending, null, 20);
 
 		assertThat(items).singleElement().satisfies(item -> {
 			assertThat(item.inquiryId()).isEqualTo(90L);
@@ -84,7 +84,7 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 
 	@Test
 	void findAdminItemsReturnsAllStatusesWithTenArgumentProjectionWhenStatusIsNull() {
-		List<AdminInquiryItem> items = repository.findAdminItems(null);
+		List<AdminInquiryItem> items = repository.findAdminItems(null, null, 20);
 
 		assertThat(items).hasSize(2);
 		assertThat(items).extracting(AdminInquiryItem::inquiryId).containsExactly(91L, 90L);
@@ -95,6 +95,14 @@ class AdminInquiryQueryRepositoryIntegrationTest {
 			assertThat(item.answeredBy()).isEqualTo(99L);
 			assertThat(item.answeredAt()).isEqualTo(OffsetDateTime.parse("2026-07-13T12:00:00+09:00"));
 		});
+	}
+
+	@Test
+	void findAdminItemsAppliesCursorAndLimit() {
+		List<AdminInquiryItem> items = repository.findAdminItems(null, 91L, 1);
+
+		assertThat(items).hasSize(1);
+		assertThat(items.getFirst().inquiryId()).isEqualTo(90L);
 	}
 
 	private void createSchema() {

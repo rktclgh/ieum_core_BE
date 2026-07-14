@@ -4,18 +4,19 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem;
+import shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryListRequest;
 import shinhan.fibri.ieum.main.admin.inquiry.dto.AnswerInquiryRequest;
-import shinhan.fibri.ieum.main.admin.inquiry.dto.InquiryAdminListResponse;
+import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
 import shinhan.fibri.ieum.main.admin.inquiry.service.AdminInquiryAnswerService;
 import shinhan.fibri.ieum.main.admin.inquiry.service.AdminInquiryQueryService;
-import shinhan.fibri.ieum.main.inquiry.domain.InquiryStatus;
 
 @RestController
 @RequestMapping("/api/v1/admin/inquiries")
@@ -33,10 +34,10 @@ public class AdminInquiryController {
 	}
 
 	@GetMapping
-	public ResponseEntity<InquiryAdminListResponse> list(
-		@RequestParam(required = false) InquiryStatus status
+	public ResponseEntity<CursorPage<AdminInquiryItem>> list(
+		@Valid @ModelAttribute AdminInquiryListRequest request
 	) {
-		return ResponseEntity.ok(queryService.list(status));
+		return ResponseEntity.ok(queryService.list(request));
 	}
 
 	@PostMapping("/{inquiryId}/answer")
