@@ -13,16 +13,20 @@ import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.main.inquiry.dto.CreateInquiryRequest;
 import shinhan.fibri.ieum.main.inquiry.dto.CreateInquiryResponse;
 import shinhan.fibri.ieum.main.inquiry.dto.InquiryListResponse;
+import shinhan.fibri.ieum.main.inquiry.dto.SuspendedUserInquiryRequest;
 import shinhan.fibri.ieum.main.inquiry.service.InquiryService;
+import shinhan.fibri.ieum.main.inquiry.service.SuspendedUserInquiryService;
 
 @RestController
 @RequestMapping("/api/v1/inquiries")
 public class InquiryController {
 
 	private final InquiryService inquiryService;
+	private final SuspendedUserInquiryService suspendedUserInquiryService;
 
-	public InquiryController(InquiryService inquiryService) {
+	public InquiryController(InquiryService inquiryService, SuspendedUserInquiryService suspendedUserInquiryService) {
 		this.inquiryService = inquiryService;
+		this.suspendedUserInquiryService = suspendedUserInquiryService;
 	}
 
 	@PostMapping
@@ -38,5 +42,13 @@ public class InquiryController {
 	@GetMapping("/me")
 	public ResponseEntity<InquiryListResponse> listMine(@AuthenticationPrincipal AuthenticatedUser principal) {
 		return ResponseEntity.ok(inquiryService.listMine(principal.userId()));
+	}
+
+	@PostMapping("/suspended-users")
+	public ResponseEntity<Void> sendSuspendedUserInquiry(
+		@Valid @RequestBody SuspendedUserInquiryRequest request
+	) {
+		suspendedUserInquiryService.send(request);
+		return ResponseEntity.ok().build();
 	}
 }

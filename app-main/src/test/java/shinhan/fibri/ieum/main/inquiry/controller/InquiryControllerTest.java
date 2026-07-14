@@ -42,7 +42,9 @@ import shinhan.fibri.ieum.main.inquiry.dto.CreateInquiryRequest;
 import shinhan.fibri.ieum.main.inquiry.dto.CreateInquiryResponse;
 import shinhan.fibri.ieum.main.inquiry.dto.InquiryItem;
 import shinhan.fibri.ieum.main.inquiry.dto.InquiryListResponse;
+import shinhan.fibri.ieum.main.inquiry.dto.SuspendedUserInquiryRequest;
 import shinhan.fibri.ieum.main.inquiry.service.InquiryService;
+import shinhan.fibri.ieum.main.inquiry.service.SuspendedUserInquiryService;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @WebMvcTest(InquiryController.class)
@@ -55,10 +57,13 @@ class InquiryControllerTest {
 	@Autowired
 	private InquiryService inquiryService;
 
+	@Autowired
+	private SuspendedUserInquiryService suspendedUserInquiryService;
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
-		reset(inquiryService);
+		reset(inquiryService, suspendedUserInquiryService);
 	}
 
 	@Test
@@ -138,6 +143,32 @@ class InquiryControllerTest {
 			.andExpect(jsonPath("$.code", is("USER_NOT_FOUND")));
 	}
 
+	@Test
+	void sendsSuspendedUserInquiryWithoutAuthentication() throws Exception {
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":" user@example.com ","title":" 제재 문의 ","content":"로그인이 안 됩니다."}
+					"""))
+			.andExpect(status().isOk());
+
+		verify(suspendedUserInquiryService).send(any(SuspendedUserInquiryRequest.class));
+	}
+
+	@Test
+	void validatesSuspendedUserInquiryRequest() throws Exception {
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"not-email","title":"","content":""}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[*].field", hasItems("email", "title", "content")));
+
+		verifyNoInteractions(suspendedUserInquiryService);
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(
@@ -158,6 +189,12 @@ class InquiryControllerTest {
 		@Primary
 		InquiryService inquiryService() {
 			return mock(InquiryService.class);
+		}
+
+		@Bean
+		@Primary
+		SuspendedUserInquiryService suspendedUserInquiryService() {
+			return mock(SuspendedUserInquiryService.class);
 		}
 
 		@Bean
