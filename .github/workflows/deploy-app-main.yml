@@ -185,7 +185,9 @@ jobs:
           [[ "$DEPLOY_PATH" =~ ^/home/[A-Za-z0-9._/-]+$ ]]
           [[ "$APP_MAIN_PRIVATE_BIND_ADDRESS" =~ ^[0-9.]+$ ]]
           [[ "$APP_MAIN_PRIVATE_BIND_ADDRESS" != "0.0.0.0" ]]
-          [[ "$LETSENCRYPT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+          if [[ -n "$LETSENCRYPT_EMAIL" ]]; then
+            [[ "$LETSENCRYPT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+          fi
 
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
@@ -208,10 +210,10 @@ jobs:
           scp "${scp_opts[@]}" "$runtime_file" "$remote:$DEPLOY_PATH/.env.runtime.next"
           ssh "${ssh_opts[@]}" "$remote" "mv '$DEPLOY_PATH/.env.runtime.next' '$DEPLOY_PATH/.env.runtime' && chmod 600 '$DEPLOY_PATH/.env.runtime'"
           ssh "${ssh_opts[@]}" "$remote" "bash '$DEPLOY_PATH/bootstrap-docker.sh'"
-          printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
-            "sudo env APP_MAIN_PRIVATE_BIND_ADDRESS='$APP_MAIN_PRIVATE_BIND_ADDRESS' bash '$DEPLOY_PATH/deploy-compose.sh' app-main '$IMAGE' '$DEPLOY_PATH' 'http://127.0.0.1:8080/actuator/health' '$DOCKERHUB_USERNAME'"
           ssh "${ssh_opts[@]}" "$remote" \
             "sudo bash '$DEPLOY_PATH/configure-nginx.sh' '$DEPLOY_PATH/nginx' '$LETSENCRYPT_EMAIL'"
+          printf '%s\n' "$DOCKERHUB_TOKEN" | ssh "${ssh_opts[@]}" "$remote" \
+            "sudo env APP_MAIN_PRIVATE_BIND_ADDRESS='$APP_MAIN_PRIVATE_BIND_ADDRESS' bash '$DEPLOY_PATH/deploy-compose.sh' app-main '$IMAGE' '$DEPLOY_PATH' 'http://127.0.0.1:8080/actuator/health' '$DOCKERHUB_USERNAME'"
 
           status="$(curl --location --silent --show-error --output /dev/null --write-out '%{http_code}' --retry 5 --retry-delay 3 https://ieum.rktclgh.site/)"
           [[ "$status" == "200" ]]
