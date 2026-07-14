@@ -20,6 +20,27 @@ public class JdbcKnowledgeGraphRepository implements KnowledgeGraphRepository {
 		ks.status = 'ready'
 		AND ks.active = TRUE
 		AND (ks.valid_until IS NULL OR ks.valid_until > now())
+		AND (
+		    ks.source_type <> 'accepted_human_answer'
+		    OR EXISTS (
+		        SELECT 1
+		        FROM answers accepted_answer
+		        JOIN questions accepted_question
+		          ON accepted_question.question_id = accepted_answer.question_id
+		        JOIN pins accepted_pin
+		          ON accepted_pin.pin_id = accepted_question.pin_id
+		        WHERE accepted_answer.answer_id = ks.answer_id
+		          AND accepted_answer.question_id = ks.question_id
+		          AND accepted_answer.is_accepted
+		          AND NOT accepted_answer.is_ai
+		          AND accepted_answer.author_id IS NOT NULL
+		          AND btrim(accepted_answer.content) <> ''
+		          AND accepted_question.question_id = ks.question_id
+		          AND accepted_question.deleted_at IS NULL
+		          AND accepted_pin.deleted_at IS NULL
+		          AND accepted_pin.pin_type = 'question'
+		    )
+		)
 		""";
 	private static final int MAX_RESULT_LIMIT = 20;
 
