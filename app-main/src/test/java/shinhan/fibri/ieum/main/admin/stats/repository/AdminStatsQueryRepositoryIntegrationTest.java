@@ -91,7 +91,7 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(reportStats.aiReviewedCount()).isEqualTo(1);
 		assertThat(reportStats.confirmedCount()).isEqualTo(1);
 		assertThat(reportStats.dismissedCount()).isEqualTo(1);
-		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(2);
+		assertThat(repository.countSanctions(FROM, TO)).isEqualTo(3);
 	}
 
 	private void truncateTables() {
@@ -103,15 +103,18 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		insertUser(2, "user2", "2026-07-31T23:59:59+09:00");
 		insertUser(3, "user3", "2026-08-01T00:00:00+09:00");
 		insertUser(4, "admin", "2026-06-01T00:00:00+09:00");
+		insertDeletedUser(5, "deleted", "2026-07-15T00:00:00+09:00");
 
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (1, 1, 'email', '2026-07-03T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (2, 1, 'email', '2026-07-04T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (3, 2, 'email', '2026-07-05T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (4, 3, 'email', '2026-08-01T00:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO login_logs(log_id, user_id, provider, logged_in_at) VALUES (5, 5, 'email', '2026-07-06T10:00:00+09:00')");
 
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (1, 1, 4, 'permanent', 'reason', '2026-07-10T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (2, 1, 4, 'permanent', 'reason', '2026-07-11T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (3, 2, 4, 'permanent', 'reason', '2026-08-01T00:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, admin_id, sanction_type, reason, created_at) VALUES (4, 5, 4, 'permanent', 'reason', '2026-07-12T10:00:00+09:00')");
 
 		insertPin(1, 1, "question", "2026-07-02T10:00:00+09:00");
 		insertPin(2, 1, "question", "2026-08-01T00:00:00+09:00");
@@ -163,6 +166,13 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		jdbcTemplate.update("""
 			INSERT INTO users(user_id, email, password_hash, nickname, email_verified, created_at)
 			VALUES (?, ?, 'hash', ?, true, ?::timestamptz)
+			""", userId, nickname + "@example.com", nickname, createdAt);
+	}
+
+	private void insertDeletedUser(long userId, String nickname, String createdAt) {
+		jdbcTemplate.update("""
+			INSERT INTO users(user_id, email, password_hash, nickname, email_verified, created_at, deleted_at)
+			VALUES (?, ?, 'hash', ?, true, ?::timestamptz, '2026-07-20T00:00:00+09:00')
 			""", userId, nickname + "@example.com", nickname, createdAt);
 	}
 

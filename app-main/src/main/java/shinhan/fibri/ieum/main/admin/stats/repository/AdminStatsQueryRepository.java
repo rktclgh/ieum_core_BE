@@ -16,22 +16,34 @@ public class AdminStatsQueryRepository {
 	}
 
 	public long countSignups(OffsetDateTime from, OffsetDateTime to) {
-		return count("SELECT COUNT(*) FROM users WHERE created_at >= :from AND created_at < :to", from, to);
+		return count("""
+			SELECT COUNT(*)
+			FROM users
+			WHERE created_at >= :from
+			  AND created_at < :to
+			  AND deleted_at IS NULL
+			""", from, to);
 	}
 
 	public long countActiveUsers(OffsetDateTime from, OffsetDateTime to) {
 		return count("""
-			SELECT COUNT(DISTINCT user_id)
-			FROM login_logs
-			WHERE logged_in_at >= :from AND logged_in_at < :to
+			SELECT COUNT(DISTINCT l.user_id)
+			FROM login_logs l
+			JOIN users u ON u.user_id = l.user_id
+			WHERE l.logged_in_at >= :from
+			  AND l.logged_in_at < :to
+			  AND u.deleted_at IS NULL
 			""", from, to);
 	}
 
 	public long countSuspendedUsers(OffsetDateTime from, OffsetDateTime to) {
 		return count("""
-			SELECT COUNT(DISTINCT user_id)
-			FROM user_sanctions
-			WHERE created_at >= :from AND created_at < :to
+			SELECT COUNT(DISTINCT s.user_id)
+			FROM user_sanctions s
+			JOIN users u ON u.user_id = s.user_id
+			WHERE s.created_at >= :from
+			  AND s.created_at < :to
+			  AND u.deleted_at IS NULL
 			""", from, to);
 	}
 
