@@ -101,7 +101,7 @@ public class AnswerService {
 		}
 
 		List<Answer> answers = answerRepository.findAllByQuestionIdAndIdInForUpdate(questionId, answerIds);
-		if (!answers.stream().map(Answer::getId).toList().equals(answerIds)) {
+		if (answers.size() != answerIds.size()) {
 			throw new AnswerNotFoundException();
 		}
 		for (Answer answer : answers) {
