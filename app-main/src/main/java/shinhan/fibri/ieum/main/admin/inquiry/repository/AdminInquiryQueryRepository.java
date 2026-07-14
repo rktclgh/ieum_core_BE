@@ -10,13 +10,29 @@ import shinhan.fibri.ieum.main.inquiry.domain.InquiryStatus;
 
 public interface AdminInquiryQueryRepository extends Repository<Inquiry, Long> {
 
+	default List<AdminInquiryItem> findAdminItems(InquiryStatus status) {
+		if (status == null) {
+			return findAllAdminItems();
+		}
+		return findAdminItemsByStatus(status);
+	}
+
 	@Query("""
 		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
 			i.id, i.userId, u.email, i.title, i.content, i.status,
 			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
 		from Inquiry i join User u on u.id = i.userId
-		where (:status is null or i.status = :status)
+		where i.status = :status
 		order by i.createdAt desc, i.id desc
 		""")
-	List<AdminInquiryItem> findAdminItems(@Param("status") InquiryStatus status);
+	List<AdminInquiryItem> findAdminItemsByStatus(@Param("status") InquiryStatus status);
+
+	@Query("""
+		select new shinhan.fibri.ieum.main.admin.inquiry.dto.AdminInquiryItem(
+			i.id, i.userId, u.email, i.title, i.content, i.status,
+			i.answer, i.answeredBy, i.answeredAt, i.createdAt)
+		from Inquiry i join User u on u.id = i.userId
+		order by i.createdAt desc, i.id desc
+		""")
+	List<AdminInquiryItem> findAllAdminItems();
 }
