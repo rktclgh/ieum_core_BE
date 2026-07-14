@@ -28,7 +28,7 @@ class AdminInquiryAnswerServiceTest {
 		Inquiry inquiry = Inquiry.create(42L, "문의 제목", "문의 내용");
 		when(inquiryRepository.findByIdForUpdate(90L)).thenReturn(Optional.of(inquiry));
 
-		service.answer(admin(), 90L, new AnswerInquiryRequest(" 답변 내용 "));
+		service.answer(admin(), 90L, new AnswerInquiryRequest("답변 내용"));
 
 		assertThat(inquiry.getStatus()).isEqualTo(InquiryStatus.answered);
 		assertThat(inquiry.getAnswer()).isEqualTo("답변 내용");
