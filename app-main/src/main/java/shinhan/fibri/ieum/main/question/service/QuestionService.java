@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.question.service;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -190,9 +191,13 @@ public class QuestionService {
 			toLocationSnapshot(detail),
 			imageUrls,
 			answers,
-			detail.getCreatedAt().atOffset(ZoneOffset.UTC),
-			detail.getUpdatedAt().atOffset(ZoneOffset.UTC)
+			toUtcOffset(detail.getCreatedAt()),
+			toUtcOffset(detail.getUpdatedAt())
 		);
+	}
+
+	private OffsetDateTime toUtcOffset(Instant instant) {
+		return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
 	}
 
 	private LocationSnapshot toLocationSnapshot(QuestionDetailProjection detail) {
