@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -105,6 +107,99 @@ public class AdminReportRepository {
 		));
 	}
 
+	public Optional<AdminReportDetailRow> findDetail(Long reportId) {
+		String sql = """
+			SELECT r.report_id,
+			       CAST(r.target_type AS varchar) AS target_type,
+			       CASE
+			           WHEN r.target_type = 'message' THEN COALESCE(
+			               r.message_id,
+			               CAST(NULLIF(r.context_snapshot #>> '{reported,messageId}', '') AS bigint)
+			           )
+			           ELSE COALESCE(
+			               r.answer_id,
+			               CAST(NULLIF(r.context_snapshot #>> '{reported,answerId}', '') AS bigint)
+			           )
+			       END AS target_id,
+			       CASE WHEN r.target_type = 'message' THEN r.message_id IS NULL ELSE r.answer_id IS NULL END
+			           AS target_deleted,
+			       r.reporter_id, reporter.nickname AS reporter_nickname,
+			       r.reported_user_id, reported.nickname AS reported_user_nickname,
+			       CAST(r.reason AS varchar) AS reason, r.detail, CAST(r.status AS varchar) AS status,
+			       CAST(r.context_snapshot AS text) AS context_snapshot, r.context_hash,
+			       CAST(r.ai_review_state AS varchar) AS ai_review_state,
+			       CAST(r.ai_recommendation AS varchar) AS ai_recommendation,
+			       r.ai_reason, r.ai_confidence, r.ai_model_version, r.ai_policy_version, r.ai_reviewed_at,
+			       CAST(r.ai_decision AS varchar) AS ai_decision, r.ai_policy_set_hash,
+			       CAST(r.ai_review_result AS text) AS ai_review_result, r.ai_last_error_code,
+			       r.resolved_by, resolver.nickname AS resolved_by_nickname, r.resolved_at, r.created_at
+			FROM reports r
+			JOIN users reporter ON reporter.user_id = r.reporter_id
+			LEFT JOIN users reported ON reported.user_id = r.reported_user_id
+			LEFT JOIN users resolver ON resolver.user_id = r.resolved_by
+			WHERE r.report_id = :reportId
+			""";
+		return jdbcTemplate.query(sql, Map.of("reportId", reportId), (rs, rowNumber) -> new AdminReportDetailRow(
+			rs.getLong("report_id"),
+			rs.getString("target_type"),
+			longObject(rs.getObject("target_id")),
+			rs.getBoolean("target_deleted"),
+			rs.getLong("reporter_id"),
+			rs.getString("reporter_nickname"),
+			longObject(rs.getObject("reported_user_id")),
+			rs.getString("reported_user_nickname"),
+			rs.getString("reason"),
+			rs.getString("detail"),
+			rs.getString("status"),
+			rs.getString("context_snapshot"),
+			rs.getString("context_hash"),
+			rs.getString("ai_review_state"),
+			rs.getString("ai_recommendation"),
+			rs.getString("ai_reason"),
+			rs.getBigDecimal("ai_confidence"),
+			rs.getString("ai_model_version"),
+			rs.getString("ai_policy_version"),
+			rs.getObject("ai_reviewed_at", OffsetDateTime.class),
+			rs.getString("ai_decision"),
+			rs.getString("ai_policy_set_hash"),
+			rs.getString("ai_review_result"),
+			rs.getString("ai_last_error_code"),
+			longObject(rs.getObject("resolved_by")),
+			rs.getString("resolved_by_nickname"),
+			rs.getObject("resolved_at", OffsetDateTime.class),
+			rs.getObject("created_at", OffsetDateTime.class)
+		)).stream().findFirst();
+	}
+
+	public List<AdminReportSanctionRow> findSanctions(Long reportId) {
+		String sql = """
+			SELECT s.sanction_id, CAST(s.decision_source AS varchar) AS decision_source,
+			       CAST(s.sanction_type AS varchar) AS sanction_type, s.reason,
+			       s.admin_id, admin.nickname AS admin_nickname,
+			       s.starts_at, s.ends_at, s.released_at,
+			       s.released_by, releaser.nickname AS released_by_nickname, s.created_at
+			FROM user_sanctions s
+			LEFT JOIN users admin ON admin.user_id = s.admin_id
+			LEFT JOIN users releaser ON releaser.user_id = s.released_by
+			WHERE s.report_id = :reportId
+			ORDER BY s.created_at DESC, s.sanction_id DESC
+			""";
+		return jdbcTemplate.query(sql, Map.of("reportId", reportId), (rs, rowNumber) -> new AdminReportSanctionRow(
+			rs.getLong("sanction_id"),
+			rs.getString("decision_source"),
+			rs.getString("sanction_type"),
+			rs.getString("reason"),
+			longObject(rs.getObject("admin_id")),
+			rs.getString("admin_nickname"),
+			rs.getObject("starts_at", OffsetDateTime.class),
+			rs.getObject("ends_at", OffsetDateTime.class),
+			rs.getObject("released_at", OffsetDateTime.class),
+			longObject(rs.getObject("released_by")),
+			rs.getString("released_by_nickname"),
+			rs.getObject("created_at", OffsetDateTime.class)
+		));
+	}
+
 	private static Long longObject(Object value) {
 		return value == null ? null : ((Number) value).longValue();
 	}
@@ -125,6 +220,54 @@ public class AdminReportRepository {
 		String aiDecision,
 		BigDecimal aiConfidence,
 		OffsetDateTime aiReviewedAt,
+		OffsetDateTime createdAt
+	) {
+	}
+
+	public record AdminReportDetailRow(
+		Long reportId,
+		String targetType,
+		Long targetId,
+		boolean targetDeleted,
+		Long reporterId,
+		String reporterNickname,
+		Long reportedUserId,
+		String reportedUserNickname,
+		String reason,
+		String detail,
+		String status,
+		String contextSnapshot,
+		String contextHash,
+		String aiReviewState,
+		String aiRecommendation,
+		String aiReason,
+		BigDecimal aiConfidence,
+		String aiModelVersion,
+		String aiPolicyVersion,
+		OffsetDateTime aiReviewedAt,
+		String aiDecision,
+		String aiPolicySetHash,
+		String aiReviewResult,
+		String aiLastErrorCode,
+		Long resolvedById,
+		String resolvedByNickname,
+		OffsetDateTime resolvedAt,
+		OffsetDateTime createdAt
+	) {
+	}
+
+	public record AdminReportSanctionRow(
+		Long sanctionId,
+		String decisionSource,
+		String sanctionType,
+		String reason,
+		Long adminId,
+		String adminNickname,
+		OffsetDateTime startsAt,
+		OffsetDateTime endsAt,
+		OffsetDateTime releasedAt,
+		Long releasedById,
+		String releasedByNickname,
 		OffsetDateTime createdAt
 	) {
 	}
