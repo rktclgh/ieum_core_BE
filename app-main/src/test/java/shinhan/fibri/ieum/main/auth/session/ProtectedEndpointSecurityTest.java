@@ -63,6 +63,55 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
+	void answerReportEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/answers/300/report")
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
+				.contentType("application/json")
+				.content("{\"reason\":\"spam\"}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")))
+			.andExpect(jsonPath("$.message", is("Authentication is required")));
+	}
+
+	@Test
+	void questionRoomEndpointReturnsJsonUnauthorizedWhenAccessCookieIsMissing() throws Exception {
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.contentType("application/json")
+				.content("{\"questionId\":9,\"targetUserId\":77}"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.code", is("AUTHENTICATION_REQUIRED")))
+			.andExpect(jsonPath("$.message", is("Authentication is required")));
+	}
+
+	@Test
+	void questionRoomEndpointReturnsJsonForbiddenWhenAuthenticatedWithoutCsrfToken() throws Exception {
+		when(sessionTokenValidator.validate("user-token"))
+			.thenReturn(Optional.of(new AuthenticatedUser(
+				42L,
+				"user@example.com",
+				UserRole.user,
+				UserStatus.active
+			)));
+
+		mockMvc.perform(post("/api/v1/chat/rooms/question")
+				.cookie(new MockCookie("access_token", "user-token"))
+				.contentType("application/json")
+				.content("{\"questionId\":9,\"targetUserId\":77}"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("CSRF_FAILED")))
+			.andExpect(jsonPath("$.message", is("CSRF validation failed")));
+	}
+
+	@Test
+	void refreshEndpointStillRequiresCsrfWithoutAccessAuthentication() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/refresh"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("CSRF_FAILED")))
+			.andExpect(jsonPath("$.message", is("CSRF validation failed")));
+	}
+
+	@Test
 	void adminEndpointReturnsJsonForbiddenForUserRole() throws Exception {
 		when(sessionTokenValidator.validate("user-token"))
 			.thenReturn(Optional.of(new AuthenticatedUser(
@@ -96,12 +145,22 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
-	void adminLoginAllowsAnonymousRequestWithoutCsrfToken() throws Exception {
+	void adminLoginEndpointDoesNotExist() throws Exception {
+		when(sessionTokenValidator.validate("admin-token"))
+			.thenReturn(Optional.of(new AuthenticatedUser(
+				1L,
+				"admin@example.com",
+				UserRole.admin,
+				UserStatus.active
+			)));
+
 		mockMvc.perform(post("/api/v1/admin/login")
+				.cookie(new MockCookie("access_token", "admin-token"))
+				.cookie(new MockCookie("csrf_token", "csrf-token"))
+				.header("X-CSRF-Token", "csrf-token")
 				.contentType("application/json")
 				.content("{}"))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+			.andExpect(status().isNotFound());
 	}
 
 	@RestController

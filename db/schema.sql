@@ -1,10 +1,19 @@
 -- ============================================================
--- FiBri Schema v20
--- v19 대비 변경:
---   [21] 채택 답변 지식 적격성 잠금:
+-- FiBri Schema v22
+-- v21 대비 변경:
+--   [23] 채택 답변 지식 적격성 잠금:
 --        question → pin → answer 순서로 active/accepted human-answer 상태를 잠근다.
 --        SECURITY DEFINER 함수는 pg_catalog search_path와 완전 수식 객체를 사용한다.
---        기존 DB 증분: db/migrations/v20_accepted_answer_eligibility_lock.sql
+--        기존 DB 증분: db/migrations/v22_accepted_answer_eligibility_lock.sql
+-- v20 대비 변경:
+--   [22] 답변 신고 리뷰 후속:
+--        reports.answer_id FK 이름과 신고 대상 무결성 트리거 진단명을 정본과 일치시킨다.
+--        기존 DB 증분: db/migrations/v21_report_target_review_followup.sql
+-- v19 대비 변경:
+--   [21] 답변 신고 대상:
+--        reports를 message/answer tagged union으로 확장하고 AI 답변의 nullable 신고 대상 사용자를 허용한다.
+--        답변 신고는 ai_review_state=cancelled인 수동 검토 전용이며 기존 메시지 AI 작업목록은 유지한다.
+--        기존 DB 증분: db/migrations/v20_answer_report_target.sql
 -- v18 대비 변경:
 --   [20] 지식 원천 import lifecycle:
 --        retry 상태 컬럼, active logical external-ref unique, active location GiST index.
@@ -103,6 +112,7 @@ CREATE TYPE friendship_status AS ENUM ('pending', 'accepted', 'blocked');
 CREATE TYPE room_type AS ENUM ('direct', 'group', 'question');
 CREATE TYPE report_reason AS ENUM ('spam', 'ad', 'abuse', 'obscene', 'harassment', 'etc');
 CREATE TYPE report_status AS ENUM ('pending', 'ai_reviewed', 'confirmed', 'dismissed');
+CREATE TYPE report_target_type AS ENUM ('message', 'answer');
 CREATE TYPE ai_recommendation AS ENUM ('temporary_suspend', 'hold', 'dismiss'); -- AI 권고(명령 아님)
 CREATE TYPE ai_report_decision AS ENUM ('suspend', 'hold', 'normal');
 CREATE TYPE sanction_type AS ENUM ('temporary', 'permanent');
@@ -796,8 +806,10 @@ CREATE INDEX idx_messages_room ON messages(room_id, created_at DESC);
 CREATE TABLE reports (
     report_id BIGSERIAL PRIMARY KEY,
     reporter_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    target_type report_target_type NOT NULL DEFAULT 'message',
     message_id BIGINT REFERENCES messages(message_id) ON DELETE SET NULL,
-    reported_user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    answer_id BIGINT,
+    reported_user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     reason report_reason NOT NULL,
     detail TEXT,
     context_snapshot JSONB,
@@ -824,6 +836,18 @@ CREATE TABLE reports (
     resolved_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (status NOT IN ('confirmed', 'dismissed') OR resolved_by IS NOT NULL),
+    CONSTRAINT fk_reports_answer
+        FOREIGN KEY (answer_id) REFERENCES answers(answer_id) ON DELETE SET NULL,
+    CONSTRAINT ck_reports_target_xor CHECK (
+        (target_type = 'message' AND answer_id IS NULL)
+        OR (target_type = 'answer' AND message_id IS NULL)
+    ),
+    CONSTRAINT ck_reports_message_reported_user CHECK (
+        target_type <> 'message' OR reported_user_id IS NOT NULL
+    ),
+    CONSTRAINT ck_reports_answer_manual_only CHECK (
+        target_type <> 'answer' OR ai_review_state = 'cancelled'
+    ),
     CONSTRAINT ck_reports_context_hash CHECK (context_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_reports_ai_attempts CHECK (ai_attempts BETWEEN 0 AND 5),
     CONSTRAINT ck_reports_ai_processing_lease CHECK (ai_review_state <> 'processing' OR (
@@ -839,8 +863,90 @@ CREATE TABLE reports (
     )),
     CONSTRAINT ck_reports_ai_dead CHECK (ai_review_state <> 'dead' OR ai_last_error_code IS NOT NULL)
 );
+
+CREATE OR REPLACE FUNCTION enforce_report_target_integrity()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+    v_answer_is_ai BOOLEAN;
+    v_answer_author_id BIGINT;
+    v_allowed_target_delete BOOLEAN;
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.target_type IS DISTINCT FROM OLD.target_type THEN
+            RAISE EXCEPTION 'report target type is immutable'
+                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+        END IF;
+
+        IF NEW.message_id IS DISTINCT FROM OLD.message_id THEN
+            v_allowed_target_delete :=
+                OLD.target_type = 'message'
+                AND OLD.message_id IS NOT NULL
+                AND NEW.message_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM messages WHERE message_id = OLD.message_id
+                );
+            IF NOT v_allowed_target_delete THEN
+                RAISE EXCEPTION 'report message target may only be cleared by target deletion'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+            END IF;
+        END IF;
+
+        IF NEW.answer_id IS DISTINCT FROM OLD.answer_id THEN
+            v_allowed_target_delete :=
+                OLD.target_type = 'answer'
+                AND OLD.answer_id IS NOT NULL
+                AND NEW.answer_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM answers WHERE answer_id = OLD.answer_id
+                );
+            IF NOT v_allowed_target_delete THEN
+                RAISE EXCEPTION 'report answer target may only be cleared by target deletion'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+            END IF;
+        END IF;
+    END IF;
+
+    IF TG_OP = 'INSERT' AND (
+        (NEW.target_type = 'message' AND NEW.message_id IS NULL)
+        OR (NEW.target_type = 'answer' AND NEW.answer_id IS NULL)
+    ) THEN
+        RAISE EXCEPTION 'report selected target is required at creation'
+            USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_target_xor';
+    END IF;
+
+    IF NEW.target_type = 'answer' AND NEW.answer_id IS NOT NULL THEN
+        SELECT is_ai, author_id
+          INTO v_answer_is_ai, v_answer_author_id
+          FROM answers
+         WHERE answer_id = NEW.answer_id;
+
+        IF FOUND AND (
+            (v_answer_is_ai AND (v_answer_author_id IS NOT NULL OR NEW.reported_user_id IS NOT NULL))
+            OR (
+                NOT v_answer_is_ai
+                AND (v_answer_author_id IS NULL OR NEW.reported_user_id IS DISTINCT FROM v_answer_author_id)
+            )
+        ) THEN
+            RAISE EXCEPTION 'reported user must match the answer author semantics'
+                USING ERRCODE = '23514', CONSTRAINT = 'ck_reports_answer_reported_user';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER trg_reports_target_integrity
+BEFORE INSERT OR UPDATE OF target_type, message_id, answer_id, reported_user_id
+ON reports
+FOR EACH ROW
+EXECUTE FUNCTION enforce_report_target_integrity();
+
 CREATE INDEX idx_reports_status ON reports(status, created_at DESC);
 CREATE INDEX idx_reports_reported_user ON reports(reported_user_id);
+CREATE INDEX idx_reports_answer ON reports(answer_id) WHERE answer_id IS NOT NULL;
 CREATE INDEX idx_reports_ai_due ON reports(ai_next_attempt_at, created_at, report_id)
     WHERE ai_review_state IN ('pending', 'retry');
 CREATE INDEX idx_reports_ai_expired_lease ON reports(ai_lease_until, report_id)

@@ -25,10 +25,10 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 @Testcontainers(disabledWithoutDocker = true)
-class AiSchemaV20MigrationIntegrationTest {
+class AiSchemaV22MigrationIntegrationTest {
 
-	private static final String CANONICAL_DATABASE = "ieum_ai_v20_schema";
-	private static final String MIGRATION_DATABASE = "ieum_ai_v20_migration";
+	private static final String CANONICAL_DATABASE = "ieum_ai_v22_schema";
+	private static final String MIGRATION_DATABASE = "ieum_ai_v22_migration";
 	private static final String FUNCTION_SIGNATURE = "public.ai_lock_eligible_accepted_answer(bigint)";
 	private static final AtomicLong SEQUENCE = new AtomicLong();
 
@@ -71,13 +71,13 @@ class AiSchemaV20MigrationIntegrationTest {
 	}
 
 	@Test
-	void v20MigrationPreservesV19RowsMatchesCanonicalAndIsOneShot() {
-		prepareV19Database();
+	void v22MigrationPreservesV21RowsMatchesCanonicalAndIsOneShot() {
+		prepareV21Database();
 		JdbcClient migrated = JdbcClient.create(CanonicalPostgresContainer.dataSource(MIGRATION_DATABASE));
 		AnswerFixture fixture = insertAnswer(migrated, true, false, false, false, "question");
 		RowCounts before = rowCounts(migrated);
 
-		SqlScriptRunner.run(MIGRATION_DATABASE, "migrations/v20_accepted_answer_eligibility_lock.sql");
+		SqlScriptRunner.run(MIGRATION_DATABASE, "migrations/v22_accepted_answer_eligibility_lock.sql");
 
 		assertFunctionContract(migrated);
 		assertThat(lockEligibleAnswer(migrated, fixture.answerId())).isTrue();
@@ -86,7 +86,7 @@ class AiSchemaV20MigrationIntegrationTest {
 
 		assertThatThrownBy(() -> SqlScriptRunner.run(
 			MIGRATION_DATABASE,
-			"migrations/v20_accepted_answer_eligibility_lock.sql"
+			"migrations/v22_accepted_answer_eligibility_lock.sql"
 		))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("ai_lock_eligible_accepted_answer")
@@ -226,7 +226,7 @@ class AiSchemaV20MigrationIntegrationTest {
 			.single();
 	}
 
-	private static void prepareV19Database() {
+	private static void prepareV21Database() {
 		CanonicalPostgresContainer.recreateDatabase(MIGRATION_DATABASE);
 		SqlScriptRunner.run(
 			MIGRATION_DATABASE,
@@ -237,7 +237,9 @@ class AiSchemaV20MigrationIntegrationTest {
 			"migrations/v16_question_ai_finalization_lock.sql",
 			"migrations/v17_question_ai_checkpoints.sql",
 			"migrations/v18_knowledge_source_content_hash.sql",
-			"migrations/v19_knowledge_import_lifecycle.sql"
+			"migrations/v19_knowledge_import_lifecycle.sql",
+			"migrations/v20_answer_report_target.sql",
+			"migrations/v21_report_target_review_followup.sql"
 		);
 	}
 

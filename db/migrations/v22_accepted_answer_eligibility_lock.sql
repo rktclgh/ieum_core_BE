@@ -1,4 +1,4 @@
--- One-shot v19 -> v20 upgrade. Lock accepted-answer knowledge eligibility in
+-- One-shot v21 -> v22 upgrade. Lock accepted-answer knowledge eligibility in
 -- app-main's question -> pin -> answer order.
 BEGIN;
 
