@@ -70,7 +70,7 @@ class ReportServiceTest {
 		"a".repeat(64)
 	);
 	private final ReportContextSnapshot answerSnapshot = new ReportContextSnapshot(
-		"{\"schemaVersion\":2,\"targetType\":\"answer\",\"questionId\":10}",
+		"{\"schemaVersion\":1,\"targetType\":\"answer\",\"questionId\":10}",
 		"b".repeat(64)
 	);
 

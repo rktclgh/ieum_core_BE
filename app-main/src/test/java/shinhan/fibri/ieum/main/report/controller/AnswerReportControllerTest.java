@@ -103,6 +103,19 @@ class AnswerReportControllerTest {
 	}
 
 	@Test
+	void invalidReasonMapsToValidationFailed() throws Exception {
+		mockMvc.perform(post("/api/v1/answers/300/report")
+				.with(authenticated())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\":\"bogus\"}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("reason")));
+
+		verifyNoInteractions(reportService);
+	}
+
+	@Test
 	void malformedAnswerIdMapsToValidationFailed() throws Exception {
 		mockMvc.perform(post("/api/v1/answers/not-a-number/report")
 				.with(authenticated())

@@ -53,6 +53,17 @@ class ReportContextSnapshotFactoryTest {
 		ReportContextSnapshot second = factory.create(100L, List.of(before), reported, List.of(after));
 
 		assertThat(first.json()).isEqualTo(second.json());
+		String legacyCanonicalJson = String.join(
+			"",
+			"{\"after\": [{\"content\": \"after\", \"senderId\": 42, ",
+			"\"createdAt\": 1783731660.000000000, \"messageId\": 501, \"imageFileId\": null}], ",
+			"\"before\": [{\"content\": \"before\", \"senderId\": 42, ",
+			"\"createdAt\": 1783731540.000000000, \"messageId\": 499, \"imageFileId\": null}], ",
+			"\"roomId\": 100, \"reported\": {\"content\": \"reported\", \"senderId\": 42, ",
+			"\"createdAt\": 1783731600.000000000, \"messageId\": 500, \"imageFileId\": null}, ",
+			"\"schemaVersion\": 1}"
+		);
+		assertThat(first.json()).isEqualTo(legacyCanonicalJson);
 		assertThat(first.hash()).isEqualTo(second.hash());
 		assertThat(first.hash()).matches("[0-9a-f]{64}");
 		var payload = objectMapper.readTree(first.json());

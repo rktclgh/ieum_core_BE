@@ -90,6 +90,19 @@ class ReportControllerTest {
 	}
 
 	@Test
+	void invalidReasonMapsToValidationFailed() throws Exception {
+		mockMvc.perform(post("/api/v1/reports")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"messageId\":500,\"reason\":\"bogus\"}")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("reason")));
+
+		verifyNoInteractions(reportService);
+	}
+
+	@Test
 	void mapsMissingMessageToNotFound() throws Exception {
 		when(reportService.create(any(AuthenticatedUser.class), any(CreateReportRequest.class)))
 			.thenThrow(new ReportMessageNotFoundException());
