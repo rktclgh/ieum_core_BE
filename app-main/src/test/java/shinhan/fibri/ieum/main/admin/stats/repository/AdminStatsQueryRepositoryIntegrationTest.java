@@ -16,6 +16,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -65,6 +66,18 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(repository.countSuspendedUsers(FROM, TO)).isEqualTo(1);
 	}
 
+	@Test
+	void contentStatsCountsCreatedContentAndAcceptedAnswersWithinRange() {
+		AnswerStatsRow answerStats = repository.getAnswerStats(FROM, TO);
+
+		assertThat(repository.countPins(FROM, TO)).isEqualTo(1);
+		assertThat(repository.countQuestions(FROM, TO)).isEqualTo(1);
+		assertThat(repository.countMeetings(FROM, TO)).isEqualTo(1);
+		assertThat(repository.countMessages(FROM, TO)).isEqualTo(1);
+		assertThat(answerStats.total()).isEqualTo(2);
+		assertThat(answerStats.accepted()).isEqualTo(1);
+	}
+
 	private void createSchema() {
 		jdbcTemplate.execute("""
 			CREATE TABLE IF NOT EXISTS users (
@@ -86,10 +99,44 @@ class AdminStatsQueryRepositoryIntegrationTest {
 				created_at TIMESTAMPTZ NOT NULL
 			)
 			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS pins (
+				pin_id BIGINT PRIMARY KEY,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS questions (
+				question_id BIGINT PRIMARY KEY,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS meetings (
+				meeting_id BIGINT PRIMARY KEY,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS answers (
+				answer_id BIGINT PRIMARY KEY,
+				is_accepted BOOLEAN NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
+		jdbcTemplate.execute("""
+			CREATE TABLE IF NOT EXISTS messages (
+				message_id BIGINT PRIMARY KEY,
+				created_at TIMESTAMPTZ NOT NULL
+			)
+			""");
 	}
 
 	private void truncateTables() {
-		jdbcTemplate.execute("TRUNCATE TABLE users, login_logs, user_sanctions");
+		jdbcTemplate.execute("""
+			TRUNCATE TABLE users, login_logs, user_sanctions, pins, questions, meetings,
+				answers, messages
+			""");
 	}
 
 	private void insertRows() {
@@ -105,5 +152,14 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, created_at) VALUES (1, 1, '2026-07-10T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, created_at) VALUES (2, 1, '2026-07-11T10:00:00+09:00')");
 		jdbcTemplate.update("INSERT INTO user_sanctions(sanction_id, user_id, created_at) VALUES (3, 2, '2026-08-01T00:00:00+09:00')");
+
+		jdbcTemplate.update("INSERT INTO pins(pin_id, created_at) VALUES (1, '2026-07-02T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO pins(pin_id, created_at) VALUES (2, '2026-08-01T00:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO questions(question_id, created_at) VALUES (1, '2026-07-02T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO meetings(meeting_id, created_at) VALUES (1, '2026-07-02T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO messages(message_id, created_at) VALUES (1, '2026-07-02T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (1, true, '2026-07-02T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (2, false, '2026-07-03T10:00:00+09:00')");
+		jdbcTemplate.update("INSERT INTO answers(answer_id, is_accepted, created_at) VALUES (3, true, '2026-08-01T00:00:00+09:00')");
 	}
 }

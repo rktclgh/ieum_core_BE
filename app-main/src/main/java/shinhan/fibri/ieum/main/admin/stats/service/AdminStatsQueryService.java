@@ -8,10 +8,12 @@ import java.time.temporal.ChronoUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
 
 @Service
 public class AdminStatsQueryService {
@@ -41,6 +43,23 @@ public class AdminStatsQueryService {
 			repository.countSignups(range.fromTs(), range.toTs()),
 			repository.countActiveUsers(range.fromTs(), range.toTs()),
 			repository.countSuspendedUsers(range.fromTs(), range.toTs())
+		);
+	}
+
+	@Transactional(readOnly = true)
+	public ContentStatsResponse getContentStats(StatsRangeRequest request) {
+		ResolvedRange range = resolveRange(request);
+		AnswerStatsRow answerStats = repository.getAnswerStats(range.fromTs(), range.toTs());
+		double acceptedRate = answerStats.total() == 0 ? 0.0 : (double)answerStats.accepted() / answerStats.total();
+		return new ContentStatsResponse(
+			range.from(),
+			range.to(),
+			repository.countPins(range.fromTs(), range.toTs()),
+			repository.countQuestions(range.fromTs(), range.toTs()),
+			repository.countMeetings(range.fromTs(), range.toTs()),
+			answerStats.total(),
+			acceptedRate,
+			repository.countMessages(range.fromTs(), range.toTs())
 		);
 	}
 

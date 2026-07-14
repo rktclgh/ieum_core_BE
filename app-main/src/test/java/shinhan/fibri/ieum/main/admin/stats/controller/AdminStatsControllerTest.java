@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.service.AdminStatsQueryService;
@@ -87,6 +88,29 @@ class AdminStatsControllerTest {
 			.andExpect(jsonPath("$.code", is("INVALID_STATS_RANGE")))
 			.andExpect(jsonPath("$.message", is("from must be before or equal to to")))
 			.andExpect(jsonPath("$.fieldErrors[0].field", is("range")));
+	}
+
+	@Test
+	void contentEndpointReturnsContentStats() throws Exception {
+		when(queryService.getContentStats(any())).thenReturn(new ContentStatsResponse(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 31),
+			3,
+			4,
+			5,
+			10,
+			0.4,
+			20
+		));
+
+		mockMvc.perform(get("/api/v1/admin/stats/content").with(admin()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.pinCount", is(3)))
+			.andExpect(jsonPath("$.questionCount", is(4)))
+			.andExpect(jsonPath("$.meetingCount", is(5)))
+			.andExpect(jsonPath("$.answerCount", is(10)))
+			.andExpect(jsonPath("$.acceptedRate", is(0.4)))
+			.andExpect(jsonPath("$.messageCount", is(20)));
 	}
 
 	@Test

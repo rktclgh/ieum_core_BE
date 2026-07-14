@@ -13,10 +13,12 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import shinhan.fibri.ieum.main.admin.stats.dto.ContentStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.StatsRangeRequest;
 import shinhan.fibri.ieum.main.admin.stats.dto.UserStatsResponse;
 import shinhan.fibri.ieum.main.admin.stats.exception.InvalidStatsRangeException;
 import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository;
+import shinhan.fibri.ieum.main.admin.stats.repository.AdminStatsQueryRepository.AnswerStatsRow;
 
 class AdminStatsQueryServiceTest {
 
@@ -76,5 +78,32 @@ class AdminStatsQueryServiceTest {
 		assertThatThrownBy(() -> service.getUserStats(request))
 			.isInstanceOf(InvalidStatsRangeException.class)
 			.hasMessage("stats range must not exceed 366 days");
+	}
+
+	@Test
+	void contentStatsCalculateAcceptedRateAndZeroWhenThereAreNoAnswers() {
+		when(repository.countPins(FROM_TS, TO_TS)).thenReturn(10L);
+		when(repository.countQuestions(FROM_TS, TO_TS)).thenReturn(4L);
+		when(repository.countMeetings(FROM_TS, TO_TS)).thenReturn(3L);
+		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(4L, 1L));
+		when(repository.countMessages(FROM_TS, TO_TS)).thenReturn(12L);
+
+		ContentStatsResponse response = service.getContentStats(new StatsRangeRequest(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 31)
+		));
+
+		assertThat(response.pinCount()).isEqualTo(10);
+		assertThat(response.questionCount()).isEqualTo(4);
+		assertThat(response.meetingCount()).isEqualTo(3);
+		assertThat(response.answerCount()).isEqualTo(4);
+		assertThat(response.acceptedRate()).isEqualTo(0.25);
+		assertThat(response.messageCount()).isEqualTo(12);
+
+		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(0L, 0L));
+		assertThat(service.getContentStats(new StatsRangeRequest(
+			LocalDate.of(2026, 7, 1),
+			LocalDate.of(2026, 7, 31)
+		)).acceptedRate()).isZero();
 	}
 }
