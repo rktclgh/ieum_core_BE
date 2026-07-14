@@ -17,7 +17,8 @@ import shinhan.fibri.ieum.main.report.domain.ReportTargetType;
 @Component
 public class ReportContextSnapshotFactory {
 
-	private static final int SCHEMA_VERSION = 2;
+	private static final int MESSAGE_SCHEMA_VERSION = 1;
+	private static final int ANSWER_SCHEMA_VERSION = 1;
 
 	private final ObjectMapper objectMapper;
 	private final JdbcClient jdbc;
@@ -34,8 +35,7 @@ public class ReportContextSnapshotFactory {
 		List<Message> after
 	) {
 		ContextSnapshotPayload payload = new ContextSnapshotPayload(
-			SCHEMA_VERSION,
-			ReportTargetType.message,
+			MESSAGE_SCHEMA_VERSION,
 			Objects.requireNonNull(roomId, "roomId must not be null"),
 			Objects.requireNonNull(before, "before must not be null").stream().map(ContextMessage::from).toList(),
 			ContextMessage.from(Objects.requireNonNull(reported, "reported must not be null")),
@@ -55,7 +55,7 @@ public class ReportContextSnapshotFactory {
 			.map(image -> image.getFileId().toString())
 			.toList();
 		AnswerContextSnapshotPayload payload = new AnswerContextSnapshotPayload(
-			SCHEMA_VERSION,
+			ANSWER_SCHEMA_VERSION,
 			ReportTargetType.answer,
 			target.getQuestionId(),
 			AnswerContext.from(target, imageFileIds)
@@ -80,7 +80,6 @@ public class ReportContextSnapshotFactory {
 
 	private record ContextSnapshotPayload(
 		int schemaVersion,
-		ReportTargetType targetType,
 		Long roomId,
 		List<ContextMessage> before,
 		ContextMessage reported,

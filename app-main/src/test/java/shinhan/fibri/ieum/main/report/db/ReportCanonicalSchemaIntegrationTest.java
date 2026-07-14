@@ -53,7 +53,20 @@ class ReportCanonicalSchemaIntegrationTest {
 			"ck_reports_answer_manual_only"
 		);
 		assertThat(indexNames(jdbc, "reports")).contains("idx_reports_answer");
+		assertThat(triggerNames(jdbc, "reports")).contains("trg_reports_target_integrity");
 		assertThat(tableExists(jdbc, "user_sanctions")).isTrue();
+	}
+
+	private static java.util.List<String> triggerNames(JdbcClient jdbc, String tableName) {
+		return jdbc.sql("""
+			SELECT tgname
+			FROM pg_trigger
+			WHERE tgrelid = (:tableName)::regclass AND NOT tgisinternal
+			ORDER BY tgname
+			""")
+			.param("tableName", tableName)
+			.query(String.class)
+			.list();
 	}
 
 	private static java.util.List<String> enumLabels(JdbcClient jdbc, String typeName) {

@@ -42,7 +42,7 @@ class ReportContextSnapshotFactoryTest {
 	}
 
 	@Test
-	void createsStableMessageSnapshotWithTargetDiscriminator() throws Exception {
+	void preservesStableSchemaV1MessageSnapshot() throws Exception {
 		ChatRoom room = room(100L);
 		User sender = user(42L, "sender");
 		Message before = message(499L, room, sender, "before", "2026-07-11T09:59:00+09:00");
@@ -56,8 +56,8 @@ class ReportContextSnapshotFactoryTest {
 		assertThat(first.hash()).isEqualTo(second.hash());
 		assertThat(first.hash()).matches("[0-9a-f]{64}");
 		var payload = objectMapper.readTree(first.json());
-		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(2);
-		assertThat(payload.path("targetType").asText()).isEqualTo("message");
+		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(1);
+		assertThat(payload.has("targetType")).isFalse();
 		assertThat(payload.path("reported").has("senderNickname")).isFalse();
 		assertThat(payload.path("roomId").asLong()).isEqualTo(100L);
 		assertThat(payload.path("reported").path("messageId").asLong()).isEqualTo(500L);
@@ -82,7 +82,7 @@ class ReportContextSnapshotFactoryTest {
 		ReportContextSnapshot snapshot = factory.createAnswer(answer, List.of(first, second));
 		var payload = objectMapper.readTree(snapshot.json());
 
-		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(2);
+		assertThat(payload.path("schemaVersion").asInt()).isEqualTo(1);
 		assertThat(payload.path("targetType").asText()).isEqualTo("answer");
 		assertThat(payload.path("questionId").asLong()).isEqualTo(10L);
 		assertThat(payload.at("/reported/answerId").asLong()).isEqualTo(500L);

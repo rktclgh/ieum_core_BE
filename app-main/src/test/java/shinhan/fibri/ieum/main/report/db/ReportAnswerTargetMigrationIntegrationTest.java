@@ -103,6 +103,46 @@ class ReportAnswerTargetMigrationIntegrationTest {
 			.hasMessageContaining("ck_reports_answer_manual_only");
 	}
 
+	@Test
+	void v20RejectsMissingSelectedTargetAndInvalidAnswerAttributionAtCreation() {
+		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+
+		assertThatThrownBy(() -> jdbc.sql("""
+			INSERT INTO reports (
+			    reporter_id, target_type, message_id, answer_id, reported_user_id, reason,
+			    context_hash, ai_review_state, ai_next_attempt_at
+			)
+			VALUES (1, 'message', NULL, NULL, 2, 'abuse', :hash, 'cancelled', NULL)
+			""")
+			.param("hash", HASH)
+			.update())
+			.isInstanceOf(DataAccessException.class)
+			.hasMessageContaining("report selected target is required at creation");
+
+		long humanAnswerId = seedQuestionAndHumanAnswer();
+		assertThatThrownBy(() -> insertAnswerReport(humanAnswerId, null, "cancelled"))
+			.isInstanceOf(DataAccessException.class)
+			.hasMessageContaining("reported user must match the answer author semantics");
+
+		long aiAnswerId = seedQuestionAndAiAnswer();
+		assertThatThrownBy(() -> insertAnswerReport(aiAnswerId, 2L, "cancelled"))
+			.isInstanceOf(DataAccessException.class)
+			.hasMessageContaining("reported user must match the answer author semantics");
+	}
+
+	@Test
+	void v20RejectsManualTargetNullingWhileTargetStillExists() {
+		SqlScriptRunner.run(DATABASE, "migrations/v20_answer_report_target.sql");
+		long answerId = seedQuestionAndAiAnswer();
+		long reportId = insertAnswerReport(answerId, null, "cancelled");
+
+		assertThatThrownBy(() -> jdbc.sql("UPDATE reports SET answer_id = NULL WHERE report_id = :reportId")
+			.param("reportId", reportId)
+			.update())
+			.isInstanceOf(DataAccessException.class)
+			.hasMessageContaining("report answer target may only be cleared by target deletion");
+	}
+
 	private void seedLegacyMessageReport() {
 		jdbc.sql("""
 			INSERT INTO users (user_id, email, provider, password_hash, nickname, email_verified, role, status)
@@ -134,6 +174,24 @@ class ReportAnswerTargetMigrationIntegrationTest {
 	}
 
 	private long seedQuestionAndAiAnswer() {
+		long questionId = seedQuestion();
+		return jdbc.sql("""
+			INSERT INTO answers (question_id, author_id, is_ai, content)
+			VALUES (:questionId, NULL, TRUE, 'AI answer')
+			RETURNING answer_id
+			""").param("questionId", questionId).query(Long.class).single();
+	}
+
+	private long seedQuestionAndHumanAnswer() {
+		long questionId = seedQuestion();
+		return jdbc.sql("""
+			INSERT INTO answers (question_id, author_id, is_ai, content)
+			VALUES (:questionId, 2, FALSE, 'human answer')
+			RETURNING answer_id
+			""").param("questionId", questionId).query(Long.class).single();
+	}
+
+	private long seedQuestion() {
 		long pinId = jdbc.sql("""
 			INSERT INTO pins (author_id, pin_type, location, address)
 			VALUES (1, 'question', ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326)::geography, '서울')
@@ -144,11 +202,7 @@ class ReportAnswerTargetMigrationIntegrationTest {
 			VALUES (:pinId, 1, 'question', 'question content')
 			RETURNING question_id
 			""").param("pinId", pinId).query(Long.class).single();
-		return jdbc.sql("""
-			INSERT INTO answers (question_id, author_id, is_ai, content)
-			VALUES (:questionId, NULL, TRUE, 'AI answer')
-			RETURNING answer_id
-			""").param("questionId", questionId).query(Long.class).single();
+		return questionId;
 	}
 
 	private long insertAnswerReport(long answerId, Long reportedUserId, String aiReviewState) {

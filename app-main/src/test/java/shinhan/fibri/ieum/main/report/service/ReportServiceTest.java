@@ -235,7 +235,27 @@ class ReportServiceTest {
 		verify(reportRepository).save(captor.capture());
 		assertThat(captor.getValue().getReportedUser()).isNull();
 		assertThat(captor.getValue().getAiReviewState()).isEqualTo(ReportAiReviewState.cancelled);
-		verify(userRepository, org.mockito.Mockito.never()).getReferenceById(anyLong());
+	}
+
+	@Test
+	void createHumanAnswerReportKeepsSoftDeletedAuthorAttribution() throws Exception {
+		User reporter = user(42L, "reporter@example.com", "reporter");
+		User deletedAuthor = user(77L, "deleted@example.com", "deleted");
+		deletedAuthor.markDeleted(OffsetDateTime.parse("2026-07-13T10:00:00+09:00"));
+		Answer answer = answer(500L, Answer.createHuman(10L, 77L, "human answer"));
+		when(answerRepository.findById(500L)).thenReturn(Optional.of(answer));
+		when(questionRepository.findActiveByIdForShare(10L)).thenReturn(Optional.of(question(10L, 42L)));
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(reporter));
+		when(userRepository.getReferenceById(77L)).thenReturn(deletedAuthor);
+		when(answerImageRepository.findByAnswerIdInOrderBySortOrderAsc(List.of(500L))).thenReturn(List.of());
+		stubSavedReportId(902L);
+
+		service.createAnswer(principal(42L), 500L, ReportReason.harassment, null);
+
+		ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+		verify(reportRepository).save(captor.capture());
+		assertThat(captor.getValue().getReportedUser()).isSameAs(deletedAuthor);
+		assertThat(captor.getValue().getReportedUser().getDeletedAt()).isNotNull();
 	}
 
 	@Test
