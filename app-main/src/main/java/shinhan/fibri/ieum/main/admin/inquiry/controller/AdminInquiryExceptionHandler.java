@@ -13,11 +13,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryAlreadyAnsweredException;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryNotFoundException;
+import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
 
 @RestControllerAdvice(assignableTypes = AdminInquiryController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AdminInquiryExceptionHandler {
+
+	@ExceptionHandler(InvalidAdminCursorException.class)
+	public ResponseEntity<AuthErrorResponse> handleInvalidCursor(InvalidAdminCursorException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+			.body(new AuthErrorResponse(
+				"INVALID_CURSOR",
+				exception.getMessage(),
+				List.of(new AuthErrorResponse.FieldError("cursor", exception.getMessage()))
+			));
+	}
 
 	@ExceptionHandler(InquiryNotFoundException.class)
 	public ResponseEntity<AuthErrorResponse> handleInquiryNotFound(InquiryNotFoundException exception) {

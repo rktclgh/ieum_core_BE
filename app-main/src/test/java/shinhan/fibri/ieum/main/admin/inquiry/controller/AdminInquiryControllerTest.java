@@ -41,6 +41,7 @@ import shinhan.fibri.ieum.main.admin.inquiry.dto.AnswerInquiryRequest;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryAlreadyAnsweredException;
 import shinhan.fibri.ieum.main.admin.inquiry.exception.InquiryNotFoundException;
+import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.admin.inquiry.service.AdminInquiryAnswerService;
 import shinhan.fibri.ieum.main.admin.inquiry.service.AdminInquiryQueryService;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
@@ -90,6 +91,18 @@ class AdminInquiryControllerTest {
 			.andExpect(jsonPath("$.fieldErrors[*].field", hasItems("size")));
 
 		verifyNoInteractions(queryService);
+	}
+
+	@Test
+	void invalidCursorMapsToBadRequest() throws Exception {
+		when(queryService.list(any())).thenThrow(new InvalidAdminCursorException());
+
+		mockMvc.perform(get("/api/v1/admin/inquiries")
+				.with(admin())
+				.param("cursor", "bad"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("INVALID_CURSOR")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("cursor")));
 	}
 
 	@Test
