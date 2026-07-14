@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mail.MailSendException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
@@ -197,6 +199,21 @@ class InquiryControllerTest {
 			.andExpect(jsonPath("$.code", is("INQUIRY_RATE_LIMITED")));
 
 		verifyNoInteractions(suspendedUserInquiryService);
+	}
+
+	@Test
+	void mapsSuspendedUserInquiryMailFailureToBadGateway() throws Exception {
+		org.mockito.Mockito.doThrow(new CompletionException(new MailSendException("smtp down")))
+			.when(suspendedUserInquiryService)
+			.send(any(SuspendedUserInquiryRequest.class));
+
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"user@example.com","title":"제재 문의","content":"로그인이 안 됩니다."}
+					"""))
+			.andExpect(status().isBadGateway())
+			.andExpect(jsonPath("$.code", is("INQUIRY_MAIL_DELIVERY_FAILED")));
 	}
 
 	private static RequestPostProcessor authenticated() {

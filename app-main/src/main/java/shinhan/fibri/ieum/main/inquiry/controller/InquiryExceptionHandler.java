@@ -1,10 +1,12 @@
 package shinhan.fibri.ieum.main.inquiry.controller;
 
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mail.MailException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -38,5 +40,11 @@ public class InquiryExceptionHandler {
 		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
 			.header("Retry-After", "60")
 			.body(new AuthErrorResponse("INQUIRY_RATE_LIMITED", exception.getMessage()));
+	}
+
+	@ExceptionHandler({CompletionException.class, MailException.class})
+	public ResponseEntity<AuthErrorResponse> handleMailDeliveryFailure(RuntimeException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+			.body(new AuthErrorResponse("INQUIRY_MAIL_DELIVERY_FAILED", "Failed to send inquiry mail"));
 	}
 }
