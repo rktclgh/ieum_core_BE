@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.answer.service;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,7 +21,10 @@ import shinhan.fibri.ieum.main.answer.domain.Answer;
 import shinhan.fibri.ieum.main.answer.domain.AnswerImage;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerRequest;
 import shinhan.fibri.ieum.main.answer.dto.CreateAnswerResponse;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersRequest;
+import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
+import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
@@ -105,6 +109,64 @@ public class AnswerService {
 		}
 	}
 
+	@Transactional(timeout = 30)
+	public FinalizeAcceptedAnswersResponse finalizeSelection(
+		AuthenticatedUser principal,
+		Long questionId,
+		FinalizeAcceptedAnswersRequest request
+	) {
+		List<Long> answerIds = normalizeAcceptedAnswerIds(request.answerIds());
+		Question question = questionRepository.findByIdForUpdate(questionId)
+			.orElseThrow(QuestionNotFoundException::new);
+		if (!question.getAuthorId().equals(principal.userId())) {
+			throw new QuestionForbiddenException();
+		}
+
+		List<Long> acceptedIds = answerRepository.findAcceptedIdsByQuestionIdOrderByIdAsc(questionId);
+		if (question.isResolved()) {
+			if (acceptedIds.equals(answerIds)) {
+				return new FinalizeAcceptedAnswersResponse(questionId, true, acceptedIds);
+			}
+			throw new AnswerSelectionFinalizedException();
+		}
+
+		List<Answer> answers = answerRepository.findAllByQuestionIdAndIdInForUpdate(questionId, answerIds);
+		if (!answers.stream().map(Answer::getId).toList().equals(answerIds)) {
+			throw new AnswerNotFoundException();
+		}
+		for (Answer answer : answers) {
+			if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
+				throw new SelfAcceptanceNotAllowedException();
+			}
+		}
+
+		Map<Long, User> humanAuthorsById = lockHumanAuthors(answers);
+		for (Answer answer : answers) {
+			answer.accept();
+		}
+		question.markResolved();
+		for (Answer answer : answers) {
+			if (answer.isAi()) {
+				continue;
+			}
+			User author = humanAuthorsById.get(answer.getAuthorId());
+			if (author != null) {
+				author.recordAcceptedAnswer();
+			}
+			notificationPublisher.publishDurableOnce(
+				answer.getAuthorId(),
+				NotificationType.question,
+				"답변 채택",
+				"회원님의 답변이 채택됐어요",
+				questionId,
+				false,
+				"answer-accepted:%d".formatted(answer.getId())
+			);
+			eventPublisher.publishEvent(new AcceptedHumanAnswerEvent(answer.getId()));
+		}
+		return new FinalizeAcceptedAnswersResponse(questionId, true, answerIds);
+	}
+
 	// content와 imageFileIds는 각각 선택이지만 최소 하나는 있어야 한다(설계 보강 2026-07-03).
 	// 앱 전체 컨벤션(QUESTION/FRIEND 등)과 통일해 422가 아닌 400 VALIDATION_FAILED로 응답한다.
 	private String requireContentOrImages(CreateAnswerRequest request) {
@@ -134,6 +196,32 @@ public class AnswerService {
 			}
 		}
 		return List.copyOf(imageFileIds);
+	}
+
+	private List<Long> normalizeAcceptedAnswerIds(List<Long> answerIds) {
+		if (answerIds == null || answerIds.isEmpty()) {
+			throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "answerIds is required");
+		}
+		List<Long> normalized = answerIds.stream()
+			.sorted()
+			.distinct()
+			.toList();
+		if (normalized.size() != answerIds.size()) {
+			throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "Duplicate answerIds");
+		}
+		return normalized;
+	}
+
+	private Map<Long, User> lockHumanAuthors(List<Answer> answers) {
+		Map<Long, User> humanAuthorsById = new LinkedHashMap<>();
+		answers.stream()
+			.filter(answer -> !answer.isAi())
+			.map(Answer::getAuthorId)
+			.distinct()
+			.sorted()
+			.forEach(authorId -> userRepository.findByIdForUpdate(authorId)
+				.ifPresent(user -> humanAuthorsById.put(authorId, user)));
+		return humanAuthorsById;
 	}
 
 	private List<File> validateImages(List<UUID> imageFileIds, Long userId) {
