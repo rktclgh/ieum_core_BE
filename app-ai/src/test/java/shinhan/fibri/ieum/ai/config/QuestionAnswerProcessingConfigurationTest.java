@@ -21,14 +21,18 @@ import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.service.DefaultQuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
+import shinhan.fibri.ieum.ai.question.webgrounding.DisabledWebGroundingGateway;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPromptFactory;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebQuestionEvidenceAssembler;
 
 class QuestionAnswerProcessingConfigurationTest {
 
-	private static final Duration TASK_LEASE = Duration.ofSeconds(37);
+	private static final Duration TASK_LEASE = Duration.ofMinutes(2);
 	private static final Duration MODEL_TIMEOUT = Duration.ofSeconds(30);
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -45,36 +49,33 @@ class QuestionAnswerProcessingConfigurationTest {
 				assertThat(context).doesNotHaveBean(QuestionEmbeddingTextFormatter.class);
 				assertThat(context).doesNotHaveBean(GroundingSufficiencyPolicy.class);
 				assertThat(context).doesNotHaveBean(QuestionAnswerCitationAssembler.class);
+				assertThat(context).doesNotHaveBean(WebGroundingPromptFactory.class);
+				assertThat(context).doesNotHaveBean(WebQuestionEvidenceAssembler.class);
 				assertThat(context).doesNotHaveBean(LocalAnswerProperties.class);
 				assertThat(context).doesNotHaveBean(LocalGroundingProperties.class);
 			});
 	}
 
 	@Test
-	void webGroundingOnOmitsTheLocalOnlyOrchestratorWithoutRequiringDependencies() {
-		contextRunner
-			.withPropertyValues(
-				"app.ai.features.question-answer-enabled=true",
-				"app.ai.features.web-grounding-enabled=true"
-			)
-			.run(context -> {
-				assertThat(context).hasNotFailed();
-				assertThat(context).doesNotHaveBean(QuestionAnswerOrchestrator.class);
-				assertThat(context).doesNotHaveBean(StoredAddressRegionParser.class);
-				assertThat(context).doesNotHaveBean(QuestionEmbeddingTextFormatter.class);
-				assertThat(context).doesNotHaveBean(GroundingSufficiencyPolicy.class);
-				assertThat(context).doesNotHaveBean(QuestionAnswerCitationAssembler.class);
-			});
+	void answerOnWithWebOffWiresOneOrchestratorAndDisabledGateway() {
+		DisabledWebGroundingGateway gateway = new DisabledWebGroundingGateway();
+
+		assertProcessingMode(enabledContext()
+			.withPropertyValues("app.ai.features.web-grounding-enabled=false")
+			.withBean(WebGroundingGateway.class, () -> gateway), gateway);
 	}
 
 	@Test
-	void localModeWiresExactlyOneOrchestratorWhenWebGroundingIsFalseOrMissing() {
-		assertLocalMode(enabledContext());
-		assertLocalMode(enabledContext()
-			.withPropertyValues("app.ai.features.web-grounding-enabled=false"));
+	void answerOnWithWebEnabledWiresOneOrchestratorAndEnabledGateway() {
+		WebGroundingGateway gateway = mock(WebGroundingGateway.class);
+		org.mockito.Mockito.when(gateway.enabled()).thenReturn(true);
+
+		assertProcessingMode(enabledContext()
+			.withPropertyValues("app.ai.features.web-grounding-enabled=true")
+			.withBean(WebGroundingGateway.class, () -> gateway), gateway);
 	}
 
-	private void assertLocalMode(ApplicationContextRunner runner) {
+	private void assertProcessingMode(ApplicationContextRunner runner, WebGroundingGateway gateway) {
 		runner.run(context -> {
 			assertThat(context).hasNotFailed();
 			assertThat(context).hasSingleBean(QuestionAnswerOrchestrator.class);
@@ -83,6 +84,9 @@ class QuestionAnswerProcessingConfigurationTest {
 			assertThat(context).hasSingleBean(QuestionEmbeddingTextFormatter.class);
 			assertThat(context).hasSingleBean(GroundingSufficiencyPolicy.class);
 			assertThat(context).hasSingleBean(QuestionAnswerCitationAssembler.class);
+			assertThat(context).hasSingleBean(WebGroundingPromptFactory.class);
+			assertThat(context).hasSingleBean(WebQuestionEvidenceAssembler.class);
+			assertThat(context).hasSingleBean(WebGroundingGateway.class);
 
 			DirectFieldAccessor fields = new DirectFieldAccessor(
 				context.getBean(DefaultQuestionAnswerOrchestrator.class)
@@ -90,6 +94,13 @@ class QuestionAnswerProcessingConfigurationTest {
 			assertThat(fields.getPropertyValue("leaseExtension")).isEqualTo(TASK_LEASE);
 			assertThat(fields.getPropertyValue("answerTimeout")).isEqualTo(MODEL_TIMEOUT);
 			assertThat(fields.getPropertyValue("groundingTimeout")).isEqualTo(MODEL_TIMEOUT);
+			assertThat(fields.getPropertyValue("retrievalService"))
+				.isSameAs(context.getBean(HybridKnowledgeRetrievalService.class));
+			assertThat(fields.getPropertyValue("webGroundingGateway")).isSameAs(gateway);
+			assertThat(fields.getPropertyValue("webGroundingPromptFactory"))
+				.isSameAs(context.getBean(WebGroundingPromptFactory.class));
+			assertThat(fields.getPropertyValue("webEvidenceAssembler"))
+				.isSameAs(context.getBean(WebQuestionEvidenceAssembler.class));
 		});
 	}
 
@@ -105,8 +116,8 @@ class QuestionAnswerProcessingConfigurationTest {
 			.withBean(QuestionCheckpointService.class, () -> mock(QuestionCheckpointService.class))
 			.withBean(QuestionEmbeddingGateway.class, () -> mock(QuestionEmbeddingGateway.class))
 			.withBean(
-				VectorOnlyKnowledgeRetrievalService.class,
-				() -> mock(VectorOnlyKnowledgeRetrievalService.class)
+				HybridKnowledgeRetrievalService.class,
+				() -> mock(HybridKnowledgeRetrievalService.class)
 			)
 			.withBean(LocalAnswerGateway.class, () -> mock(LocalAnswerGateway.class))
 			.withBean(LocalGroundingGateway.class, () -> mock(LocalGroundingGateway.class))
@@ -125,8 +136,6 @@ class QuestionAnswerProcessingConfigurationTest {
 			true,
 			TASK_LEASE,
 			5,
-			Duration.ofSeconds(60),
-			32,
 			5
 		);
 	}

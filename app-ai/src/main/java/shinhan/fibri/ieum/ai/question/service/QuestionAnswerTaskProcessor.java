@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.ai.question.generation.QuestionGenerationUnavailableEx
 import shinhan.fibri.ieum.ai.question.grounding.QuestionGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
+import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
@@ -88,6 +89,20 @@ public class QuestionAnswerTaskProcessor {
 				&& explicitFailure == null) {
 				explicitFailure = classified.failure();
 			}
+			if (current instanceof QuestionWebGroundingUnavailableException webGrounding) {
+				QuestionTaskFailure webGroundingFailure = classifyWebGroundingFailure(webGrounding);
+				if (webGroundingFailure == QuestionTaskFailure.PERMANENT_CONFIGURATION) {
+					if (explicitFailure == null) {
+						explicitFailure = webGroundingFailure;
+					}
+				}
+				else {
+					providerFailure = preferProviderFailure(
+						providerFailure,
+						webGroundingFailure
+					);
+				}
+			}
 			if (current instanceof EmbeddingUnavailableException) {
 				embeddingUnavailable = true;
 			}
@@ -142,6 +157,17 @@ public class QuestionAnswerTaskProcessor {
 			return providerFailure;
 		}
 		return QuestionTaskFailure.UNEXPECTED_TRANSIENT;
+	}
+
+	private QuestionTaskFailure classifyWebGroundingFailure(
+		QuestionWebGroundingUnavailableException exception
+	) {
+		return switch (exception.failureCode()) {
+			case timeout -> QuestionTaskFailure.PROVIDER_TIMEOUT;
+			case rate_limited -> QuestionTaskFailure.PROVIDER_RATE_LIMITED;
+			case provider_unavailable -> QuestionTaskFailure.PROVIDER_UNAVAILABLE;
+			case permanent_configuration -> QuestionTaskFailure.PERMANENT_CONFIGURATION;
+		};
 	}
 
 	private QuestionTaskFailure preferProviderFailure(

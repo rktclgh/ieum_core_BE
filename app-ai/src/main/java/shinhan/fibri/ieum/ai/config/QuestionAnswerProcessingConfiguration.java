@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.ai.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,21 +18,18 @@ import shinhan.fibri.ieum.ai.question.generation.LocalAnswerProperties;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingGateway;
 import shinhan.fibri.ieum.ai.question.grounding.LocalGroundingProperties;
 import shinhan.fibri.ieum.ai.question.retrieval.GroundingSufficiencyPolicy;
-import shinhan.fibri.ieum.ai.question.retrieval.VectorOnlyKnowledgeRetrievalService;
+import shinhan.fibri.ieum.ai.question.retrieval.HybridKnowledgeRetrievalService;
 import shinhan.fibri.ieum.ai.question.service.DefaultQuestionAnswerOrchestrator;
 import shinhan.fibri.ieum.ai.question.service.QuestionCompletionCallbackWake;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingGateway;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingPromptFactory;
+import shinhan.fibri.ieum.ai.question.webgrounding.WebQuestionEvidenceAssembler;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(
 	prefix = "app.ai.features",
 	name = "question-answer-enabled",
 	havingValue = "true"
-)
-@ConditionalOnProperty(
-	prefix = "app.ai.features",
-	name = "web-grounding-enabled",
-	havingValue = "false",
-	matchIfMissing = true
 )
 public class QuestionAnswerProcessingConfiguration {
 
@@ -56,6 +54,16 @@ public class QuestionAnswerProcessingConfiguration {
 	}
 
 	@Bean
+	WebGroundingPromptFactory webGroundingPromptFactory() {
+		return new WebGroundingPromptFactory();
+	}
+
+	@Bean
+	WebQuestionEvidenceAssembler webQuestionEvidenceAssembler(ObjectMapper objectMapper) {
+		return new WebQuestionEvidenceAssembler(objectMapper, Clock.systemUTC());
+	}
+
+	@Bean
 	DefaultQuestionAnswerOrchestrator questionAnswerOrchestrator(
 		QuestionSnapshotRepository snapshotRepository,
 		StoredAddressRegionParser regionParser,
@@ -63,10 +71,13 @@ public class QuestionAnswerProcessingConfiguration {
 		QuestionCheckpointService checkpointService,
 		QuestionEmbeddingTextFormatter embeddingFormatter,
 		QuestionEmbeddingGateway embeddingGateway,
-		VectorOnlyKnowledgeRetrievalService retrievalService,
+		HybridKnowledgeRetrievalService retrievalService,
 		GroundingSufficiencyPolicy sufficiencyPolicy,
 		LocalAnswerGateway answerGateway,
 		LocalGroundingGateway groundingGateway,
+		WebGroundingGateway webGroundingGateway,
+		WebGroundingPromptFactory webGroundingPromptFactory,
+		WebQuestionEvidenceAssembler webEvidenceAssembler,
 		QuestionAnswerCitationAssembler citationAssembler,
 		QuestionAnswerFinalizationService finalizationService,
 		QuestionCompletionCallbackWake callbackWake,
@@ -86,6 +97,9 @@ public class QuestionAnswerProcessingConfiguration {
 			sufficiencyPolicy,
 			answerGateway,
 			groundingGateway,
+			webGroundingGateway,
+			webGroundingPromptFactory,
+			webEvidenceAssembler,
 			citationAssembler,
 			finalizationService,
 			callbackWake,

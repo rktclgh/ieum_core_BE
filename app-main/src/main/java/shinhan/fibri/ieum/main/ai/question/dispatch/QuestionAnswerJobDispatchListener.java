@@ -38,8 +38,11 @@ public class QuestionAnswerJobDispatchListener {
 			dispatchClient.dispatch(questionId);
 		}
 		catch (RuntimeException exception) {
-			log.warn("Question answer dispatch wake failed and will be recovered by app-ai: questionId={}",
-				questionId, exception);
+			log.warn(
+				"Question answer dispatch failed: questionId={}, errorType={}",
+				questionId,
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 }
