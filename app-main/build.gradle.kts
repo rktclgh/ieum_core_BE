@@ -12,11 +12,13 @@ java {
 
 // 실행 가능한 bootJar 만 남기고 plain jar 는 끈다 → 도커 COPY 시 jar 하나로 명확해진다.
 tasks.jar { enabled = false }
+tasks.bootJar { archiveFileName.set("app-main.jar") }
 
 dependencies {
 	implementation(project(":common"))
 
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-mail")
 	implementation("org.springframework.boot:spring-boot-starter-security")
