@@ -144,6 +144,7 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		insertMessage(1, 1, 1, "2026-07-02T10:00:00+09:00");
 		insertMessage(2, 1, 2, "2026-08-01T00:00:00+09:00");
 		insertMessage(3, 1, 3, "2026-08-01T00:00:00+09:00");
+		insertMessage(4, 1, 1, "2026-06-01T10:00:00+09:00");
 		insertAnswer(1, 1, 2, true, "2026-07-02T10:00:00+09:00");
 		insertAnswer(2, 1, 3, false, "2026-07-03T10:00:00+09:00");
 		insertAnswer(3, 1, 2, false, "2026-08-01T00:00:00+09:00");
@@ -178,6 +179,17 @@ class AdminStatsQueryRepositoryIntegrationTest {
 			VALUES (
 				3, 2, 'message', 3, 1, 'etc', repeat('c', 64),
 				'pending', 'completed', 'normal', '{}'::jsonb, '2026-08-01T00:00:00+09:00', '2026-07-04T10:00:00+09:00'
+			)
+			""");
+		// 세 이벤트 모두 기간 밖 — 프루닝 WHERE로 걸러져 어떤 지표에도 잡히지 않아야 한다
+		jdbcTemplate.update("""
+			INSERT INTO reports(
+				report_id, reporter_id, target_type, message_id, reported_user_id, reason, context_hash,
+				status, ai_review_state, created_at
+			)
+			VALUES (
+				4, 2, 'message', 4, 1, 'spam', repeat('d', 64),
+				'pending', 'pending', '2026-06-01T10:00:00+09:00'
 			)
 			""");
 	}

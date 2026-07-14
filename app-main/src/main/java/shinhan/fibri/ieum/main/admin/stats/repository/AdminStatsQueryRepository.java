@@ -101,6 +101,9 @@ public class AdminStatsQueryRepository {
 			  	  AND CAST(status AS varchar) = 'dismissed'
 			  ) AS dismissed_count
 			FROM reports
+			WHERE (created_at >= :from AND created_at < :to)
+			   OR (ai_reviewed_at >= :from AND ai_reviewed_at < :to)
+			   OR (resolved_at >= :from AND resolved_at < :to)
 			""";
 		return jdbcTemplate.queryForObject(sql, rangeParams(from, to), (rs, rowNum) -> new ReportStatsRow(
 			rs.getLong("report_count"),
