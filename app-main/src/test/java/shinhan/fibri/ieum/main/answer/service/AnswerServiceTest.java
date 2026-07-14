@@ -23,7 +23,6 @@ import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
-import shinhan.fibri.ieum.common.auth.domain.UserGrade;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
@@ -38,7 +37,6 @@ import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
-import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -259,114 +257,6 @@ class AnswerServiceTest {
 			.hasMessage("Invalid image");
 
 		verify(answerRepository, never()).save(any());
-	}
-
-	@Test
-	void acceptMarksAnswerAndQuestionThenRecordsHumanAuthorAcceptance() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 42L, "title", "question");
-		setId(question, 200L);
-		User answerAuthor = user(77L);
-		for (int i = 0; i < 4; i++) {
-			answerAuthor.recordAcceptedAnswer();
-		}
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-		when(userRepository.findByIdForUpdate(77L)).thenReturn(Optional.of(answerAuthor));
-
-		service.accept(principal(), 300L);
-
-		assertThat(answer.isAccepted()).isTrue();
-		assertThat(question.isResolved()).isTrue();
-		assertThat(answerAuthor.getAcceptedCount()).isEqualTo(5);
-		assertThat(answerAuthor.getGrade()).isEqualTo(UserGrade.silver);
-		verify(notificationPublisher).publishDurable(
-			77L,
-			NotificationType.question,
-			"답변 채택",
-			"회원님의 답변이 채택됐어요",
-			200L
-		);
-		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
-	}
-
-	@Test
-	void acceptRejectsMissingAnswer() {
-		when(answerRepository.findById(999L)).thenReturn(Optional.empty());
-
-		assertThatThrownBy(() -> service.accept(principal(), 999L))
-			.isInstanceOf(AnswerNotFoundException.class);
-
-		verify(questionRepository, never()).findByIdForUpdate(any());
-	}
-
-	@Test
-	void acceptRejectsNonQuestionAuthor() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 99L, "title", "question");
-		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(QuestionForbiddenException.class);
-
-		assertThat(answer.isAccepted()).isFalse();
-		assertThat(question.isResolved()).isFalse();
-	}
-
-	@Test
-	void acceptRejectsAlreadyResolvedQuestion() {
-		Answer answer = Answer.createHuman(200L, 77L, "answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 42L, "title", "question");
-		setId(question, 200L);
-		question.markResolved();
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(QuestionAlreadyResolvedException.class);
-
-		assertThat(answer.isAccepted()).isFalse();
-		verify(userRepository, never()).findByIdForUpdate(any());
-	}
-
-	@Test
-	void acceptRejectsAnswerWrittenByQuestionAuthor() {
-		Answer answer = Answer.createHuman(200L, 42L, "self answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 42L, "title", "question");
-		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		assertThatThrownBy(() -> service.accept(principal(), 300L))
-			.isInstanceOf(SelfAcceptanceNotAllowedException.class);
-
-		assertThat(answer.isAccepted()).isFalse();
-		assertThat(question.isResolved()).isFalse();
-		verify(userRepository, never()).findByIdForUpdate(any());
-	}
-
-	@Test
-	void acceptSkipsUserGradeUpdateForAiAnswer() {
-		Answer answer = Answer.createAi(200L, "ai answer");
-		setId(answer, 300L);
-		Question question = Question.create(100L, 42L, "title", "question");
-		setId(question, 200L);
-		when(answerRepository.findById(300L)).thenReturn(Optional.of(answer));
-		when(questionRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(question));
-
-		service.accept(principal(), 300L);
-
-		assertThat(answer.isAccepted()).isTrue();
-		assertThat(question.isResolved()).isTrue();
-		verify(userRepository, never()).findByIdForUpdate(any());
-		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
-		verify(eventPublisher, never()).publishEvent(any(AcceptedHumanAnswerEvent.class));
 	}
 
 	@Test

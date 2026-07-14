@@ -26,7 +26,6 @@ import shinhan.fibri.ieum.main.answer.dto.FinalizeAcceptedAnswersResponse;
 import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.AnswerSelectionFinalizedException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
-import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
 import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
@@ -75,38 +74,6 @@ public class AnswerService {
 			);
 		}
 		return new CreateAnswerResponse(answer.getId());
-	}
-
-	@Transactional(timeout = 30)
-	public void accept(AuthenticatedUser principal, Long answerId) {
-		Answer answer = answerRepository.findById(answerId)
-			.orElseThrow(AnswerNotFoundException::new);
-		Question question = questionRepository.findByIdForUpdate(answer.getQuestionId())
-			.orElseThrow(QuestionNotFoundException::new);
-		if (!question.getAuthorId().equals(principal.userId())) {
-			throw new QuestionForbiddenException();
-		}
-		if (!answer.isAi() && question.getAuthorId().equals(answer.getAuthorId())) {
-			throw new SelfAcceptanceNotAllowedException();
-		}
-		if (question.isResolved()) {
-			throw new QuestionAlreadyResolvedException();
-		}
-
-		answer.accept();
-		question.markResolved();
-		if (!answer.isAi()) {
-			userRepository.findByIdForUpdate(answer.getAuthorId())
-				.ifPresent(User::recordAcceptedAnswer);
-			notificationPublisher.publishDurable(
-				answer.getAuthorId(),
-				NotificationType.question,
-				"답변 채택",
-				"회원님의 답변이 채택됐어요",
-				question.getId()
-			);
-			eventPublisher.publishEvent(new AcceptedHumanAnswerEvent(answer.getId()));
-		}
 	}
 
 	@Transactional(timeout = 30)
