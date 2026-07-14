@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.inquiry.exception.SuspendedUserInquiryRateLimitedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @RestControllerAdvice(assignableTypes = InquiryController.class)
@@ -30,5 +31,12 @@ public class InquiryExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(UserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SuspendedUserInquiryRateLimitedException.class)
+	public ResponseEntity<AuthErrorResponse> handleRateLimited(SuspendedUserInquiryRateLimitedException exception) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+			.header("Retry-After", "60")
+			.body(new AuthErrorResponse("INQUIRY_RATE_LIMITED", exception.getMessage()));
 	}
 }

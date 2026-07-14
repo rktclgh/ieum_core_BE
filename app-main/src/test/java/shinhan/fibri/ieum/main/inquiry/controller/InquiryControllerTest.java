@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -43,6 +44,7 @@ import shinhan.fibri.ieum.main.inquiry.dto.CreateInquiryResponse;
 import shinhan.fibri.ieum.main.inquiry.dto.InquiryItem;
 import shinhan.fibri.ieum.main.inquiry.dto.InquiryListResponse;
 import shinhan.fibri.ieum.main.inquiry.dto.SuspendedUserInquiryRequest;
+import shinhan.fibri.ieum.main.inquiry.service.SuspendedUserInquiryRateLimiter;
 import shinhan.fibri.ieum.main.inquiry.service.InquiryService;
 import shinhan.fibri.ieum.main.inquiry.service.SuspendedUserInquiryService;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -60,10 +62,18 @@ class InquiryControllerTest {
 	@Autowired
 	private SuspendedUserInquiryService suspendedUserInquiryService;
 
+	@Autowired
+	private SuspendedUserInquiryRateLimiter suspendedUserInquiryRateLimiter;
+
+	@BeforeEach
+	void allowSuspendedUserInquiryRateLimit() {
+		when(suspendedUserInquiryRateLimiter.tryAcquire(any())).thenReturn(true);
+	}
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
-		reset(inquiryService, suspendedUserInquiryService);
+		reset(inquiryService, suspendedUserInquiryService, suspendedUserInquiryRateLimiter);
 	}
 
 	@Test
@@ -169,6 +179,26 @@ class InquiryControllerTest {
 		verifyNoInteractions(suspendedUserInquiryService);
 	}
 
+	@Test
+	void rateLimitsSuspendedUserInquiryByClientIp() throws Exception {
+		when(suspendedUserInquiryRateLimiter.tryAcquire("203.0.113.10")).thenReturn(false);
+
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.with(request -> {
+					request.setRemoteAddr("203.0.113.10");
+					return request;
+				})
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"email":"user@example.com","title":"제재 문의","content":"로그인이 안 됩니다."}
+					"""))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(header().string("Retry-After", "60"))
+			.andExpect(jsonPath("$.code", is("INQUIRY_RATE_LIMITED")));
+
+		verifyNoInteractions(suspendedUserInquiryService);
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(
@@ -195,6 +225,12 @@ class InquiryControllerTest {
 		@Primary
 		SuspendedUserInquiryService suspendedUserInquiryService() {
 			return mock(SuspendedUserInquiryService.class);
+		}
+
+		@Bean
+		@Primary
+		SuspendedUserInquiryRateLimiter suspendedUserInquiryRateLimiter() {
+			return mock(SuspendedUserInquiryRateLimiter.class);
 		}
 
 		@Bean
