@@ -20,7 +20,28 @@ class UserSanctionTest {
 		assertThat(sanction.getCreatedBy()).isEqualTo(1L);
 		assertThat(sanction.getEndsAt()).isEqualTo(endsAt);
 		assertThat(sanction.getCreatedAt()).isNotNull();
+		assertThat(sanction.getStartsAt()).isNotNull();
+		assertThat(sanction.getDurationMinutes()).isPositive();
+		assertThat(sanction.getDecisionSource()).isEqualTo(SanctionDecisionSource.admin);
+		assertThat(sanction.getReviewStatus()).isEqualTo(SanctionReviewStatus.not_required);
 		assertThat(sanction.isActive()).isTrue();
+	}
+
+	@Test
+	void aiTemporaryCreatesPendingReviewSanctionLinkedToReport() {
+		OffsetDateTime createdAt = OffsetDateTime.parse("2026-07-09T12:00:00+09:00");
+		OffsetDateTime startsAt = OffsetDateTime.parse("2026-07-10T00:00:00+09:00");
+		OffsetDateTime endsAt = startsAt.plusMinutes(90);
+
+		UserSanction sanction = UserSanction.aiTemporary(10L, 20L, "ai abuse", createdAt, startsAt, endsAt);
+
+		assertThat(sanction.getReportId()).isEqualTo(20L);
+		assertThat(sanction.getDecisionSource()).isEqualTo(SanctionDecisionSource.ai_recommendation);
+		assertThat(sanction.getReviewStatus()).isEqualTo(SanctionReviewStatus.pending_review);
+		assertThat(sanction.getCreatedBy()).isNull();
+		assertThat(sanction.getCreatedAt()).isEqualTo(createdAt);
+		assertThat(sanction.getCreatedAt()).isBefore(sanction.getStartsAt());
+		assertThat(sanction.getDurationMinutes()).isEqualTo(90);
 	}
 
 	@Test
@@ -49,6 +70,8 @@ class UserSanctionTest {
 		assertThat(sanction.isActive()).isFalse();
 		assertThat(sanction.getReleasedAt()).isEqualTo(releasedAt);
 		assertThat(sanction.getReleasedBy()).isEqualTo(2L);
+		assertThat(sanction.getRevokedAt()).isEqualTo(releasedAt);
+		assertThat(sanction.getRevokedBy()).isEqualTo(2L);
 		assertThatThrownBy(() -> sanction.release(releasedAt.plusMinutes(1), 3L))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessage("sanction already released");
