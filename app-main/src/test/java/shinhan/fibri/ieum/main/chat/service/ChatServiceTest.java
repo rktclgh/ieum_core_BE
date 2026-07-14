@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,6 +32,7 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
@@ -39,6 +41,10 @@ import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
+import shinhan.fibri.ieum.main.question.domain.Question;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
+import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 class ChatServiceTest {
@@ -49,6 +55,9 @@ class ChatServiceTest {
 	private final MessageRepository messageRepository = org.mockito.Mockito.mock(MessageRepository.class);
 	private final FriendService friendService = org.mockito.Mockito.mock(FriendService.class);
 	private final MeetingRepository meetingRepository = org.mockito.Mockito.mock(MeetingRepository.class);
+	private final QuestionRepository questionRepository = org.mockito.Mockito.mock(QuestionRepository.class);
+	private final AnswerRepository answerRepository = org.mockito.Mockito.mock(AnswerRepository.class);
+	private final ChatRoomLifecycle chatRoomLifecycle = org.mockito.Mockito.mock(ChatRoomLifecycle.class);
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
 		@Override
 		public TransactionStatus getTransaction(TransactionDefinition definition) {
@@ -70,8 +79,117 @@ class ChatServiceTest {
 		messageRepository,
 		friendService,
 		meetingRepository,
+		questionRepository,
+		answerRepository,
+		chatRoomLifecycle,
 		transactionManager
 	);
+
+	@Test
+	void createQuestionRoomReturnsLifecycleRoomWithoutFriendshipRequirement() {
+		User me = user(42L, "me@example.com", "me");
+		Question question = Question.create(5L, 42L, "title", "content");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L)).thenReturn(Optional.of(question));
+		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+
+		var response = service.createQuestionRoom(principal(42L), 9L, 77L);
+
+		assertThat(response.roomId()).isEqualTo(100L);
+		assertThat(response.roomType()).isEqualTo(RoomType.question);
+		assertThat(response.questionId()).isEqualTo(9L);
+		verify(friendService, never()).areFriends(42L, 77L);
+		verify(chatRoomLifecycle).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
+
+	@Test
+	void createQuestionRoomReturnsSameLifecycleRoomForRepeatedRequest() {
+		User me = user(42L, "me@example.com", "me");
+		Question question = Question.create(5L, 42L, "title", "content");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L)).thenReturn(Optional.of(question));
+		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+
+		var first = service.createQuestionRoom(principal(42L), 9L, 77L);
+		var second = service.createQuestionRoom(principal(42L), 9L, 77L);
+
+		assertThat(first.roomId()).isEqualTo(second.roomId());
+		verify(chatRoomLifecycle, times(2)).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
+
+	@Test
+	void createQuestionRoomRejectsNonAuthorInitiator() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L))
+			.thenReturn(Optional.of(Question.create(5L, 88L, "title", "content")));
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
+			.isInstanceOf(QuestionForbiddenException.class);
+
+		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
+		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
+
+	@Test
+	void createQuestionRoomRejectsTargetWithoutHumanAnswerIncludingAiOnly() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L))
+			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(false);
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
+			.isInstanceOf(QuestionForbiddenException.class);
+
+		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
+
+	@Test
+	void createQuestionRoomRejectsMissingOrDeletedQuestion() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
+			.isInstanceOf(QuestionNotFoundException.class);
+	}
+
+	@Test
+	void createQuestionRoomRejectsSelfTarget() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L))
+			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 42L))
+			.isInstanceOf(SelfChatRoomException.class);
+
+		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 42L);
+	}
+
+	@Test
+	void createQuestionRoomRejectsBlockedPair() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findById(9L))
+			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
+			.isInstanceOf(BlockedChatException.class);
+
+		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
 
 	@Test
 	void createDirectRoomCreatesRoomAndTwoMembersWhenFriendshipIsAccepted() {

@@ -25,6 +25,7 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
+import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
@@ -39,6 +40,10 @@ import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
+import shinhan.fibri.ieum.main.question.domain.Question;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
+import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
+import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
 @Service
@@ -54,6 +59,9 @@ public class ChatService {
 	private final MessageRepository messageRepository;
 	private final FriendService friendService;
 	private final MeetingRepository meetingRepository;
+	private final QuestionRepository questionRepository;
+	private final AnswerRepository answerRepository;
+	private final ChatRoomLifecycle chatRoomLifecycle;
 	private final PlatformTransactionManager transactionManager;
 
 	public ChatRoomResponse createDirectRoom(AuthenticatedUser principal, Long friendId) {
@@ -89,6 +97,33 @@ public class ChatService {
 		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
 			.orElseGet(() -> insertDirectRoom(currentUser, friend));
 		restoreDirectMembers(room, currentUser, friend);
+		return ChatRoomResponse.from(room);
+	}
+
+	public ChatRoomResponse createQuestionRoom(
+		AuthenticatedUser principal,
+		Long questionId,
+		Long targetUserId
+	) {
+		User currentUser = findActiveUser(principal.userId());
+		Question question = questionRepository.findById(questionId)
+			.orElseThrow(QuestionNotFoundException::new);
+		if (!question.getAuthorId().equals(currentUser.getId())) {
+			throw new QuestionForbiddenException();
+		}
+		if (currentUser.getId().equals(targetUserId)) {
+			throw new SelfChatRoomException();
+		}
+		if (!answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(questionId, targetUserId)) {
+			throw new QuestionForbiddenException();
+		}
+		if (friendService.hasBlockBetween(currentUser.getId(), targetUserId)) {
+			throw new BlockedChatException();
+		}
+
+		Long roomId = chatRoomLifecycle.getOrCreateQuestionRoom(questionId, currentUser.getId(), targetUserId);
+		ChatRoom room = chatRoomRepository.findById(roomId)
+			.orElseThrow(ChatRoomNotFoundException::new);
 		return ChatRoomResponse.from(room);
 	}
 
