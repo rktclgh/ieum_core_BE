@@ -19,6 +19,7 @@ import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.context.ApplicationEventPublisher;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.auth.domain.UserGrade;
@@ -35,6 +36,7 @@ import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
+import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -52,13 +54,15 @@ class AnswerServiceTest {
 	private final FileRepository fileRepository = mock(FileRepository.class);
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
+	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
 	private final AnswerService service = new AnswerService(
 		questionRepository,
 		answerRepository,
 		answerImageRepository,
 		fileRepository,
 		userRepository,
-		notificationPublisher
+		notificationPublisher,
+		eventPublisher
 	);
 
 	@Test
@@ -280,6 +284,7 @@ class AnswerServiceTest {
 			"회원님의 답변이 채택됐어요",
 			200L
 		);
+		verify(eventPublisher).publishEvent(new AcceptedHumanAnswerEvent(300L));
 	}
 
 	@Test
@@ -357,6 +362,7 @@ class AnswerServiceTest {
 		assertThat(question.isResolved()).isTrue();
 		verify(userRepository, never()).findByIdForUpdate(any());
 		verify(notificationPublisher, never()).publishDurable(any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any(AcceptedHumanAnswerEvent.class));
 	}
 
 	private AuthenticatedUser principal() {

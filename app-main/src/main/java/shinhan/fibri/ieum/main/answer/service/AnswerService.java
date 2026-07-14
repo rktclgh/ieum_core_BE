@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -23,6 +24,7 @@ import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.answer.exception.InvalidAnswerRequestException;
 import shinhan.fibri.ieum.main.answer.exception.QuestionAlreadyResolvedException;
 import shinhan.fibri.ieum.main.answer.exception.SelfAcceptanceNotAllowedException;
+import shinhan.fibri.ieum.main.answer.event.AcceptedHumanAnswerEvent;
 import shinhan.fibri.ieum.main.answer.repository.AnswerImageRepository;
 import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -42,6 +44,7 @@ public class AnswerService {
 	private final FileRepository fileRepository;
 	private final UserRepository userRepository;
 	private final NotificationPublisher notificationPublisher;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional(timeout = 30)
 	public CreateAnswerResponse create(AuthenticatedUser principal, Long questionId, CreateAnswerRequest request) {
@@ -98,6 +101,7 @@ public class AnswerService {
 				"회원님의 답변이 채택됐어요",
 				question.getId()
 			);
+			eventPublisher.publishEvent(new AcceptedHumanAnswerEvent(answer.getId()));
 		}
 	}
 
