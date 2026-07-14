@@ -60,6 +60,19 @@ class CsrfDoubleSubmitFilterTest {
 	}
 
 	@Test
+	void doFilterSkipsSuspendedUserInquiryBootstrapEndpoint() throws Exception {
+		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
+		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/inquiries/suspended-users");
+		request.setServletPath("/api/v1/inquiries/suspended-users");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilter(request, response, chain);
+
+		verify(chain).doFilter(request, response);
+	}
+
+	@Test
 	void doFilterSkipsSocialAuthBootstrapEndpoint() throws Exception {
 		CsrfDoubleSubmitFilter filter = new CsrfDoubleSubmitFilter();
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/social");

@@ -62,6 +62,20 @@ public class Inquiry {
 		return new Inquiry(userId, title, content);
 	}
 
+	public void answer(String answer, Long answeredBy, OffsetDateTime answeredAt) {
+		if (isAnswered()) {
+			throw new IllegalStateException("inquiry is already answered");
+		}
+		this.answer = Objects.requireNonNull(answer, "answer must not be null");
+		this.answeredBy = Objects.requireNonNull(answeredBy, "answeredBy must not be null");
+		this.answeredAt = Objects.requireNonNull(answeredAt, "answeredAt must not be null");
+		this.status = InquiryStatus.answered;
+	}
+
+	public boolean isAnswered() {
+		return status == InquiryStatus.answered;
+	}
+
 	public Long getId() {
 		return id;
 	}

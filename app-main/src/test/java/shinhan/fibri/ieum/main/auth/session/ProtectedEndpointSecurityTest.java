@@ -145,6 +145,15 @@ class ProtectedEndpointSecurityTest {
 	}
 
 	@Test
+	void suspendedUserInquiryAllowsAnonymousRequestWithoutCsrfToken() throws Exception {
+		mockMvc.perform(post("/api/v1/inquiries/suspended-users")
+				.contentType("application/json")
+				.content("{}"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
+	}
+
+	@Test
 	void adminLoginEndpointDoesNotExist() throws Exception {
 		when(sessionTokenValidator.validate("admin-token"))
 			.thenReturn(Optional.of(new AuthenticatedUser(
