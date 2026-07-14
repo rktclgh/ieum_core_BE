@@ -1,9 +1,9 @@
 package shinhan.fibri.ieum.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -13,14 +13,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +37,53 @@ class GlobalExceptionHandlerTest {
 
 	@Autowired
 	private MockMvc mockMvc;
+
+	@Test
+	void unknownFrontendGetReturnsNextHtmlWithNotFoundStatus() throws Exception {
+		mockMvc.perform(get("/unknown/frontend/path"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+			.andExpect(content().string(containsString("NEXT_STATIC_404")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+		"/apiary/unknown",
+		"/swagger-ui.html.evil",
+		"/v3/api-docs.yaml.evil"
+	})
+	void backendLikePrefixWithoutPathBoundaryStillUsesFrontendHtml404(String path) throws Exception {
+		mockMvc.perform(get(path))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+			.andExpect(content().string(containsString("NEXT_STATIC_404")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+		"/api/unknown",
+		"/ws/unknown",
+		"/actuator/unknown",
+		"/swagger-ui/unknown",
+		"/swagger-ui.html",
+		"/v3/api-docs/unknown",
+		"/v3/api-docs.yaml"
+	})
+	void unknownBackendOrOperationsGetKeepsJsonNotFoundContract(String path) throws Exception {
+		mockMvc.perform(get(path))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.code", is("NOT_FOUND")))
+			.andExpect(jsonPath("$.message", is("Resource not found")));
+	}
+
+	@Test
+	void backendPathBehindContextPathKeepsJsonNotFoundContract() throws Exception {
+		mockMvc.perform(get("/ieum/api/unknown").contextPath("/ieum"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.code", is("NOT_FOUND")));
+	}
 
 	@Test
 	void unexpectedExceptionReturnsGenericJsonInternalServerError(CapturedOutput output) throws Exception {
