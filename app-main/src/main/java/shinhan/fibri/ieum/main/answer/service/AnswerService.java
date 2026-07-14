@@ -202,6 +202,11 @@ public class AnswerService {
 		if (answerIds == null || answerIds.isEmpty()) {
 			throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "answerIds is required");
 		}
+		for (Long answerId : answerIds) {
+			if (answerId == null || answerId <= 0) {
+				throw new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "Invalid answerIds");
+			}
+		}
 		List<Long> normalized = answerIds.stream()
 			.sorted()
 			.distinct()

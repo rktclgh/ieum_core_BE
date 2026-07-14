@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -486,6 +487,66 @@ class AnswerServiceTest {
 			.hasMessage("Duplicate answerIds");
 
 		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsNullIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(Collections.singletonList(null))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsZeroIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(0L))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
+		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
+		verify(userRepository, never()).findByIdForUpdate(any());
+		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
+		verify(eventPublisher, never()).publishEvent(any());
+	}
+
+	@Test
+	void finalizeSelectionRejectsNegativeIdBeforeRepositoryInteractions() {
+		assertThatThrownBy(() -> service.finalizeSelection(
+			principal(),
+			200L,
+			new FinalizeAcceptedAnswersRequest(List.of(-1L))
+		)).isInstanceOfSatisfying(InvalidAnswerRequestException.class, exception -> {
+			assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+			assertThat(exception.field()).isEqualTo("answerIds");
+			assertThat(exception).hasMessage("Invalid answerIds");
+		});
+
+		verify(questionRepository, never()).findByIdForUpdate(any());
+		verify(answerRepository, never()).findAcceptedIdsByQuestionIdOrderByIdAsc(any());
 		verify(answerRepository, never()).findAllByQuestionIdAndIdInForUpdate(any(), any());
 		verify(userRepository, never()).findByIdForUpdate(any());
 		verify(notificationPublisher, never()).publishDurableOnce(any(), any(), any(), any(), any(), any(), any());
