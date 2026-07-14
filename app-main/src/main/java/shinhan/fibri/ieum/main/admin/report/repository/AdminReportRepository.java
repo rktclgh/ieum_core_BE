@@ -200,6 +200,123 @@ public class AdminReportRepository {
 		));
 	}
 
+	public Optional<AdminReportDecisionTargetRow> findDecisionTarget(Long reportId) {
+		String sql = "SELECT reported_user_id FROM reports WHERE report_id = :reportId";
+		return jdbcTemplate.query(sql, Map.of("reportId", reportId), (rs, rowNumber) ->
+			new AdminReportDecisionTargetRow(longObject(rs.getObject("reported_user_id")))
+		).stream().findFirst();
+	}
+
+	public boolean lockUserForDecision(Long userId) {
+		String sql = "SELECT user_id FROM users WHERE user_id = :userId FOR UPDATE";
+		return !jdbcTemplate.queryForList(sql, Map.of("userId", userId), Long.class).isEmpty();
+	}
+
+	public Optional<AdminReportLockedRow> lockReportForDecision(Long reportId) {
+		String sql = """
+			SELECT reported_user_id, CAST(status AS varchar) AS status, resolved_by, resolved_at
+			FROM reports
+			WHERE report_id = :reportId
+			FOR UPDATE
+			""";
+		return jdbcTemplate.query(sql, Map.of("reportId", reportId), (rs, rowNumber) -> new AdminReportLockedRow(
+			longObject(rs.getObject("reported_user_id")),
+			rs.getString("status"),
+			longObject(rs.getObject("resolved_by")),
+			rs.getObject("resolved_at", OffsetDateTime.class)
+		)).stream().findFirst();
+	}
+
+	public int resolveReport(Long reportId, String status, Long adminId, OffsetDateTime resolvedAt) {
+		String sql = """
+			UPDATE reports
+			SET status = CAST(:status AS report_status),
+			    resolved_by = :adminId,
+			    resolved_at = :resolvedAt,
+			    ai_review_state = CASE
+			        WHEN ai_review_state IN ('pending', 'processing', 'retry') THEN 'cancelled'::ai_job_status
+			        ELSE ai_review_state
+			    END,
+			    ai_review_attempt_id = CASE
+			        WHEN ai_review_state IN ('pending', 'processing', 'retry') THEN NULL
+			        ELSE ai_review_attempt_id
+			    END,
+			    ai_next_attempt_at = CASE
+			        WHEN ai_review_state IN ('pending', 'processing', 'retry') THEN NULL
+			        ELSE ai_next_attempt_at
+			    END,
+			    ai_lease_until = CASE
+			        WHEN ai_review_state IN ('pending', 'processing', 'retry') THEN NULL
+			        ELSE ai_lease_until
+			    END,
+			    ai_locked_by = CASE
+			        WHEN ai_review_state IN ('pending', 'processing', 'retry') THEN NULL
+			        ELSE ai_locked_by
+			    END
+			WHERE report_id = :reportId
+			  AND status IN ('pending', 'ai_reviewed')
+			""";
+		MapSqlParameterSource params = new MapSqlParameterSource()
+			.addValue("reportId", reportId, Types.BIGINT)
+			.addValue("status", status, Types.VARCHAR)
+			.addValue("adminId", adminId, Types.BIGINT)
+			.addValue("resolvedAt", resolvedAt, Types.TIMESTAMP_WITH_TIMEZONE);
+		return jdbcTemplate.update(sql, params);
+	}
+
+	public int cancelActiveAiWork(Long reportId) {
+		String sql = """
+			UPDATE reports
+			SET ai_review_state = 'cancelled',
+			    ai_review_attempt_id = NULL,
+			    ai_next_attempt_at = NULL,
+			    ai_lease_until = NULL,
+			    ai_locked_by = NULL
+			WHERE report_id = :reportId
+			  AND ai_review_state IN ('pending', 'processing', 'retry')
+			""";
+		return jdbcTemplate.update(sql, Map.of("reportId", reportId));
+	}
+
+	public int releaseLinkedAiSanctions(
+		Long reportId,
+		Long userId,
+		Long releasedBy,
+		OffsetDateTime releasedAt
+	) {
+		String sql = """
+			UPDATE user_sanctions
+			SET released_at = :releasedAt,
+			    released_by = :releasedBy
+			WHERE report_id = :reportId
+			  AND user_id = :userId
+			  AND decision_source = 'ai_recommendation'
+			  AND released_at IS NULL
+			""";
+		MapSqlParameterSource params = new MapSqlParameterSource()
+			.addValue("reportId", reportId, Types.BIGINT)
+			.addValue("userId", userId, Types.BIGINT)
+			.addValue("releasedBy", releasedBy, Types.BIGINT)
+			.addValue("releasedAt", releasedAt, Types.TIMESTAMP_WITH_TIMEZONE);
+		return jdbcTemplate.update(sql, params);
+	}
+
+	public boolean hasActiveSanctions(Long userId) {
+		Long count = jdbcTemplate.queryForObject(
+			"SELECT COUNT(*) FROM user_sanctions WHERE user_id = :userId AND released_at IS NULL",
+			Map.of("userId", userId),
+			Long.class
+		);
+		return count != null && count > 0;
+	}
+
+	public int activateUser(Long userId) {
+		return jdbcTemplate.update(
+			"UPDATE users SET status = 'active' WHERE user_id = :userId AND status = 'suspended'",
+			Map.of("userId", userId)
+		);
+	}
+
 	private static Long longObject(Object value) {
 		return value == null ? null : ((Number) value).longValue();
 	}
@@ -269,6 +386,17 @@ public class AdminReportRepository {
 		Long releasedById,
 		String releasedByNickname,
 		OffsetDateTime createdAt
+	) {
+	}
+
+	public record AdminReportDecisionTargetRow(Long reportedUserId) {
+	}
+
+	public record AdminReportLockedRow(
+		Long reportedUserId,
+		String status,
+		Long resolvedBy,
+		OffsetDateTime resolvedAt
 	) {
 	}
 }
