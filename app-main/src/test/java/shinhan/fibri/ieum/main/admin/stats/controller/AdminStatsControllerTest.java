@@ -142,7 +142,9 @@ class AdminStatsControllerTest {
 				.param("from", "2026/07/01"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
-			.andExpect(jsonPath("$.fieldErrors[0].field", is("from")));
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("from")))
+			// 스프링 내부 변환 메시지 대신 정제된 메시지로 응답해야 한다
+			.andExpect(jsonPath("$.fieldErrors[0].message", is("Invalid value")));
 	}
 
 	private static RequestPostProcessor admin() {

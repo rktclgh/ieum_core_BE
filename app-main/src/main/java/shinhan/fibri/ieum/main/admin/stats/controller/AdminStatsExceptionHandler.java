@@ -72,7 +72,9 @@ public class AdminStatsExceptionHandler {
 			.stream()
 			.map(fieldError -> new AuthErrorResponse.FieldError(
 				fieldError.getField(),
-				fieldError.getDefaultMessage()
+				// 타입 불일치(typeMismatch)는 스프링 내부 변환 메시지가 그대로 노출되므로
+				// 다른 경로(MethodArgumentTypeMismatchException)와 동일한 정제 메시지로 통일한다.
+				fieldError.isBindingFailure() ? "Invalid value" : fieldError.getDefaultMessage()
 			))
 			.toList();
 		List<AuthErrorResponse.FieldError> globalErrors = exception.getBindingResult()
