@@ -51,7 +51,7 @@ main_workflow=.github/workflows/deploy-app-main.yml
 ai_workflow=.github/workflows/deploy-app-ai.yml
 
 grep -Fq 'types: ["frontend-updated"]' "$main_workflow"
-grep -Fq 'rktclgh/Vivisa_Plus_FE' "$main_workflow"
+grep -Fq 'rktclgh/ieum_FE' "$main_workflow"
 grep -Fq 'ref: main' "$main_workflow"
 grep -Fq '[[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]' "$main_workflow"
 grep -Fq '[[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]' "$main_workflow"
@@ -74,7 +74,7 @@ grep -Fq '54.116.69.21' deploy/GITHUB-CONFIG.md
 grep -Fq '[[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]' "$ai_workflow"
 grep -Fq 'cancel-in-progress: false' "$ai_workflow"
 forbid_literal 'repository_dispatch:' "$ai_workflow"
-forbid_literal 'Vivisa_Plus_FE' "$ai_workflow"
+forbid_literal 'ieum_FE' "$ai_workflow"
 forbid_literal 'vars.APP_AI_PORT' "$ai_workflow"
 
 grep -Fq 'StrictHostKeyChecking=yes' "$main_workflow"

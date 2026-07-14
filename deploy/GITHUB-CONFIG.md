@@ -16,7 +16,7 @@ Repository secrets:
 
 Repository secrets:
 
-- `CI_GITHUB_TOKEN`: token that can read `rktclgh/Vivisa_Plus_FE` when the
+- `CI_GITHUB_TOKEN`: token that can read `rktclgh/ieum_FE` when the
   frontend repository is private.
 - `DOCKERHUB_USERNAME`: Docker Hub account or organization name.
 - `DOCKERHUB_TOKEN`: Docker Hub access token with read/write permission.

@@ -47,7 +47,7 @@ jobs:
       - name: Check out frontend
         uses: actions/checkout@v4
         with:
-          repository: rktclgh/Vivisa_Plus_FE
+          repository: rktclgh/ieum_FE
           ref: main
           path: frontend
           token: ${{ secrets.CI_GITHUB_TOKEN }}
@@ -66,7 +66,7 @@ jobs:
           FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
         run: |
           if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
-            [[ "$DISPATCH_REPO" == "rktclgh/Vivisa_Plus_FE" ]]
+            [[ "$DISPATCH_REPO" == "rktclgh/ieum_FE" ]]
             [[ "$DISPATCH_REF" == "refs/heads/main" ]]
             [[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]
           fi
@@ -131,7 +131,7 @@ jobs:
           latest_frontend_sha="$(curl --fail-with-body --silent --show-error \
             --header "Authorization: Bearer $CI_GITHUB_TOKEN" \
             --header "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/rktclgh/Vivisa_Plus_FE/commits/main \
+            https://api.github.com/repos/rktclgh/ieum_FE/commits/main \
             | jq -r '.sha')"
           [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
 
