@@ -1,5 +1,10 @@
 -- ============================================================
--- FiBri Schema v19
+-- FiBri Schema v20
+-- v19 대비 변경:
+--   [21] 채택 답변 지식 적격성 잠금:
+--        question → pin → answer 순서로 active/accepted human-answer 상태를 잠근다.
+--        SECURITY DEFINER 함수는 pg_catalog search_path와 완전 수식 객체를 사용한다.
+--        기존 DB 증분: db/migrations/v20_accepted_answer_eligibility_lock.sql
 -- v18 대비 변경:
 --   [20] 지식 원천 import lifecycle:
 --        retry 상태 컬럼, active logical external-ref unique, active location GiST index.
@@ -275,6 +280,57 @@ CREATE INDEX idx_answers_question ON answers(question_id);
 CREATE INDEX idx_answers_author ON answers(author_id);
 CREATE UNIQUE INDEX uidx_accepted_answer ON answers(question_id) WHERE is_accepted;
 CREATE UNIQUE INDEX uidx_one_ai_answer_per_question ON answers(question_id) WHERE is_ai;
+
+-- accepted-answer knowledge final persist TX에서 호출한다.
+-- app-main의 채택/삭제 흐름과 같은 question → pin → answer 순서로 잠근다.
+CREATE FUNCTION public.ai_lock_eligible_accepted_answer(p_answer_id BIGINT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+    v_question_id BIGINT;
+    v_pin_id BIGINT;
+BEGIN
+    SELECT q.question_id, q.pin_id
+      INTO v_question_id, v_pin_id
+      FROM public.questions q
+     WHERE q.question_id = (
+               SELECT candidate.question_id
+                 FROM public.answers candidate
+                WHERE candidate.answer_id = p_answer_id
+           )
+       AND q.deleted_at IS NULL
+       FOR SHARE OF q;
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    PERFORM 1
+      FROM public.pins p
+     WHERE p.pin_id = v_pin_id
+       AND p.deleted_at IS NULL
+       AND p.pin_type = 'question'::public.pin_type
+       FOR SHARE OF p;
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    PERFORM 1
+      FROM public.answers a
+     WHERE a.answer_id = p_answer_id
+       AND a.question_id = v_question_id
+       AND a.is_accepted
+       AND NOT a.is_ai
+       AND a.author_id IS NOT NULL
+       FOR SHARE OF a;
+
+    RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_lock_eligible_accepted_answer(BIGINT) FROM PUBLIC;
 
 -- ieum_ai role에는 domain table row lock 대신 이 함수 EXECUTE만 허용한다.
 -- checkpoint/final persist TX 안에서 호출하며, question과 pin이 모두 active일 때만 잠근다.
