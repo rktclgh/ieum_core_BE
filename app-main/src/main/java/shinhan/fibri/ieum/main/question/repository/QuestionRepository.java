@@ -104,6 +104,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
 			       u.user_id AS authorId,
 			       u.nickname AS authorNickname,
 			       u.profile_file_id AS authorProfileFileId,
+			       u.nationality AS authorNationality,
 			       a.content AS content,
 			       a.is_accepted AS accepted,
 			       a.created_at AS createdAt

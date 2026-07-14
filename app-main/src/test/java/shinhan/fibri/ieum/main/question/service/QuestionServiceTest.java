@@ -183,6 +183,7 @@ class QuestionServiceTest {
 				77L,
 				"answerer",
 				answerAuthorProfileId,
+				"KR",
 				"human answer",
 				true,
 				Instant.parse("2026-07-08T10:00:00Z")
@@ -190,6 +191,7 @@ class QuestionServiceTest {
 			new AnswerProjection(
 				301L,
 				true,
+				null,
 				null,
 				null,
 				null,
@@ -214,6 +216,7 @@ class QuestionServiceTest {
 		assertThat(humanAnswer.author().userId()).isEqualTo(77L);
 		assertThat(humanAnswer.author().nickname()).isEqualTo("answerer");
 		assertThat(humanAnswer.author().profileImageUrl()).isEqualTo("/api/v1/files/%s".formatted(answerAuthorProfileId));
+		assertThat(humanAnswer.author().nationality()).isEqualTo("KR");
 		assertThat(humanAnswer.content()).isEqualTo("human answer");
 		assertThat(humanAnswer.isAccepted()).isTrue();
 		assertThat(humanAnswer.imageUrls()).containsExactly(
@@ -554,6 +557,7 @@ class QuestionServiceTest {
 		private final Long authorId;
 		private final String authorNickname;
 		private final UUID authorProfileFileId;
+		private final String authorNationality;
 		private final String content;
 		private final boolean accepted;
 		private final Instant createdAt;
@@ -564,6 +568,7 @@ class QuestionServiceTest {
 			Long authorId,
 			String authorNickname,
 			UUID authorProfileFileId,
+			String authorNationality,
 			String content,
 			boolean accepted,
 			Instant createdAt
@@ -573,6 +578,7 @@ class QuestionServiceTest {
 			this.authorId = authorId;
 			this.authorNickname = authorNickname;
 			this.authorProfileFileId = authorProfileFileId;
+			this.authorNationality = authorNationality;
 			this.content = content;
 			this.accepted = accepted;
 			this.createdAt = createdAt;
@@ -601,6 +607,11 @@ class QuestionServiceTest {
 		@Override
 		public UUID getAuthorProfileFileId() {
 			return authorProfileFileId;
+		}
+
+		@Override
+		public String getAuthorNationality() {
+			return authorNationality;
 		}
 
 		@Override

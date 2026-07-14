@@ -243,7 +243,7 @@ public class QuestionService {
 			answer.getAuthorId(),
 			answer.getAuthorNickname(),
 			profileUrl(answer.getAuthorProfileFileId()),
-			null
+			answer.getAuthorNationality()
 		);
 	}
 
