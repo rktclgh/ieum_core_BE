@@ -52,7 +52,7 @@ public class AdminStatsQueryService {
 	public ContentStatsResponse getContentStats(StatsRangeRequest request) {
 		ResolvedRange range = resolveRange(request);
 		AnswerStatsRow answerStats = repository.getAnswerStats(range.fromTs(), range.toTs());
-		double acceptedRate = answerStats.total() == 0 ? 0.0 : (double)answerStats.accepted() / answerStats.total();
+		double acceptedRate = answerStats.userTotal() == 0 ? 0.0 : (double)answerStats.accepted() / answerStats.userTotal();
 		return new ContentStatsResponse(
 			range.from(),
 			range.to(),

@@ -79,7 +79,8 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		assertThat(repository.countQuestions(FROM, TO)).isEqualTo(1);
 		assertThat(repository.countMeetings(FROM, TO)).isEqualTo(1);
 		assertThat(repository.countMessages(FROM, TO)).isEqualTo(1);
-		assertThat(answerStats.total()).isEqualTo(2);
+		assertThat(answerStats.total()).isEqualTo(3);
+		assertThat(answerStats.userTotal()).isEqualTo(2);
 		assertThat(answerStats.accepted()).isEqualTo(1);
 	}
 
@@ -128,6 +129,7 @@ class AdminStatsQueryRepositoryIntegrationTest {
 		insertAnswer(1, 1, 2, true, "2026-07-02T10:00:00+09:00");
 		insertAnswer(2, 1, 3, false, "2026-07-03T10:00:00+09:00");
 		insertAnswer(3, 1, 2, false, "2026-08-01T00:00:00+09:00");
+		insertAiAnswer(4, 1, "2026-07-04T10:00:00+09:00");
 
 		jdbcTemplate.update("""
 			INSERT INTO reports(
@@ -216,5 +218,12 @@ class AdminStatsQueryRepositoryIntegrationTest {
 			INSERT INTO answers(answer_id, question_id, author_id, is_ai, content, is_accepted, created_at)
 			VALUES (?, ?, ?, false, 'answer', ?, ?::timestamptz)
 			""", answerId, questionId, authorId, accepted, createdAt);
+	}
+
+	private void insertAiAnswer(long answerId, long questionId, String createdAt) {
+		jdbcTemplate.update("""
+			INSERT INTO answers(answer_id, question_id, author_id, is_ai, content, is_accepted, created_at)
+			VALUES (?, ?, NULL, true, 'ai answer', false, ?::timestamptz)
+			""", answerId, questionId, createdAt);
 	}
 }

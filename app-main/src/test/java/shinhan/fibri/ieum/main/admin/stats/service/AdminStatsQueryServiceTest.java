@@ -83,11 +83,11 @@ class AdminStatsQueryServiceTest {
 	}
 
 	@Test
-	void contentStatsCalculateAcceptedRateAndZeroWhenThereAreNoAnswers() {
+	void contentStatsCalculateUserAnswerAcceptedRateAndZeroWhenThereAreNoUserAnswers() {
 		when(repository.countPins(FROM_TS, TO_TS)).thenReturn(10L);
 		when(repository.countQuestions(FROM_TS, TO_TS)).thenReturn(4L);
 		when(repository.countMeetings(FROM_TS, TO_TS)).thenReturn(3L);
-		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(4L, 1L));
+		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(12L, 10L, 5L));
 		when(repository.countMessages(FROM_TS, TO_TS)).thenReturn(12L);
 
 		ContentStatsResponse response = service.getContentStats(new StatsRangeRequest(
@@ -98,11 +98,11 @@ class AdminStatsQueryServiceTest {
 		assertThat(response.pinCount()).isEqualTo(10);
 		assertThat(response.questionCount()).isEqualTo(4);
 		assertThat(response.meetingCount()).isEqualTo(3);
-		assertThat(response.answerCount()).isEqualTo(4);
-		assertThat(response.acceptedRate()).isEqualTo(0.25);
+		assertThat(response.answerCount()).isEqualTo(12);
+		assertThat(response.acceptedRate()).isEqualTo(0.5);
 		assertThat(response.messageCount()).isEqualTo(12);
 
-		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(0L, 0L));
+		when(repository.getAnswerStats(FROM_TS, TO_TS)).thenReturn(new AnswerStatsRow(2L, 0L, 0L));
 		assertThat(service.getContentStats(new StatsRangeRequest(
 			LocalDate.of(2026, 7, 1),
 			LocalDate.of(2026, 7, 31)

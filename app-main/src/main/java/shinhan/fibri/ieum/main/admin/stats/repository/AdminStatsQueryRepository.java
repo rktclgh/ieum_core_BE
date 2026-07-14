@@ -66,12 +66,14 @@ public class AdminStatsQueryRepository {
 	public AnswerStatsRow getAnswerStats(OffsetDateTime from, OffsetDateTime to) {
 		String sql = """
 			SELECT COUNT(*) AS total,
-			       COUNT(*) FILTER (WHERE is_accepted) AS accepted
+			       COUNT(*) FILTER (WHERE NOT is_ai) AS user_total,
+			       COUNT(*) FILTER (WHERE NOT is_ai AND is_accepted) AS accepted
 			FROM answers
 			WHERE created_at >= :from AND created_at < :to
 			""";
 		return jdbcTemplate.queryForObject(sql, rangeParams(from, to), (rs, rowNum) -> new AnswerStatsRow(
 			rs.getLong("total"),
+			rs.getLong("user_total"),
 			rs.getLong("accepted")
 		));
 	}
@@ -120,7 +122,7 @@ public class AdminStatsQueryRepository {
 			.addValue("to", to, Types.TIMESTAMP_WITH_TIMEZONE);
 	}
 
-	public record AnswerStatsRow(long total, long accepted) {
+	public record AnswerStatsRow(long total, long userTotal, long accepted) {
 	}
 
 	public record ReportStatsRow(
