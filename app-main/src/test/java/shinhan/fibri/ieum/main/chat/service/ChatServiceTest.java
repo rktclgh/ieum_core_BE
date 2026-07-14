@@ -18,6 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
@@ -91,7 +92,8 @@ class ChatServiceTest {
 		Question question = Question.create(5L, 42L, "title", "content");
 		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L)).thenReturn(Optional.of(question));
+		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
 		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
 		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
@@ -107,12 +109,13 @@ class ChatServiceTest {
 	}
 
 	@Test
-	void createQuestionRoomReturnsSameLifecycleRoomForRepeatedRequest() {
+	void createQuestionRoomDelegatesRepeatedRequestsToLifecycle() {
 		User me = user(42L, "me@example.com", "me");
 		Question question = Question.create(5L, 42L, "title", "content");
 		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L)).thenReturn(Optional.of(question));
+		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
 		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
 		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
@@ -126,10 +129,24 @@ class ChatServiceTest {
 	}
 
 	@Test
+	void createQuestionRoomUsesTransactionalSharedQuestionLookup() throws NoSuchMethodException {
+		var method = ChatService.class.getDeclaredMethod(
+			"createQuestionRoom",
+			AuthenticatedUser.class,
+			Long.class,
+			Long.class
+		);
+		var transactional = method.getAnnotation(Transactional.class);
+
+		assertThat(transactional).isNotNull();
+		assertThat(transactional.readOnly()).isFalse();
+	}
+
+	@Test
 	void createQuestionRoomRejectsNonAuthorInitiator() {
 		User me = user(42L, "me@example.com", "me");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L))
+		when(questionRepository.findActiveByIdForShare(9L))
 			.thenReturn(Optional.of(Question.create(5L, 88L, "title", "content")));
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
@@ -143,8 +160,9 @@ class ChatServiceTest {
 	void createQuestionRoomRejectsTargetWithoutHumanAnswerIncludingAiOnly() {
 		User me = user(42L, "me@example.com", "me");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L))
+		when(questionRepository.findActiveByIdForShare(9L))
 			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
 		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(false);
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
@@ -157,7 +175,7 @@ class ChatServiceTest {
 	void createQuestionRoomRejectsMissingOrDeletedQuestion() {
 		User me = user(42L, "me@example.com", "me");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L)).thenReturn(Optional.empty());
+		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
 			.isInstanceOf(QuestionNotFoundException.class);
@@ -167,7 +185,7 @@ class ChatServiceTest {
 	void createQuestionRoomRejectsSelfTarget() {
 		User me = user(42L, "me@example.com", "me");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L))
+		when(questionRepository.findActiveByIdForShare(9L))
 			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 42L))
@@ -177,11 +195,27 @@ class ChatServiceTest {
 	}
 
 	@Test
+	void createQuestionRoomRejectsMissingOrDeletedTargetUser() {
+		User me = user(42L, "me@example.com", "me");
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
+		when(questionRepository.findActiveByIdForShare(9L))
+			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
+			.isInstanceOf(UserNotFoundException.class);
+
+		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
+		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+	}
+
+	@Test
 	void createQuestionRoomRejectsBlockedPair() {
 		User me = user(42L, "me@example.com", "me");
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findById(9L))
+		when(questionRepository.findActiveByIdForShare(9L))
 			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
 		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(true);
 

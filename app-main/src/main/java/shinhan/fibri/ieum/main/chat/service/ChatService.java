@@ -100,13 +100,14 @@ public class ChatService {
 		return ChatRoomResponse.from(room);
 	}
 
+	@Transactional
 	public ChatRoomResponse createQuestionRoom(
 		AuthenticatedUser principal,
 		Long questionId,
 		Long targetUserId
 	) {
 		User currentUser = findActiveUser(principal.userId());
-		Question question = questionRepository.findById(questionId)
+		Question question = questionRepository.findActiveByIdForShare(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
 		if (!question.getAuthorId().equals(currentUser.getId())) {
 			throw new QuestionForbiddenException();
@@ -114,14 +115,15 @@ public class ChatService {
 		if (currentUser.getId().equals(targetUserId)) {
 			throw new SelfChatRoomException();
 		}
-		if (!answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(questionId, targetUserId)) {
+		User targetUser = findActiveUser(targetUserId);
+		if (!answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(questionId, targetUser.getId())) {
 			throw new QuestionForbiddenException();
 		}
-		if (friendService.hasBlockBetween(currentUser.getId(), targetUserId)) {
+		if (friendService.hasBlockBetween(currentUser.getId(), targetUser.getId())) {
 			throw new BlockedChatException();
 		}
 
-		Long roomId = chatRoomLifecycle.getOrCreateQuestionRoom(questionId, currentUser.getId(), targetUserId);
+		Long roomId = chatRoomLifecycle.getOrCreateQuestionRoom(questionId, currentUser.getId(), targetUser.getId());
 		ChatRoom room = chatRoomRepository.findById(roomId)
 			.orElseThrow(ChatRoomNotFoundException::new);
 		return ChatRoomResponse.from(room);
