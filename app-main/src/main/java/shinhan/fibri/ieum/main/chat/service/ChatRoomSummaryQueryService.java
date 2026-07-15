@@ -1,14 +1,13 @@
 package shinhan.fibri.ieum.main.chat.service;
 
-import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,12 +69,11 @@ public class ChatRoomSummaryQueryService {
 	}
 
 	@Transactional(propagation = Propagation.MANDATORY)
-	public Map<Long, ChatRoomSummaryResponse> findActiveForRoomAndUsers(Long roomId, Collection<Long> userIds) {
-		List<Long> requestedUserIds = normalizeUserIds(userIds);
-		if (requestedUserIds.isEmpty()) {
+	public Map<Long, ChatRoomSummaryResponse> findActiveForRoomAndUsers(Long roomId, List<Long> userIds) {
+		if (userIds == null || userIds.isEmpty()) {
 			return Map.of();
 		}
-		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIdsForUpdate(roomId, requestedUserIds);
+		List<ChatMember> members = chatMemberRepository.findActiveByRoomIdAndUserIds(roomId, userIds);
 		if (members.isEmpty()) {
 			return Map.of();
 		}
@@ -88,7 +86,7 @@ public class ChatRoomSummaryQueryService {
 				MessageRepository.UserUnreadCount::getUserId,
 				MessageRepository.UserUnreadCount::getUnreadCount
 			));
-		Message lastMessage = messageRepository.findLastMessagesByRoomIds(List.of(roomId))
+		Message lastMessage = messageRepository.findLatestMessagesByRoomId(roomId, PageRequest.of(0, 1))
 			.stream()
 			.findFirst()
 			.orElse(null);
@@ -131,18 +129,6 @@ public class ChatRoomSummaryQueryService {
 			.findFirst()
 			.map(QuestionTitleProjection::getTitle)
 			.orElse(null);
-	}
-
-	private List<Long> normalizeUserIds(Collection<Long> userIds) {
-		if (userIds == null || userIds.isEmpty()) {
-			return List.of();
-		}
-		return userIds.stream()
-			.filter(Objects::nonNull)
-			.collect(Collectors.collectingAndThen(
-				Collectors.toCollection(LinkedHashSet::new),
-				List::copyOf
-			));
 	}
 
 	private Comparator<ChatRoomSummaryResponse> roomSummaryComparator() {

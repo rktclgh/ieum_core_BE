@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
@@ -80,11 +81,11 @@ class ChatRoomSummaryQueryServiceTest {
 		ChatMember meMember = ChatMember.join(room, me);
 		ChatMember friendMember = ChatMember.join(room, friend);
 		Message last = message(501L, room, friend, "latest", "2026-07-08T11:00:00+09:00");
-		when(chatMemberRepository.findActiveByRoomIdAndUserIdsForUpdate(100L, List.of(42L, 77L, 88L)))
+		when(chatMemberRepository.findActiveByRoomIdAndUserIds(100L, List.of(42L, 77L, 88L)))
 			.thenReturn(List.of(meMember, friendMember));
 		when(messageRepository.countUnreadByRoomIdAndUserIds(100L, List.of(42L, 77L)))
 			.thenReturn(List.of(userUnread(42L, 1L)));
-		when(messageRepository.findLastMessagesByRoomIds(List.of(100L))).thenReturn(List.of(last));
+		when(messageRepository.findLatestMessagesByRoomId(100L, PageRequest.of(0, 1))).thenReturn(List.of(last));
 
 		var response = service.findActiveForRoomAndUsers(100L, List.of(42L, 77L, 88L));
 
@@ -92,6 +93,7 @@ class ChatRoomSummaryQueryServiceTest {
 		assertThat(response.get(42L).unreadCount()).isEqualTo(1L);
 		assertThat(response.get(77L).unreadCount()).isZero();
 		assertThat(response.get(42L).lastMessage().content()).isEqualTo("latest");
+		verify(messageRepository, never()).findLastMessagesByRoomIds(List.of(100L));
 	}
 
 	private User user(Long id, String email, String nickname) {
