@@ -90,6 +90,26 @@ class ChatRepositoryTest {
 	}
 
 	@Test
+	void findsActiveUserIdsByRoomIdOnlyForCurrentMembers() {
+		User me = persist(user("active-ids-me@example.com", "active-ids-me"));
+		User friend = persist(user("active-ids-friend@example.com", "active-ids-friend"));
+		User leftUser = persist(user("active-ids-left@example.com", "active-ids-left"));
+		User other = persist(user("active-ids-other@example.com", "active-ids-other"));
+		ChatRoom room = chatRoomRepository.save(ChatRoom.direct(me.getId(), friend.getId()));
+		ChatRoom otherRoom = chatRoomRepository.save(ChatRoom.direct(me.getId(), other.getId()));
+		chatMemberRepository.save(ChatMember.join(room, me));
+		chatMemberRepository.save(ChatMember.join(room, friend));
+		ChatMember left = chatMemberRepository.save(ChatMember.join(room, leftUser));
+		left.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
+		chatMemberRepository.save(ChatMember.join(otherRoom, other));
+		entityManager.flush();
+		entityManager.clear();
+
+		assertThat(chatMemberRepository.findActiveUserIdsByRoomId(room.getId()))
+			.containsExactlyInAnyOrder(me.getId(), friend.getId());
+	}
+
+	@Test
 	void findsActiveMembersByRoomAndRequestedUsersInOneQuery() {
 		User me = persist(user("active-batch-me@example.com", "active-batch-me"));
 		User friend = persist(user("active-batch-friend@example.com", "active-batch-friend"));
