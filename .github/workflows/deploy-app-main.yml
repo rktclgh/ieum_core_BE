@@ -232,6 +232,7 @@ jobs:
           scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
           remote="$SSH_USER@$SSH_HOST"
 
+          ssh "${ssh_opts[@]}" "$remote" 'if ! command -v psql >/dev/null 2>&1; then sudo -n apt-get update && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes postgresql-client; fi; command -v psql'
           ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH/deploy/scripts' '$DEPLOY_PATH/db/migrations'"
           scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"
           scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"
