@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.notification.sse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -110,6 +111,23 @@ class SseConnectionRegistryTest {
 
 		connection.fireCompletion();
 
+		org.mockito.Mockito.verify(presenceRegistry).removeOnLastDisconnect(42L);
+	}
+
+	@Test
+	void removesConnectionAndPresenceEvenWhenEmitterCompletionThrows() {
+		PresenceRegistry presenceRegistry = org.mockito.Mockito.mock(PresenceRegistry.class);
+		SseConnectionRegistry registry = registry(5, presenceRegistry);
+		FakeConnection connection = new FakeConnection(true);
+		registry.register(42L, "sid-throwing-complete", connection);
+
+		assertThatThrownBy(() -> registry.closeSession("sid-throwing-complete"))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("emitter completion failed");
+
+		assertThat(registry.connectionCount(42L)).isZero();
+		assertThat(registry.isOnline(42L)).isFalse();
+		assertThat(registry.onlineUserIds()).isEmpty();
 		org.mockito.Mockito.verify(presenceRegistry).removeOnLastDisconnect(42L);
 	}
 
@@ -226,10 +244,19 @@ class SseConnectionRegistryTest {
 	private static final class FakeConnection implements SseEmitterConnection {
 
 		private final List<OutboundEvent> sent = new ArrayList<>();
+		private final boolean throwOnComplete;
 		private Runnable completionCallback;
 		private Runnable timeoutCallback;
 		private Consumer<Throwable> errorCallback;
 		private int completeCount;
+
+		private FakeConnection() {
+			this(false);
+		}
+
+		private FakeConnection(boolean throwOnComplete) {
+			this.throwOnComplete = throwOnComplete;
+		}
 
 		@Override
 		public void send(OutboundEvent event) {
@@ -239,6 +266,9 @@ class SseConnectionRegistryTest {
 		@Override
 		public void complete() {
 			completeCount++;
+			if (throwOnComplete) {
+				throw new IllegalStateException("emitter completion failed");
+			}
 		}
 
 		@Override

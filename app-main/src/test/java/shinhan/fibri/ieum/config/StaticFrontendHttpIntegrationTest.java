@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -12,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import shinhan.fibri.ieum.main.admin.user.scheduler.SanctionExpiryScheduler;
+import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.meeting.scheduler.MeetingRecurrenceExpansionScheduler;
 import shinhan.fibri.ieum.main.meeting.scheduler.MeetingScheduleCompletionScheduler;
 
@@ -34,18 +36,30 @@ class StaticFrontendHttpIntegrationTest {
 	@MockitoBean
 	private MeetingScheduleCompletionScheduler scheduleCompletionScheduler;
 
+	@MockitoBean
+	private SessionTokenValidator sessionTokenValidator;
+
 	@Test
 	void servesForwardedHtmlWithoutConsultingAnInvalidAuthCookie() throws Exception {
-		HttpResponse<String> response = get("/login", "access_token=invalid-static-cookie");
+		HttpResponse<String> response = get("/admin/login", "access_token=invalid-static-cookie");
 
 		assertThat(response.statusCode()).isEqualTo(200);
-		assertThat(response.body()).contains("STATIC_LOGIN_PAGE");
+		assertThat(response.body()).contains("STATIC_ADMIN_LOGIN_PAGE");
 		assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
 			value -> assertThat(value).startsWith("text/html")
 		);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-cache");
 		assertThat(response.headers().firstValue("Cross-Origin-Opener-Policy"))
 			.contains("same-origin-allow-popups");
+		verifyNoInteractions(sessionTokenValidator);
+	}
+
+	@Test
+	void removedSettingsPageUsesTheFrontend404() throws Exception {
+		HttpResponse<String> response = get("/my/settings", null);
+
+		assertThat(response.statusCode()).isEqualTo(404);
+		assertThat(response.body()).contains("NEXT_STATIC_404");
 	}
 
 	@Test

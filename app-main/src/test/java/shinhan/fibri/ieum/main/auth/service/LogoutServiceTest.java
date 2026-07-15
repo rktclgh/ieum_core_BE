@@ -133,7 +133,8 @@ class LogoutServiceTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-03T00:00Z")
+			OffsetDateTime.parse("2026-07-03T00:00Z"),
+			0L
 		);
 	}
 }

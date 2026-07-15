@@ -41,10 +41,12 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.common.auth.repository.UserAuthState;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.main.admin.content.service.ContentPurgeService;
 import shinhan.fibri.ieum.main.auth.session.AuthSession;
+import shinhan.fibri.ieum.main.auth.session.CanonicalAuthStateVerifier;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.auth.session.SessionTokenValidator;
 import shinhan.fibri.ieum.main.auth.session.ValidatedAuthSession;
@@ -77,6 +79,9 @@ class ChatWebSocketIntegrationTest {
 	private RedisAuthSessionStore sessionStore;
 
 	@Autowired
+	private CanonicalAuthStateVerifier canonicalAuthStateVerifier;
+
+	@Autowired
 	private ChatMemberRepository chatMemberRepository;
 
 	@Autowired
@@ -101,11 +106,7 @@ class ChatWebSocketIntegrationTest {
 	void setUp() {
 		AuthenticatedUser principal = new AuthenticatedUser(42L, "user@example.com", UserRole.user, UserStatus.active);
 		AuthenticatedUser otherPrincipal = new AuthenticatedUser(77L, "other@example.com", UserRole.user, UserStatus.active);
-		when(sessionTokenValidator.validateSession("access-token"))
-			.thenReturn(Optional.of(new ValidatedAuthSession(principal, "sid-1")));
-		when(sessionTokenValidator.validateSession("other-access-token"))
-			.thenReturn(Optional.of(new ValidatedAuthSession(otherPrincipal, "sid-2")));
-		when(sessionStore.findBySessionId("sid-1")).thenReturn(Optional.of(new AuthSession(
+		AuthSession authSession = new AuthSession(
 			"sid-1",
 			42L,
 			"user@example.com",
@@ -113,9 +114,10 @@ class ChatWebSocketIntegrationTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-08T00:00:00+09:00")
-		)));
-		when(sessionStore.findBySessionId("sid-2")).thenReturn(Optional.of(new AuthSession(
+			OffsetDateTime.parse("2026-07-08T00:00:00+09:00"),
+			0L
+		);
+		AuthSession otherAuthSession = new AuthSession(
 			"sid-2",
 			77L,
 			"other@example.com",
@@ -123,7 +125,26 @@ class ChatWebSocketIntegrationTest {
 			null,
 			UserRole.user,
 			UserStatus.active,
-			OffsetDateTime.parse("2026-07-08T00:00:00+09:00")
+			OffsetDateTime.parse("2026-07-08T00:00:00+09:00"),
+			0L
+		);
+		when(sessionTokenValidator.validateSession("access-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(principal, "sid-1")));
+		when(sessionTokenValidator.validateSession("other-access-token"))
+			.thenReturn(Optional.of(new ValidatedAuthSession(otherPrincipal, "sid-2")));
+		when(sessionStore.findBySessionId("sid-1")).thenReturn(Optional.of(authSession));
+		when(sessionStore.findBySessionId("sid-2")).thenReturn(Optional.of(otherAuthSession));
+		when(canonicalAuthStateVerifier.findActiveMatching(authSession)).thenReturn(Optional.of(new UserAuthState(
+			"user@example.com",
+			UserRole.user,
+			UserStatus.active,
+			0L
+		)));
+		when(canonicalAuthStateVerifier.findActiveMatching(otherAuthSession)).thenReturn(Optional.of(new UserAuthState(
+			"other@example.com",
+			UserRole.user,
+			UserStatus.active,
+			0L
 		)));
 		when(rateLimiter.tryConsumeSend(42L)).thenReturn(true);
 		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
@@ -317,6 +338,12 @@ class ChatWebSocketIntegrationTest {
 		@Primary
 		RedisAuthSessionStore testSessionStore() {
 			return mock(RedisAuthSessionStore.class);
+		}
+
+		@Bean
+		@Primary
+		CanonicalAuthStateVerifier testCanonicalAuthStateVerifier() {
+			return mock(CanonicalAuthStateVerifier.class);
 		}
 
 		@Bean

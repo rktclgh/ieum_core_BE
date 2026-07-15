@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
@@ -50,6 +51,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -89,6 +91,7 @@ class UserServiceTest {
 
 		assertThat(response.userId()).isEqualTo(42L);
 		assertThat(response.email()).isEqualTo("user@example.com");
+		assertThat(response.role()).isEqualTo(UserRole.user);
 		assertThat(response.nickname()).isEqualTo("nickname");
 		assertThat(response.birthDate()).isEqualTo(LocalDate.of(1995, 5, 20));
 		assertThat(response.gender()).isEqualTo("female");
@@ -346,7 +349,7 @@ class UserServiceTest {
 	@Test
 	void withdrawSoftDeletesUserAndRevokesSessionsBeforeClosingAllSseConnections() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
@@ -373,7 +376,7 @@ class UserServiceTest {
 	@Test
 	void withdrawKeepsSoftDeleteAndRunsRemainingInvalidationActionsWhenSessionRevocationFails() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 		doThrow(new IllegalStateException("redis unavailable"))
 			.when(sessionStore)
 			.revokeAllSessionsOfUser(42L);
@@ -418,6 +421,30 @@ class UserServiceTest {
 
 		verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
 		verify(webPushSubscriptionCleanup, never()).deleteForUser(42L);
+		verify(sseConnectionRegistry, never()).closeUser(42L);
+	}
+
+	@Test
+	void withdrawRejectsCanonicalAdminEvenWhenPrincipalClaimsUserRole() {
+		User admin = user();
+		admin.changeRole(UserRole.admin);
+		long authVersionBeforeWithdrawal = admin.getAuthVersion();
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(admin));
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			assertThatThrownBy(() -> service.withdraw(principal()))
+				.isInstanceOf(AdminWithdrawalForbiddenException.class);
+
+			assertThat(admin.getDeletedAt()).isNull();
+			assertThat(admin.getAuthVersion()).isEqualTo(authVersionBeforeWithdrawal);
+			assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(userRepository).findByIdForUpdate(42L);
+		verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
 		verify(sseConnectionRegistry, never()).closeUser(42L);
 	}
 

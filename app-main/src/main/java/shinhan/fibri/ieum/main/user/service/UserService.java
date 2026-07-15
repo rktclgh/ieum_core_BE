@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
@@ -37,6 +38,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.exception.InvalidUserFieldException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -158,7 +160,11 @@ public class UserService {
 
 	@Transactional
 	public void withdraw(AuthenticatedUser principal) {
-		User user = findActiveUser(principal.userId());
+		User user = userRepository.findByIdForUpdate(principal.userId())
+			.orElseThrow(UserNotFoundException::new);
+		if (user.getRole() == UserRole.admin) {
+			throw new AdminWithdrawalForbiddenException();
+		}
 		user.markDeleted(OffsetDateTime.now());
 		invalidateUserAfterCommit(user.getId());
 	}

@@ -214,7 +214,8 @@ class AsyncWebPushDispatcherTest {
 			null,
 			UserRole.user,
 			status,
-			OffsetDateTime.parse("2026-07-15T12:00:00+09:00")
+			OffsetDateTime.parse("2026-07-15T12:00:00+09:00"),
+			0L
 		);
 	}
 }

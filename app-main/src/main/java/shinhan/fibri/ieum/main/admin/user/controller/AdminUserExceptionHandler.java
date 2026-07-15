@@ -14,13 +14,16 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotSanctionAdminException;
 import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidSanctionRequestException;
+import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.SanctionAlreadyActiveException;
 import shinhan.fibri.ieum.main.admin.user.exception.UserNotSanctionedException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
@@ -55,6 +58,24 @@ public class AdminUserExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(AdminUserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(AdminRoleRequiredException.class)
+	public ResponseEntity<AuthErrorResponse> handleAdminRoleRequired(AdminRoleRequiredException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("ADMIN_ROLE_REQUIRED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(CannotChangeOwnRoleException.class)
+	public ResponseEntity<AuthErrorResponse> handleCannotChangeOwnRole(CannotChangeOwnRoleException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("CANNOT_CHANGE_OWN_ROLE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(LastAdminRequiredException.class)
+	public ResponseEntity<AuthErrorResponse> handleLastAdminRequired(LastAdminRequiredException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("LAST_ADMIN_REQUIRED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(CannotSanctionAdminException.class)
