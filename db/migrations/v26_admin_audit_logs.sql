@@ -1,8 +1,8 @@
 BEGIN;
 
-CREATE TABLE admin_audit_logs (
+CREATE TABLE public.admin_audit_logs (
     audit_id BIGSERIAL PRIMARY KEY,
-    actor_user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+    actor_user_id BIGINT REFERENCES public.users(user_id) ON DELETE SET NULL,
     action TEXT NOT NULL,
     target_type TEXT NOT NULL,
     target_id BIGINT NOT NULL,
@@ -27,10 +27,10 @@ CREATE TABLE admin_audit_logs (
 );
 
 CREATE INDEX idx_admin_audit_logs_actor_created
-    ON admin_audit_logs(actor_user_id, created_at DESC, audit_id DESC);
+    ON public.admin_audit_logs(actor_user_id, created_at DESC, audit_id DESC);
 CREATE INDEX idx_admin_audit_logs_target_created
-    ON admin_audit_logs(target_type, target_id, created_at DESC, audit_id DESC);
+    ON public.admin_audit_logs(target_type, target_id, created_at DESC, audit_id DESC);
 CREATE INDEX idx_admin_audit_logs_created_desc
-    ON admin_audit_logs(created_at DESC, audit_id DESC);
+    ON public.admin_audit_logs(created_at DESC, audit_id DESC);
 
 COMMIT;

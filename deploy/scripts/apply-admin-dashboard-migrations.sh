@@ -27,6 +27,7 @@ psql \
   --no-psqlrc \
   --set=ON_ERROR_STOP=1 <<'SQL'
 SELECT pg_advisory_lock(hashtextextended('ieum:admin-dashboard:v25-v26', 0));
+SET search_path = pg_catalog, public;
 
 CREATE OR REPLACE FUNCTION pg_temp.auth_version_contract_state()
 RETURNS text
@@ -215,6 +216,13 @@ BEGIN
     AND bool_and(
       sequence_class.relkind = 'S'
       AND sequence_class.relpersistence = 'p'
+      AND sequence_row.seqtypid = 'bigint'::regtype
+      AND sequence_row.seqstart = 1
+      AND sequence_row.seqincrement = 1
+      AND sequence_row.seqmax = 9223372036854775807
+      AND sequence_row.seqmin = 1
+      AND sequence_row.seqcache = 1
+      AND NOT sequence_row.seqcycle
       AND dependency.classid = 'pg_class'::regclass
       AND dependency.objsubid = 0
       AND dependency.refclassid = 'pg_class'::regclass
@@ -225,6 +233,7 @@ BEGIN
   INTO sequence_exact
   FROM pg_class sequence_class
   JOIN pg_namespace sequence_namespace ON sequence_namespace.oid = sequence_class.relnamespace
+  JOIN pg_sequence sequence_row ON sequence_row.seqrelid = sequence_class.oid
   JOIN pg_depend dependency
     ON dependency.objid = sequence_class.oid
    AND dependency.classid = 'pg_class'::regclass
@@ -404,9 +413,12 @@ BEGIN
 END
 $preflight$;
 
+SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
 
+\if :apply_auth_version_migration
 \i db/migrations/v25_user_auth_version.sql
+\endif
 \if :apply_admin_audit_migration
 \i db/migrations/v26_admin_audit_logs.sql
 \endif

@@ -75,6 +75,10 @@ grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
   || fail "partial audit schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
+grep -Fq "apply_auth_version_migration" "$stdin_file" \
+  || fail "an exact existing auth schema must skip the locking v25 file"
+grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
+  || fail "migration session must pin trusted catalog resolution before running qualified DDL"
 
 required_exact_catalog_tokens=(
   "relpersistence = 'p'"
@@ -82,6 +86,14 @@ required_exact_catalog_tokens=(
   "attribute.attgenerated"
   "attribute.attidentity"
   "pg_get_serial_sequence"
+  "pg_sequence"
+  "sequence_row.seqtypid = 'bigint'::regtype"
+  "sequence_row.seqstart = 1"
+  "sequence_row.seqincrement = 1"
+  "sequence_row.seqmax = 9223372036854775807"
+  "sequence_row.seqmin = 1"
+  "sequence_row.seqcache = 1"
+  "NOT sequence_row.seqcycle"
   "dependency.deptype = 'a'"
   "constraint_row.conkey"
   "constraint_row.confkey"
@@ -114,6 +126,9 @@ v26_line="$(grep -n -m1 -F '\i db/migrations/v26_admin_audit_logs.sql' "$stdin_f
 test -n "$v25_line" && test -n "$v26_line" \
   || fail "both migrations must be applied"
 (( v25_line < v26_line )) || fail "v25 must run before v26"
+auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1)"
+test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
+  || fail "v25 must be guarded by the auth absent-state flag"
 
 if PATH="$fake_bin:$PATH" \
   CAPTURE_DIR="$capture_dir" \

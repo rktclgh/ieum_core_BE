@@ -121,6 +121,11 @@ an SSH argument or workflow log. Missing configuration, unsafe permissions,
 an unavailable `psql`, a schema mismatch, or a migration error stops the
 workflow before Gradle, image build, or SSH application deployment.
 
+The deployment validator also runs the helper against an ephemeral PostgreSQL
+16 instance. It verifies that a hostile role `search_path` cannot redirect DDL,
+an exact rerun preserves the existing users constraint OID, and incompatible
+audit sequence properties fail closed before any repair is attempted.
+
 Generate candidate host-key lines with `ssh-keyscan -H <host>`, but verify the
 fingerprint through AWS or another trusted channel before saving the result as
 `SSH_KNOWN_HOSTS`. The workflow never disables host-key verification.

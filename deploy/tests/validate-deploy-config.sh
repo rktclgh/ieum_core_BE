@@ -40,6 +40,7 @@ required_files=(
   deploy/scripts/apply-admin-dashboard-migrations.sh
   deploy/scripts/configure-nginx.sh
   deploy/scripts/deploy-compose.sh
+  deploy/tests/apply-admin-dashboard-migrations-postgres-test.sh
   deploy/tests/apply-admin-dashboard-migrations-test.sh
   deploy/tests/verify-static-frontend-package.sh
   deploy/tests/verify-static-frontend-package-test.sh
@@ -55,10 +56,12 @@ bash -n \
   deploy/scripts/bootstrap-docker.sh \
   deploy/scripts/configure-nginx.sh \
   deploy/scripts/deploy-compose.sh \
+  deploy/tests/apply-admin-dashboard-migrations-postgres-test.sh \
   deploy/tests/apply-admin-dashboard-migrations-test.sh \
   deploy/tests/verify-static-frontend-package.sh \
   deploy/tests/verify-static-frontend-package-test.sh
 bash deploy/tests/apply-admin-dashboard-migrations-test.sh
+bash deploy/tests/apply-admin-dashboard-migrations-postgres-test.sh
 bash deploy/tests/verify-static-frontend-package-test.sh
 
 main_workflow=.github/workflows/deploy-app-main.yml
