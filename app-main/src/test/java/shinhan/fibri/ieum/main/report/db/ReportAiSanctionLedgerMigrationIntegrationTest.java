@@ -70,6 +70,34 @@ class ReportAiSanctionLedgerMigrationIntegrationTest {
 	}
 
 	@Test
+	void v23AddsAndValidatesTheRevocationActorForeignKey() {
+		SqlScriptRunner.run(DATABASE, "migrations/v23_report_ai_sanction_ledger.sql");
+
+		assertThat(validatedConstraint("user_sanctions", "fk_user_sanctions_revoked_by")).isTrue();
+	}
+
+	@Test
+	void v23AllowsReportDeletionOnlyAfterTheAiSanctionIsRevoked() {
+		SqlScriptRunner.run(DATABASE, "migrations/v23_report_ai_sanction_ledger.sql");
+		insertAiSanction(200L, 1000L);
+
+		assertThatThrownBy(() -> deleteReport(1000L))
+			.isInstanceOf(DataIntegrityViolationException.class);
+
+		jdbc.sql("""
+			UPDATE user_sanctions
+			SET revoked_at = CURRENT_TIMESTAMP,
+			    revoked_by = 3,
+			    review_status = 'dismissed'
+			WHERE sanction_id = 200
+			""").update();
+
+		deleteReport(1000L);
+
+		assertThat(sanctionLedgerRow(200L).get("report_id")).isNull();
+	}
+
+	@Test
 	void v23IsForwardOnlyAndContainsNoDestructiveTableOperation() throws Exception {
 		String sql;
 		try (InputStream input = Objects.requireNonNull(
@@ -135,6 +163,12 @@ class ReportAiSanctionLedgerMigrationIntegrationTest {
 			.update();
 	}
 
+	private void deleteReport(long reportId) {
+		jdbc.sql("DELETE FROM reports WHERE report_id = :reportId")
+			.param("reportId", reportId)
+			.update();
+	}
+
 	private Map<String, Object> legacySanctionRow(long sanctionId) {
 		return jdbc.sql("""
 			SELECT sanction_id, user_id, report_id, decision_source::text, admin_id,
@@ -147,7 +181,7 @@ class ReportAiSanctionLedgerMigrationIntegrationTest {
 
 	private Map<String, Object> sanctionLedgerRow(long sanctionId) {
 		return jdbc.sql("""
-			SELECT duration_minutes, review_status::text, revoked_at, revoked_by
+			SELECT report_id, duration_minutes, review_status::text, revoked_at, revoked_by
 			FROM user_sanctions
 			WHERE sanction_id = :sanctionId
 			""").param("sanctionId", sanctionId).query().singleRow();
@@ -172,5 +206,18 @@ class ReportAiSanctionLedgerMigrationIntegrationTest {
 			SELECT conname FROM pg_constraint
 			WHERE conrelid=(:table)::regclass ORDER BY conname
 			""").param("table", table).query(String.class).list();
+	}
+
+	private boolean validatedConstraint(String table, String constraint) {
+		return jdbc.sql("""
+			SELECT convalidated
+			FROM pg_constraint
+			WHERE conrelid = (:table)::regclass AND conname = :constraint
+			""")
+			.param("table", table)
+			.param("constraint", constraint)
+			.query(Boolean.class)
+			.optional()
+			.orElse(false);
 	}
 }

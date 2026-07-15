@@ -13,7 +13,7 @@ $create_sanction_review_status$;
 ALTER TABLE user_sanctions
     ADD COLUMN IF NOT EXISTS duration_minutes INTEGER,
     ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS revoked_by BIGINT REFERENCES users(user_id),
+    ADD COLUMN IF NOT EXISTS revoked_by BIGINT,
     ADD COLUMN IF NOT EXISTS review_status sanction_review_status;
 
 UPDATE user_sanctions
@@ -37,9 +37,34 @@ SET revoked_at = released_at,
 WHERE released_at IS NOT NULL
   AND revoked_at IS NULL;
 
+DO $add_revoked_by_fk$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_sanctions_revoked_by') THEN
+        ALTER TABLE user_sanctions
+            ADD CONSTRAINT fk_user_sanctions_revoked_by
+            FOREIGN KEY (revoked_by) REFERENCES users(user_id) NOT VALID;
+    END IF;
+    ALTER TABLE user_sanctions VALIDATE CONSTRAINT fk_user_sanctions_revoked_by;
+END;
+$add_revoked_by_fk$;
+
+DO $validate_review_status_not_null$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_user_sanctions_review_status_nn') THEN
+        ALTER TABLE user_sanctions
+            ADD CONSTRAINT ck_user_sanctions_review_status_nn
+            CHECK (review_status IS NOT NULL) NOT VALID;
+    END IF;
+    ALTER TABLE user_sanctions VALIDATE CONSTRAINT ck_user_sanctions_review_status_nn;
+END;
+$validate_review_status_not_null$;
+
 ALTER TABLE user_sanctions
     ALTER COLUMN review_status SET DEFAULT 'not_required',
     ALTER COLUMN review_status SET NOT NULL;
+
+ALTER TABLE user_sanctions
+    DROP CONSTRAINT IF EXISTS ck_user_sanctions_review_status_nn;
 
 DO $add_sanction_constraints$
 BEGIN
@@ -57,7 +82,7 @@ BEGIN
             ADD CONSTRAINT ck_user_sanctions_review_status CHECK (
                 (
                     decision_source = 'ai_recommendation'
-                    AND report_id IS NOT NULL
+                    AND (report_id IS NOT NULL OR revoked_at IS NOT NULL)
                     AND review_status IN ('pending_review', 'confirmed', 'dismissed')
                 )
                 OR (decision_source = 'admin' AND review_status = 'not_required')
@@ -67,6 +92,8 @@ BEGIN
 END;
 $add_sanction_constraints$;
 
+-- Migrations in this repository run as one transaction, so CONCURRENTLY is unavailable.
+-- Schedule v23 in a bounded deployment window when these tables become large.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_sanctions_ai_report
     ON user_sanctions (report_id)
     WHERE decision_source = 'ai_recommendation'

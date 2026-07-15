@@ -975,7 +975,7 @@ CREATE TABLE user_sanctions (
     duration_minutes INTEGER,
     review_status sanction_review_status NOT NULL DEFAULT 'not_required',
     revoked_at TIMESTAMPTZ,
-    revoked_by BIGINT REFERENCES users(user_id),
+    revoked_by BIGINT CONSTRAINT fk_user_sanctions_revoked_by REFERENCES users(user_id),
     released_at TIMESTAMPTZ,                             -- 관리자 번복(해제) 시각
     released_by BIGINT REFERENCES users(user_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -989,7 +989,7 @@ CREATE TABLE user_sanctions (
     CONSTRAINT ck_user_sanctions_review_status CHECK (
         (
             decision_source = 'ai_recommendation'
-            AND report_id IS NOT NULL
+            AND (report_id IS NOT NULL OR revoked_at IS NOT NULL)
             AND review_status IN ('pending_review', 'confirmed', 'dismissed')
         )
         OR (decision_source = 'admin' AND review_status = 'not_required')
