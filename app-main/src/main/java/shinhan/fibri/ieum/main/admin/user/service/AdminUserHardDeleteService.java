@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.common.auth.validation.AuthEmailNormalizer;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
@@ -40,7 +41,8 @@ public class AdminUserHardDeleteService {
 		if (principal.userId().equals(userId)) {
 			throw new CannotDeleteSelfException();
 		}
-		if (!target.email().equals(confirmationEmail)) {
+		String normalizedConfirmationEmail = AuthEmailNormalizer.normalize(confirmationEmail);
+		if (!normalizedConfirmationEmail.equals(target.email())) {
 			throw new HardDeleteConfirmationMismatchException();
 		}
 		if (target.role() == UserRole.admin) {

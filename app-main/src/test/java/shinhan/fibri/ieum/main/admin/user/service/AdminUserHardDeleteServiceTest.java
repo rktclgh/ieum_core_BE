@@ -83,6 +83,26 @@ class AdminUserHardDeleteServiceTest {
 	}
 
 	@Test
+	void hardDeleteNormalizesConfirmationEmailBeforeComparing() {
+		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "user@example.com", UserRole.user)));
+		when(repository.hardDelete(10L)).thenReturn(List.of());
+
+		service.hardDelete(adminPrincipal(), 10L, "  User@Example.com  ");
+
+		verify(repository).hardDelete(10L);
+	}
+
+	@Test
+	void hardDeleteRejectsMissingTargetEmailAsConfirmationMismatch() {
+		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, null, UserRole.user)));
+
+		assertThatThrownBy(() -> service.hardDelete(adminPrincipal(), 10L, "user@example.com"))
+			.isInstanceOf(HardDeleteConfirmationMismatchException.class);
+
+		verify(repository, never()).hardDelete(10L);
+	}
+
+	@Test
 	void hardDeleteRejectsAdminTarget() {
 		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "target@example.com", UserRole.admin)));
 
