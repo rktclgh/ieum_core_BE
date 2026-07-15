@@ -61,6 +61,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
 import shinhan.fibri.ieum.main.meeting.service.MeetingService;
 import shinhan.fibri.ieum.main.pin.dto.LocationSnapshot;
 
@@ -198,7 +199,9 @@ class MeetingControllerTest {
 					32L,
 					OffsetDateTime.parse("2026-07-14T19:00:00+09:00"),
 					OffsetDateTime.parse("2026-07-14T20:00:00+09:00"),
-					"scheduled"
+					"scheduled",
+					42L,
+					true
 				),
 				new MeetingDetailRecurrenceRuleResponse(
 					"weekly",
@@ -314,7 +317,9 @@ class MeetingControllerTest {
 					31L,
 					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
-					"scheduled"
+					"scheduled",
+					42L,
+					true
 				)
 			)));
 
@@ -325,7 +330,9 @@ class MeetingControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.items[0].scheduleId", is(31)))
 			.andExpect(jsonPath("$.items[0].startsAt", is("2099-07-10T19:00:00+09:00")))
-			.andExpect(jsonPath("$.items[0].status", is("scheduled")));
+			.andExpect(jsonPath("$.items[0].status", is("scheduled")))
+			.andExpect(jsonPath("$.items[0].createdByUserId", is(42)))
+			.andExpect(jsonPath("$.items[0].canDelete", is(true)));
 	}
 
 	@Test
@@ -351,6 +358,8 @@ class MeetingControllerTest {
 					OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 					OffsetDateTime.parse("2099-07-10T20:00:00+09:00"),
 					"scheduled",
+					42L,
+					true,
 					9L,
 					true
 				)
@@ -364,6 +373,8 @@ class MeetingControllerTest {
 			.andExpect(jsonPath("$.items[0].meetingId", is(3)))
 			.andExpect(jsonPath("$.items[0].scheduleId", is(31)))
 			.andExpect(jsonPath("$.items[0].title", is("저녁 모임")))
+			.andExpect(jsonPath("$.items[0].createdByUserId", is(42)))
+			.andExpect(jsonPath("$.items[0].canDelete", is(true)))
 			.andExpect(jsonPath("$.items[0].roomId", is(9)))
 			.andExpect(jsonPath("$.items[0].isHost", is(true)));
 	}
@@ -449,16 +460,16 @@ class MeetingControllerTest {
 	}
 
 	@Test
-	void addScheduleMapsNotHostToForbidden() throws Exception {
+	void addScheduleMapsNotMeetingMemberToForbidden() throws Exception {
 		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
-			.thenThrow(new NotHostException());
+			.thenThrow(new NotMeetingMemberException());
 
 		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"startsAt\":\"2099-07-10T19:00:00+09:00\"}")
 				.with(authenticated()))
 			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code", is("NOT_HOST")));
+			.andExpect(jsonPath("$.code", is("NOT_MEETING_MEMBER")));
 	}
 
 	@Test
@@ -502,6 +513,21 @@ class MeetingControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code", is("SCHEDULE_NOT_CANCELLABLE")));
+	}
+
+	@Test
+	void deleteScheduleMapsPermissionDeniedToForbidden() throws Exception {
+		org.mockito.Mockito.doThrow(new SchedulePermissionDeniedException())
+			.when(meetingService).cancelSchedule(
+				any(AuthenticatedUser.class),
+				org.mockito.ArgumentMatchers.eq(3L),
+				org.mockito.ArgumentMatchers.eq(31L)
+			);
+
+		mockMvc.perform(delete("/api/v1/meetings/{meetingId}/schedules/{scheduleId}", 3L, 31L)
+				.with(authenticated()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.code", is("SCHEDULE_PERMISSION_DENIED")));
 	}
 
 	@Test

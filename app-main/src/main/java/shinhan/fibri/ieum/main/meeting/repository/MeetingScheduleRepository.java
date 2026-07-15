@@ -99,6 +99,7 @@ public interface MeetingScheduleRepository extends JpaRepository<MeetingSchedule
 		       s.starts_at               AS "startsAt",
 		       s.ends_at                 AS "endsAt",
 		       CAST(s.status AS text)    AS "status",
+		       s.created_by              AS "createdByUserId",
 		       cr.room_id                AS "roomId",
 		       (m.host_id = :userId)     AS "host"
 		  FROM meeting_schedules s

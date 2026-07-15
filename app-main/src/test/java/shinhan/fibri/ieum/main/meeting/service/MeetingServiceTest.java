@@ -58,6 +58,7 @@ import shinhan.fibri.ieum.main.meeting.exception.ParticipantNotFoundException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleAlreadyExistsException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotCancellableException;
 import shinhan.fibri.ieum.main.meeting.exception.ScheduleNotFoundException;
+import shinhan.fibri.ieum.main.meeting.exception.SchedulePermissionDeniedException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingDetailProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingCalendarProjection;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingParticipantProjection;
@@ -462,6 +463,8 @@ class MeetingServiceTest {
 		assertThat(response.type()).isEqualTo("recurring");
 		assertThat(response.active()).isTrue();
 		assertThat(response.nextSchedule().scheduleId()).isEqualTo(32L);
+		assertThat(response.nextSchedule().createdByUserId()).isEqualTo(42L);
+		assertThat(response.nextSchedule().canDelete()).isTrue();
 		assertThat(response.nextSchedule().startsAt()).isEqualTo(OffsetDateTime.parse("2026-07-14T19:00:00+09:00"));
 		assertThat(response.nextSchedule().status()).isEqualTo("scheduled");
 		assertThat(response.recurrenceRule().frequency()).isEqualTo("weekly");
@@ -637,6 +640,32 @@ class MeetingServiceTest {
 		assertThat(response.items()).hasSize(2);
 		assertThat(response.items()).extracting(item -> item.scheduleId()).containsExactly(31L, 32L);
 		assertThat(response.items()).extracting(item -> item.status()).containsExactly("scheduled", "cancelled");
+		assertThat(response.items()).extracting(item -> item.createdByUserId()).containsExactly(42L, 42L);
+		assertThat(response.items()).extracting(item -> item.canDelete()).containsExactly(true, true);
+	}
+
+	@Test
+	void getSchedulesMarksAnotherMembersScheduleAsNotDeletable() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L,
+			77L,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		setField(schedule, "id", 31L);
+		when(meetingRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findSchedulesInRange(eq(3L), any(), any(), eq(1000)))
+			.thenReturn(List.of(schedule));
+
+		MeetingSchedulesResponse response = service.getSchedules(principal(42L), 3L, null, null);
+
+		assertThat(response.items().getFirst().createdByUserId()).isEqualTo(77L);
+		assertThat(response.items().getFirst().canDelete()).isFalse();
 	}
 
 	@Test
@@ -726,8 +755,10 @@ class MeetingServiceTest {
 		assertThat(response.items().getFirst().meetingId()).isEqualTo(3L);
 		assertThat(response.items().getFirst().scheduleId()).isEqualTo(31L);
 		assertThat(response.items().getFirst().title()).isEqualTo("저녁 모임");
+		assertThat(response.items().getFirst().createdByUserId()).isEqualTo(42L);
+		assertThat(response.items().getFirst().canDelete()).isTrue();
 		assertThat(response.items().getFirst().roomId()).isEqualTo(9L);
-		assertThat(response.items().getFirst().isHost()).isTrue();
+		assertThat(response.items().getFirst().isHost()).isFalse();
 	}
 
 	@Test
@@ -847,6 +878,8 @@ class MeetingServiceTest {
 	void addScheduleCreatesOneTimeScheduleAndUpdatesMeetingAtCache() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
 		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
 		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(1);
 		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
@@ -869,13 +902,16 @@ class MeetingServiceTest {
 		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
 		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
 		assertThat(scheduleCaptor.getValue().getSequenceNo()).isEqualTo(2);
+		assertThat(scheduleCaptor.getValue().getCreatedBy()).isEqualTo(42L);
 		assertThat(scheduleCaptor.getValue().getVisibleUntil()).isEqualTo(OffsetDateTime.parse("2099-07-10T23:59:59.999999999+09:00"));
 	}
 
 	@Test
-	void addScheduleAllowsAdminOperator() {
+	void addScheduleAllowsJoinedParticipantAndStoresCreator() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 99L, OffsetDateTime.now())));
 		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(false);
 		when(meetingScheduleRepository.findMaxSequenceNoByMeetingId(3L)).thenReturn(1);
 		when(meetingScheduleRepository.save(any(MeetingSchedule.class))).thenAnswer(invocation -> {
@@ -885,32 +921,82 @@ class MeetingServiceTest {
 		});
 
 		CreateMeetingScheduleResponse response = service.addSchedule(
-			adminPrincipal(99L),
+			principal(99L),
 			3L,
 			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
 		);
 
 		assertThat(response.scheduleId()).isEqualTo(32L);
+		ArgumentCaptor<MeetingSchedule> scheduleCaptor = ArgumentCaptor.forClass(MeetingSchedule.class);
+		verify(meetingScheduleRepository).save(scheduleCaptor.capture());
+		assertThat(scheduleCaptor.getValue().getCreatedBy()).isEqualTo(99L);
 	}
 
 	@Test
-	void addScheduleRejectsNonHostNonAdmin() {
+	void addScheduleRejectsNonMember() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.addSchedule(
 			principal(99L),
 			3L,
 			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
 		))
-			.isInstanceOf(NotHostException.class);
+			.isInstanceOf(NotMeetingMemberException.class);
 		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+	}
+
+	@Test
+	void addScheduleRejectsAdminWithoutJoinedMembership() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.addSchedule(
+			adminPrincipal(99L),
+			3L,
+			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
+		)).isInstanceOf(NotMeetingMemberException.class);
+		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+	}
+
+	@Test
+	void addScheduleRejectsLeftMember() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
+		participant.leave();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.addSchedule(
+			principal(99L),
+			3L,
+			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
+		)).isInstanceOf(NotMeetingMemberException.class);
+	}
+
+	@Test
+	void addScheduleRejectsKickedMember() {
+		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
+		participant.kick();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(participant));
+
+		assertThatThrownBy(() -> service.addSchedule(
+			principal(99L),
+			3L,
+			new CreateMeetingScheduleRequest(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null)
+		)).isInstanceOf(KickedMemberException.class);
 	}
 
 	@Test
 	void addScheduleRejectsRecurringMeeting() {
 		Meeting meeting = meeting(3L, 42L, MeetingType.recurring, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
 
 		assertThatThrownBy(() -> service.addSchedule(
 			principal(42L),
@@ -926,6 +1012,8 @@ class MeetingServiceTest {
 	void addScheduleRejectsWhenActiveScheduleAlreadyExists() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
 		when(meetingScheduleRepository.existsActiveSchedule(eq(3L), any(OffsetDateTime.class))).thenReturn(true);
 
 		assertThatThrownBy(() -> service.addSchedule(
@@ -964,7 +1052,7 @@ class MeetingServiceTest {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
 		MeetingSchedule schedule = MeetingSchedule.create(
 			3L,
-			42L,
+			null,
 			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
 			null,
 			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
@@ -977,7 +1065,161 @@ class MeetingServiceTest {
 		service.cancelSchedule(adminPrincipal(99L), 3L, 31L);
 
 		assertThat(schedule.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.cancelled);
-		assertThat(meeting.getMeetingAt()).isEqualTo(OffsetDateTime.parse("2099-07-10T19:00:00+09:00"));
+		assertThat(meeting.getMeetingAt()).isNull();
+	}
+
+	@Test
+	void cancelScheduleAllowsJoinedCreatorAndClearsLastScheduleCache() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L,
+			42L,
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"),
+			1
+		);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class))).thenReturn(Optional.empty());
+
+		service.cancelSchedule(principal(42L), 3L, 31L);
+
+		assertThat(schedule.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.cancelled);
+		assertThat(meeting.getMeetingAt()).isNull();
+	}
+
+	@Test
+	void cancelScheduleAllowsHostWithoutParticipantRow() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class))).thenReturn(Optional.empty());
+
+		service.cancelSchedule(principal(1L), 3L, 31L);
+
+		assertThat(schedule.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.cancelled);
+	}
+
+	@Test
+	void cancelScheduleAllowsAdminEvenWhenKicked() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		MeetingParticipant adminParticipant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
+		adminParticipant.kick();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(adminParticipant));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class))).thenReturn(Optional.empty());
+
+		service.cancelSchedule(adminPrincipal(99L), 3L, 31L);
+
+		assertThat(schedule.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.cancelled);
+	}
+
+	@Test
+	void cancelScheduleAllowsAdminEvenWhenLeft() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		MeetingParticipant adminParticipant = MeetingParticipant.join(3L, 99L, OffsetDateTime.now());
+		adminParticipant.leave();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 99L)).thenReturn(Optional.of(adminParticipant));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+		when(meetingScheduleRepository.findNextActiveStartsAt(eq(3L), any(OffsetDateTime.class))).thenReturn(Optional.empty());
+
+		service.cancelSchedule(adminPrincipal(99L), 3L, 31L);
+
+		assertThat(schedule.getStatus()).isEqualTo(shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus.cancelled);
+	}
+
+	@Test
+	void cancelScheduleRejectsNonMemberBeforeScheduleLookup() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.cancelSchedule(principal(42L), 3L, 31L))
+			.isInstanceOf(NotMeetingMemberException.class);
+		verify(meetingScheduleRepository, never()).findByIdAndMeetingIdAndDeletedAtIsNull(any(), any());
+	}
+
+	@Test
+	void cancelScheduleRejectsJoinedNonCreator() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 77L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+
+		assertThatThrownBy(() -> service.cancelSchedule(principal(42L), 3L, 31L))
+			.isInstanceOf(SchedulePermissionDeniedException.class);
+	}
+
+	@Test
+	void cancelScheduleRejectsJoinedUserWhenCreatorWasPurged() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, null, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L))
+			.thenReturn(Optional.of(MeetingParticipant.join(3L, 42L, OffsetDateTime.now())));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+
+		assertThatThrownBy(() -> service.cancelSchedule(principal(42L), 3L, 31L))
+			.isInstanceOf(SchedulePermissionDeniedException.class);
+	}
+
+	@Test
+	void cancelScheduleRejectsLeftCreator() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.now());
+		participant.leave();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+
+		assertThatThrownBy(() -> service.cancelSchedule(principal(42L), 3L, 31L))
+			.isInstanceOf(NotMeetingMemberException.class);
+	}
+
+	@Test
+	void cancelScheduleRejectsKickedCreator() {
+		Meeting meeting = meeting(3L, 1L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), 7);
+		MeetingSchedule schedule = MeetingSchedule.create(
+			3L, 42L, OffsetDateTime.parse("2099-07-10T19:00:00+09:00"), null,
+			OffsetDateTime.parse("2099-07-10T23:59:59+09:00"), 1
+		);
+		MeetingParticipant participant = MeetingParticipant.join(3L, 42L, OffsetDateTime.now());
+		participant.kick();
+		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
+		when(participantRepository.findByIdMeetingIdAndIdUserId(3L, 42L)).thenReturn(Optional.of(participant));
+		when(meetingScheduleRepository.findByIdAndMeetingIdAndDeletedAtIsNull(31L, 3L)).thenReturn(Optional.of(schedule));
+
+		assertThatThrownBy(() -> service.cancelSchedule(principal(42L), 3L, 31L))
+			.isInstanceOf(KickedMemberException.class);
 	}
 
 	@Test
@@ -1481,13 +1723,18 @@ class MeetingServiceTest {
 			}
 
 			@Override
+			public Long getCreatedByUserId() {
+				return 42L;
+			}
+
+			@Override
 			public Long getRoomId() {
 				return 9L;
 			}
 
 			@Override
 			public Boolean getHost() {
-				return true;
+				return false;
 			}
 		};
 	}
