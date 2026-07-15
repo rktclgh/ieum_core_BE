@@ -99,6 +99,7 @@ public class ChatService {
 		ChatRoom room = chatRoomRepository.findByRoomKey(ChatRoom.directRoomKey(currentUser.getId(), friend.getId()))
 			.orElseGet(() -> insertDirectRoom(currentUser, friend));
 		restoreDirectMembers(room, currentUser, friend);
+		chatRoomListChangeEmitter.upsert(room.getId(), List.of(currentUser.getId(), friend.getId()));
 		return ChatRoomResponse.from(room, null);
 	}
 
@@ -219,6 +220,7 @@ public class ChatService {
 			throw new GroupLeaveViaMeetingException();
 		}
 		member.leave(java.time.OffsetDateTime.now());
+		chatRoomListChangeEmitter.remove(roomId, List.of(principal.userId()));
 	}
 
 	@Transactional
@@ -234,7 +236,12 @@ public class ChatService {
 		if (!meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(room.getMeetingId(), principal.userId())) {
 			throw new NotHostException();
 		}
+		List<Long> activeUserIds = chatMemberRepository.findByRoom_Id(roomId).stream()
+			.filter(ChatMember::isActive)
+			.map(member -> member.getUser().getId())
+			.toList();
 		chatRoomRepository.delete(room);
+		chatRoomListChangeEmitter.remove(roomId, activeUserIds);
 	}
 
 	private ChatRoom insertDirectRoom(User currentUser, User friend) {

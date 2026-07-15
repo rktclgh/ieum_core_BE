@@ -113,6 +113,7 @@ class ChatServiceTest {
 		assertThat(response.questionId()).isEqualTo(9L);
 		verify(friendService, never()).areFriends(42L, 77L);
 		verify(chatRoomLifecycle).getOrCreateQuestionRoom(9L, 42L, 77L);
+		verify(chatRoomListChangeEmitter, never()).upsert(any(), any());
 	}
 
 	@Test
@@ -272,6 +273,7 @@ class ChatServiceTest {
 		assertThat(memberCaptor.getAllValues())
 			.extracting(member -> member.getUser().getId())
 			.containsExactlyInAnyOrder(42L, 77L);
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -297,6 +299,7 @@ class ChatServiceTest {
 		assertThat(meMember.getLeftAt()).isNull();
 		assertThat(friendMember.getLeftAt()).isNull();
 		verify(chatRoomRepository, never()).saveAndFlush(any(ChatRoom.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -321,6 +324,7 @@ class ChatServiceTest {
 		assertThat(response.roomId()).isEqualTo(100L);
 		verify(chatRoomRepository).saveAndFlush(any(ChatRoom.class));
 		verify(chatMemberRepository).save(any(ChatMember.class));
+		verify(chatRoomListChangeEmitter).upsert(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -564,6 +568,7 @@ class ChatServiceTest {
 		service.leaveRoom(principal(42L), 100L);
 
 		assertThat(member.getLeftAt()).isNotNull();
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L));
 	}
 
 	@Test
@@ -576,19 +581,28 @@ class ChatServiceTest {
 		assertThatThrownBy(() -> service.leaveRoom(principal(42L), 100L))
 			.hasMessage("Leave group chat via meeting leave API");
 		assertThat(member.getLeftAt()).isNull();
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	@Test
 	void disbandGroupRoomDeletesRoomWhenPrincipalIsMeetingHost() {
 		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		User host = user(42L, "host@example.com", "host");
+		User memberUser = user(77L, "member@example.com", "member");
+		ChatMember hostMember = ChatMember.join(room, host);
+		ChatMember member = ChatMember.join(room, memberUser);
+		ChatMember leftMember = ChatMember.join(room, user(88L, "left@example.com", "left"));
+		leftMember.leave(OffsetDateTime.parse("2026-07-08T09:00:00+09:00"));
 		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(100L, 42L)).thenReturn(true);
+		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(hostMember, member, leftMember));
 		when(meetingRepository.existsByIdAndHostIdAndDeletedAtIsNull(7L, 42L)).thenReturn(true);
 
 		service.disbandRoom(principal(42L), 100L);
 
 		verify(chatRoomRepository).delete(room);
 		verify(chatMemberRepository, never()).findActiveByRoomIdAndUserId(100L, 42L);
+		verify(chatRoomListChangeEmitter).remove(100L, List.of(42L, 77L));
 	}
 
 	@Test
@@ -602,6 +616,7 @@ class ChatServiceTest {
 			.isInstanceOf(NotHostException.class);
 
 		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	@Test
@@ -615,6 +630,7 @@ class ChatServiceTest {
 			.hasMessage("Only group chat rooms can be disbanded");
 
 		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	@Test
@@ -627,6 +643,7 @@ class ChatServiceTest {
 			.isInstanceOf(NotRoomMemberException.class);
 
 		verify(chatRoomRepository, never()).delete(any(ChatRoom.class));
+		verify(chatRoomListChangeEmitter, never()).remove(any(), any());
 	}
 
 	private AuthenticatedUser principal(Long userId) {
