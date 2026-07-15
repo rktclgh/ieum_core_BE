@@ -28,6 +28,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 	Optional<User> findByIdAndDeletedAtIsNull(Long userId);
 
+	@Query("""
+		select new shinhan.fibri.ieum.common.auth.repository.UserAuthState(
+			u.email,
+			u.role,
+			u.status,
+			u.authVersion
+		)
+		from User u
+		where u.id = :userId
+		  and u.deletedAt is null
+		""")
+	Optional<UserAuthState> findAuthStateById(@Param("userId") Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select u from User u where u.id = :userId and u.deletedAt is null")
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);

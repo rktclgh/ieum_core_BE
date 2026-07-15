@@ -147,11 +147,13 @@ CREATE TABLE users (
     last_active_at TIMESTAMPTZ,
     role user_role NOT NULL DEFAULT 'user',
     status user_status NOT NULL DEFAULT 'active',
+    auth_version BIGINT NOT NULL DEFAULT 0,
     accepted_count INTEGER NOT NULL DEFAULT 0 CHECK (accepted_count >= 0),  -- [신규 v6] 채택된 답변 수 (증분 유지)
     grade user_grade NOT NULL DEFAULT 'bronze',                             -- [신규 v6] 등급 (임계 돌파 시 갱신)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
+    CONSTRAINT ck_users_auth_version_nonnegative CHECK (auth_version >= 0),
     CHECK (provider = 'email' OR provider_uid IS NOT NULL),
     CHECK (provider <> 'email' OR email IS NOT NULL)
 );

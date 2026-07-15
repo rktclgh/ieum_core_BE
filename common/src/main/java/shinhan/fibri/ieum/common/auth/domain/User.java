@@ -61,6 +61,9 @@ public class User {
 	@Column(nullable = false, columnDefinition = "varchar(30)")
 	private UserStatus status;
 
+	@Column(name = "auth_version", nullable = false)
+	private long authVersion;
+
 	@Enumerated(EnumType.STRING)
 	@JdbcType(PostgreSQLEnumJdbcType.class)
 	@Column(nullable = false, columnDefinition = "varchar(30)")
@@ -158,7 +161,12 @@ public class User {
 	}
 
 	public void markDeleted(OffsetDateTime deletedAt) {
-		this.deletedAt = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
+		OffsetDateTime deletionTime = Objects.requireNonNull(deletedAt, "deletedAt must not be null");
+		if (this.deletedAt != null) {
+			return;
+		}
+		advanceAuthVersion();
+		this.deletedAt = deletionTime;
 	}
 
 	public void updateProfile(
@@ -187,15 +195,32 @@ public class User {
 	}
 
 	public void suspend() {
+		if (status == UserStatus.suspended) {
+			return;
+		}
+		advanceAuthVersion();
 		this.status = UserStatus.suspended;
 	}
 
 	public void activate() {
+		if (status == UserStatus.active) {
+			return;
+		}
+		advanceAuthVersion();
 		this.status = UserStatus.active;
 	}
 
 	public void changeRole(UserRole role) {
-		this.role = Objects.requireNonNull(role, "role must not be null");
+		UserRole nextRole = Objects.requireNonNull(role, "role must not be null");
+		if (this.role == nextRole) {
+			return;
+		}
+		advanceAuthVersion();
+		this.role = nextRole;
+	}
+
+	private void advanceAuthVersion() {
+		this.authVersion = Math.addExact(this.authVersion, 1L);
 	}
 
 	public Long getId() {
@@ -236,6 +261,10 @@ public class User {
 
 	public UserStatus getStatus() {
 		return status;
+	}
+
+	public long getAuthVersion() {
+		return authVersion;
 	}
 
 	public UserGrade getGrade() {

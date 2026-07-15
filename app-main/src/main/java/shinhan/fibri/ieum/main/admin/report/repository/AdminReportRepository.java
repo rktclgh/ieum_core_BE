@@ -356,7 +356,13 @@ public class AdminReportRepository {
 
 	public int activateUser(Long userId) {
 		return jdbcTemplate.update(
-			"UPDATE users SET status = 'active' WHERE user_id = :userId AND status = 'suspended'",
+			"""
+				UPDATE users
+				SET status = 'active',
+				    auth_version = auth_version + 1
+				WHERE user_id = :userId
+				  AND status = 'suspended'
+				""",
 			Map.of("userId", userId)
 		);
 	}

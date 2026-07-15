@@ -215,11 +215,26 @@ class AdminReportDecisionIntegrationTest {
 	void dismissActivatesUserOnlyAfterEveryActiveSanctionIsGone() {
 		insertMessageReport(10L, 2L, "pending", "pending", null, null);
 		insertSanction(100L, 2L, 10L, "ai_recommendation", null, false);
+		assertThat(jdbc.queryForObject(
+			"SELECT auth_version FROM users WHERE user_id = 2",
+			Long.class
+		)).isZero();
 
 		inTransaction(() -> service.dismiss(10L, 9L));
 
 		assertThat(count("SELECT COUNT(*) FROM user_sanctions WHERE revoked_at IS NULL")).isZero();
 		assertThat(value("SELECT status::text FROM users WHERE user_id = 2")).isEqualTo("active");
+		assertThat(jdbc.queryForObject(
+			"SELECT auth_version FROM users WHERE user_id = 2",
+			Long.class
+		)).isEqualTo(1L);
+
+		inTransaction(() -> service.dismiss(10L, 9L));
+
+		assertThat(jdbc.queryForObject(
+			"SELECT auth_version FROM users WHERE user_id = 2",
+			Long.class
+		)).isEqualTo(1L);
 	}
 
 	@Test
