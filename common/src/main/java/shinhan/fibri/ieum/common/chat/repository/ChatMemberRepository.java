@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
@@ -70,19 +69,6 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, ChatMemb
 		WHERE member.room.id = :roomId
 		""")
 	List<ChatMember> findByRoom_Id(@Param("roomId") Long roomId);
-
-	@Modifying
-	@Query("""
-		UPDATE ChatMember member
-		SET member.leftAt = NULL
-		WHERE member.room.id = :roomId
-		  AND member.user.id <> :senderId
-		  AND member.leftAt IS NOT NULL
-		""")
-	int restoreLeftMembersByRoomIdExceptSender(
-		@Param("roomId") Long roomId,
-		@Param("senderId") Long senderId
-	);
 
 	@Query("""
 		SELECT member

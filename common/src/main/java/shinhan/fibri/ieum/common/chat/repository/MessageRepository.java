@@ -17,12 +17,16 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findLatestMessagesByRoomId(
+	List<Message> findLatestVisibleMessages(
 		@Param("roomId") Long roomId,
+		@Param("userId") Long userId,
 		Pageable pageable
 	);
 
@@ -30,7 +34,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id = :roomId
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND (
 			message.createdAt < :cursorCreatedAt
@@ -38,8 +45,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		  )
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findMessagesBeforeCursor(
+	List<Message> findVisibleMessagesBeforeCursor(
 		@Param("roomId") Long roomId,
+		@Param("userId") Long userId,
 		@Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
 		@Param("cursorMessageId") Long cursorMessageId,
 		Pageable pageable
@@ -50,6 +58,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		FROM Message message
 		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
 		WHERE message.room.id IN :roomIds
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
 		  AND message.deletedAt IS NULL
 		  AND message.sender.id <> :userId
 		  AND (member.lastReadAt IS NULL OR message.createdAt > member.lastReadAt)
@@ -64,16 +74,24 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 		SELECT message
 		FROM Message message
 		JOIN FETCH message.sender
-		WHERE message.id IN (
+		JOIN ChatMember member ON member.room = message.room AND member.user.id = :userId
+		WHERE message.room.id IN :roomIds
+		  AND member.leftAt IS NULL
+		  AND message.id > member.visibleAfterMessageId
+		  AND message.deletedAt IS NULL
+		  AND message.id = (
 			SELECT MAX(latest.id)
 			FROM Message latest
-			WHERE latest.room.id IN :roomIds
+			WHERE latest.room = message.room
 			  AND latest.deletedAt IS NULL
-			GROUP BY latest.room.id
+			  AND latest.id > member.visibleAfterMessageId
 		)
 		ORDER BY message.createdAt DESC, message.id DESC
 		""")
-	List<Message> findLastMessagesByRoomIds(@Param("roomIds") List<Long> roomIds);
+	List<Message> findLastVisibleMessagesByRoomIds(
+		@Param("userId") Long userId,
+		@Param("roomIds") List<Long> roomIds
+	);
 
 	@Query("""
 		SELECT message

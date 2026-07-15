@@ -165,7 +165,8 @@ public class ChatService {
 				MessageRepository.RoomUnreadCount::getRoomId,
 				MessageRepository.RoomUnreadCount::getUnreadCount
 			));
-		Map<Long, Message> lastMessageByRoomId = messageRepository.findLastMessagesByRoomIds(roomIds)
+		Map<Long, Message> lastMessageByRoomId = messageRepository
+			.findLastVisibleMessagesByRoomIds(principal.userId(), roomIds)
 			.stream()
 			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
 		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
@@ -207,9 +208,9 @@ public class ChatService {
 		ChatMessageCursor decodedCursor = ChatMessageCursor.decode(cursor);
 		PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
 		List<Message> messages = decodedCursor == null
-			? messageRepository.findLatestMessagesByRoomId(roomId, pageRequest)
-			: messageRepository.findMessagesBeforeCursor(
-				roomId, decodedCursor.createdAt(), decodedCursor.messageId(), pageRequest
+			? messageRepository.findLatestVisibleMessages(roomId, principal.userId(), pageRequest)
+			: messageRepository.findVisibleMessagesBeforeCursor(
+				roomId, principal.userId(), decodedCursor.createdAt(), decodedCursor.messageId(), pageRequest
 			);
 		boolean hasNext = messages.size() > pageSize;
 		List<Message> pageItems = messages.stream().limit(pageSize).toList();

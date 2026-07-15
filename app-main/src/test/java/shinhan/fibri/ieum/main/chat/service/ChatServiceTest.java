@@ -350,7 +350,7 @@ class ChatServiceTest {
 			.thenReturn(List.of(normalMember, pinnedMember));
 		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(unread(100L, 3L)));
-		when(messageRepository.findLastMessagesByRoomIds(List.of(100L, 200L)))
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L, 200L)))
 			.thenReturn(List.of(normalLast, pinnedLast));
 
 		var response = service.listRooms(principal(42L), null);
@@ -361,6 +361,7 @@ class ChatServiceTest {
 		assertThat(response.get(0).pinned()).isTrue();
 		assertThat(response.get(0).lastMessage().content()).isEqualTo("pinned");
 		assertThat(response.get(1).unreadCount()).isEqualTo(3L);
+		verify(messageRepository).findLastVisibleMessagesByRoomIds(42L, List.of(100L, 200L));
 	}
 
 	@Test
@@ -426,7 +427,9 @@ class ChatServiceTest {
 		Message next = message(502L, room, me, "next", "2026-07-08T11:00:00+09:00");
 		Message lookahead = message(501L, room, friend, "lookahead", "2026-07-08T10:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
-		when(messageRepository.findLatestMessagesByRoomId(org.mockito.Mockito.eq(100L), any()))
+		when(messageRepository.findLatestVisibleMessages(
+			org.mockito.Mockito.eq(100L), org.mockito.Mockito.eq(42L), any()
+		))
 			.thenReturn(List.of(newest, next, lookahead));
 
 		var response = service.listMessages(principal(42L), 100L, null, 2);
@@ -435,6 +438,9 @@ class ChatServiceTest {
 			.extracting(message -> message.messageId())
 			.containsExactly(503L, 502L);
 		assertThat(ChatMessageCursor.decode(response.nextCursor()).messageId()).isEqualTo(502L);
+		verify(messageRepository).findLatestVisibleMessages(
+			org.mockito.Mockito.eq(100L), org.mockito.Mockito.eq(42L), any()
+		);
 	}
 
 	@Test
@@ -444,8 +450,9 @@ class ChatServiceTest {
 		ChatMember meMember = ChatMember.join(room, me);
 		OffsetDateTime cursorCreatedAt = OffsetDateTime.parse("2026-07-08T11:00:00+09:00");
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(meMember));
-		when(messageRepository.findMessagesBeforeCursor(
+		when(messageRepository.findVisibleMessagesBeforeCursor(
 			org.mockito.Mockito.eq(100L),
+			org.mockito.Mockito.eq(42L),
 			org.mockito.Mockito.eq(cursorCreatedAt),
 			org.mockito.Mockito.eq(502L),
 			any()
@@ -459,13 +466,16 @@ class ChatServiceTest {
 		);
 
 		assertThat(response.items()).isEmpty();
-		verify(messageRepository).findMessagesBeforeCursor(
+		verify(messageRepository).findVisibleMessagesBeforeCursor(
 			org.mockito.Mockito.eq(100L),
+			org.mockito.Mockito.eq(42L),
 			org.mockito.Mockito.eq(cursorCreatedAt),
 			org.mockito.Mockito.eq(502L),
 			any()
 		);
-		verify(messageRepository, never()).findLatestMessagesByRoomId(org.mockito.Mockito.eq(100L), any());
+		verify(messageRepository, never()).findLatestVisibleMessages(
+			org.mockito.Mockito.eq(100L), org.mockito.Mockito.eq(42L), any()
+		);
 	}
 
 	@Test
