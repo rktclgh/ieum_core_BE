@@ -56,7 +56,11 @@ public class AdminUserHardDeleteService {
 			throw new CannotDeleteSelfException();
 		}
 		String normalizedConfirmationEmail = AuthEmailNormalizer.normalize(confirmationEmail);
-		if (!normalizedConfirmationEmail.equals(target.email())) {
+		if (target.email() == null) {
+			throw new HardDeleteConfirmationMismatchException();
+		}
+		String normalizedTargetEmail = AuthEmailNormalizer.normalize(target.email());
+		if (!normalizedConfirmationEmail.equals(normalizedTargetEmail)) {
 			throw new HardDeleteConfirmationMismatchException();
 		}
 		if (target.role() == UserRole.admin) {
