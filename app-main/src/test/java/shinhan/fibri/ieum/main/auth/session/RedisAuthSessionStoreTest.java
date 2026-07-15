@@ -1,22 +1,28 @@
 package shinhan.fibri.ieum.main.auth.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 
@@ -64,13 +70,17 @@ class RedisAuthSessionStoreTest {
 		verify(redisTemplate).expire("auth:user:42:sessions", SESSION_TTL);
 	}
 
-	@Test
-	void rotateRefreshTokenKeepsPreviousRefreshIndexForReuseDetection() {
+	@ParameterizedTest
+	@CsvSource({
+		"1, ROTATED",
+		"2, PREVIOUS",
+		"3, MISMATCH"
+	})
+	void compareAndRotateRefreshTokenMapsAtomicScriptResult(
+		long scriptResult,
+		RefreshTokenRotationResult expectedResult
+	) {
 		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
-		HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
-		ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
-		when(redisTemplate.opsForHash()).thenReturn(hashOps);
-		when(redisTemplate.opsForValue()).thenReturn(valueOps);
 		RedisAuthSessionStore store = store(redisTemplate);
 		AuthSession session = new AuthSession(
 			"sid-1",
@@ -83,16 +93,71 @@ class RedisAuthSessionStoreTest {
 			OffsetDateTime.parse("2026-07-03T00:00:00Z"),
 			7L
 		);
+		List<String> keys = List.of(
+			"auth:session:sid-1",
+			"auth:refresh:old-hash",
+			"auth:refresh:new-hash",
+			"auth:user:42:sessions"
+		);
+		when(redisTemplate.execute(
+			any(RedisScript.class),
+			eq(keys),
+			eq("old-hash"),
+			eq("new-hash"),
+			eq("sid-1"),
+			eq("42"),
+			eq("auth:refresh:"),
+			eq(String.valueOf(SESSION_TTL.toSeconds()))
+		)).thenReturn(scriptResult);
 
-		store.rotateRefreshToken(session, "new-hash");
+		RefreshTokenRotationResult result = store.compareAndRotateRefreshToken(
+			session,
+			"old-hash",
+			"new-hash"
+		);
 
-		verify(hashOps).put("auth:session:sid-1", "prevRefreshTokenHash", "old-hash");
-		verify(hashOps).put("auth:session:sid-1", "refreshTokenHash", "new-hash");
-		verify(redisTemplate).delete("auth:refresh:stale-prev-hash");
-		verify(valueOps).set("auth:refresh:old-hash", "sid-1", SESSION_TTL);
-		verify(valueOps).set("auth:refresh:new-hash", "sid-1", SESSION_TTL);
-		verify(redisTemplate).expire("auth:session:sid-1", SESSION_TTL);
-		verify(redisTemplate).expire("auth:user:42:sessions", SESSION_TTL);
+		assertThat(result).isEqualTo(expectedResult);
+		verify(redisTemplate).execute(
+			any(RedisScript.class),
+			eq(keys),
+			eq("old-hash"),
+			eq("new-hash"),
+			eq("sid-1"),
+			eq("42"),
+			eq("auth:refresh:"),
+			eq(String.valueOf(SESSION_TTL.toSeconds()))
+		);
+	}
+
+	@Test
+	void compareAndRotateRefreshTokenRejectsUnknownScriptResult() {
+		StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
+		RedisAuthSessionStore store = store(redisTemplate);
+		AuthSession session = new AuthSession(
+			"sid-1",
+			42L,
+			"user@example.com",
+			"old-hash",
+			null,
+			UserRole.user,
+			UserStatus.active,
+			OffsetDateTime.parse("2026-07-03T00:00:00Z"),
+			7L
+		);
+		when(redisTemplate.execute(
+			any(RedisScript.class),
+			any(List.class),
+			any(),
+			any(),
+			any(),
+			any(),
+			any(),
+			any()
+		)).thenReturn(99L);
+
+		assertThatThrownBy(() -> store.compareAndRotateRefreshToken(session, "old-hash", "new-hash"))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("99");
 	}
 
 	@Test

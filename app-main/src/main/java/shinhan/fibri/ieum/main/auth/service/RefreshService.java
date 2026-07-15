@@ -13,6 +13,7 @@ import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.CanonicalAuthStateVerifier;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.auth.session.RefreshTokenRotationResult;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
@@ -34,10 +35,7 @@ public class RefreshService {
 		AuthSession session = sessionStore.findByRefreshTokenHash(refreshTokenHash)
 			.orElseThrow(InvalidRefreshTokenException::new);
 		if (refreshTokenHash.equals(session.prevRefreshTokenHash())) {
-			log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
-			sessionStore.revokeAllSessionsOfUser(session.userId());
-			sseConnectionRegistry.closeUser(session.userId());
-			throw new RefreshTokenReusedException();
+			throw revokeAllSessionsForReuse(session);
 		}
 		if (!refreshTokenHash.equals(session.refreshTokenHash())) {
 			throw new InvalidRefreshTokenException();
@@ -58,7 +56,17 @@ public class RefreshService {
 			canonical.email(),
 			canonical.role()
 		);
-		sessionStore.rotateRefreshToken(session, newRefreshTokenHash);
+		RefreshTokenRotationResult rotationResult = sessionStore.compareAndRotateRefreshToken(
+			session,
+			refreshTokenHash,
+			newRefreshTokenHash
+		);
+		if (rotationResult == RefreshTokenRotationResult.PREVIOUS) {
+			throw revokeAllSessionsForReuse(session);
+		}
+		if (rotationResult == RefreshTokenRotationResult.MISMATCH) {
+			throw new InvalidRefreshTokenException();
+		}
 		log.info("Token refreshed: userId={} sessionId={}", session.userId(), session.sessionId());
 
 		return new RefreshResult(
@@ -67,6 +75,13 @@ public class RefreshService {
 			newRefreshToken,
 			csrfToken
 		);
+	}
+
+	private RefreshTokenReusedException revokeAllSessionsForReuse(AuthSession session) {
+		log.warn("Refresh token reuse detected — revoking all sessions: userId={}", session.userId());
+		sessionStore.revokeAllSessionsOfUser(session.userId());
+		sseConnectionRegistry.closeUser(session.userId());
+		return new RefreshTokenReusedException();
 	}
 
 	private void revokeStaleSession(AuthSession session) {

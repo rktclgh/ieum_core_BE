@@ -32,20 +32,27 @@ import shinhan.fibri.ieum.main.auth.session.AuthSession;
 import shinhan.fibri.ieum.main.auth.session.CanonicalAuthStateVerifier;
 import shinhan.fibri.ieum.main.auth.session.OpaqueTokenGenerator;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
+import shinhan.fibri.ieum.main.auth.session.RefreshTokenRotationResult;
 import shinhan.fibri.ieum.main.auth.session.Sha256TokenHasher;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 class RefreshServiceTest {
 
 	@Test
-	void refreshRotatesOnlyAfterCanonicalStateMatches() {
-		Fixture fixture = new Fixture();
+	void refreshUsesCanonicalStateReturnedByVerifierAndReturnsOnlyAfterRotationWins() {
+		CanonicalAuthStateVerifier canonicalAuthStateVerifier = mock(CanonicalAuthStateVerifier.class);
+		Fixture fixture = new Fixture(canonicalAuthStateVerifier);
 		AuthSession session = activeAdminSession();
-		UserAuthState canonical = activeAdminState();
+		UserAuthState canonical = new UserAuthState(
+			"canonical@example.com",
+			UserRole.user,
+			UserStatus.active,
+			99L
+		);
 		when(fixture.tokenHasher.hash("refresh-token")).thenReturn("current-refresh-hash");
 		when(fixture.sessionStore.findByRefreshTokenHash("current-refresh-hash"))
 			.thenReturn(Optional.of(session));
-		when(fixture.userRepository.findAuthStateById(42L)).thenReturn(Optional.of(canonical));
+		when(canonicalAuthStateVerifier.findActiveMatching(session)).thenReturn(Optional.of(canonical));
 		when(fixture.tokenGenerator.generate()).thenReturn("new-refresh-token", "new-csrf-token");
 		when(fixture.tokenHasher.hash("new-refresh-token")).thenReturn("new-refresh-hash");
 		when(fixture.accessTokenIssuer.issue(
@@ -54,6 +61,11 @@ class RefreshServiceTest {
 			canonical.email(),
 			canonical.role()
 		)).thenReturn("new-access-token");
+		when(fixture.sessionStore.compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		)).thenReturn(RefreshTokenRotationResult.ROTATED);
 
 		RefreshResult result = fixture.service.refresh("refresh-token");
 
@@ -64,12 +76,12 @@ class RefreshServiceTest {
 		assertThat(result.csrfToken()).isEqualTo("new-csrf-token");
 		InOrder order = inOrder(
 			fixture.sessionStore,
-			fixture.userRepository,
+			canonicalAuthStateVerifier,
 			fixture.tokenGenerator,
 			fixture.accessTokenIssuer
 		);
 		order.verify(fixture.sessionStore).findByRefreshTokenHash("current-refresh-hash");
-		order.verify(fixture.userRepository).findAuthStateById(42L);
+		order.verify(canonicalAuthStateVerifier).findActiveMatching(session);
 		order.verify(fixture.tokenGenerator, times(2)).generate();
 		order.verify(fixture.accessTokenIssuer).issue(
 			42L,
@@ -77,7 +89,12 @@ class RefreshServiceTest {
 			canonical.email(),
 			canonical.role()
 		);
-		order.verify(fixture.sessionStore).rotateRefreshToken(session, "new-refresh-hash");
+		order.verify(fixture.sessionStore).compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		);
+		verifyNoInteractions(fixture.userRepository);
 	}
 
 	@ParameterizedTest(name = "rejects stale refresh: {0}")
@@ -99,7 +116,11 @@ class RefreshServiceTest {
 		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
 			.isInstanceOf(InvalidRefreshTokenException.class);
 		verify(fixture.sessionStore).revokeSession("sid-1");
-		verify(fixture.sessionStore, never()).rotateRefreshToken(any(AuthSession.class), anyString());
+		verify(fixture.sessionStore, never()).compareAndRotateRefreshToken(
+			any(AuthSession.class),
+			anyString(),
+			anyString()
+		);
 		verifyNoInteractions(fixture.tokenGenerator, fixture.accessTokenIssuer);
 	}
 
@@ -128,12 +149,101 @@ class RefreshServiceTest {
 		order.verify(fixture.sessionStore).revokeAllSessionsOfUser(42L);
 		order.verify(fixture.sseConnectionRegistry).closeUser(42L);
 		verify(fixture.sessionStore, never()).revokeSession(anyString());
-		verify(fixture.sessionStore, never()).rotateRefreshToken(any(AuthSession.class), anyString());
+		verify(fixture.sessionStore, never()).compareAndRotateRefreshToken(
+			any(AuthSession.class),
+			anyString(),
+			anyString()
+		);
 		verifyNoInteractions(
 			fixture.userRepository,
 			fixture.tokenGenerator,
 			fixture.accessTokenIssuer
 		);
+	}
+
+	@Test
+	void concurrentRefreshLoserDetectedAsPreviousRevokesEveryUserSession() {
+		Fixture fixture = new Fixture();
+		AuthSession session = activeAdminSession();
+		prepareRotation(fixture, session, RefreshTokenRotationResult.PREVIOUS);
+
+		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
+			.isInstanceOf(RefreshTokenReusedException.class);
+
+		InOrder order = inOrder(fixture.sessionStore, fixture.sseConnectionRegistry);
+		order.verify(fixture.sessionStore).findByRefreshTokenHash("current-refresh-hash");
+		order.verify(fixture.sessionStore).compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		);
+		order.verify(fixture.sessionStore).revokeAllSessionsOfUser(42L);
+		order.verify(fixture.sseConnectionRegistry).closeUser(42L);
+		verify(fixture.sessionStore, never()).revokeSession(anyString());
+	}
+
+	@Test
+	void concurrentRefreshMismatchReturnsInvalidWithoutRevocation() {
+		Fixture fixture = new Fixture();
+		AuthSession session = activeAdminSession();
+		prepareRotation(fixture, session, RefreshTokenRotationResult.MISMATCH);
+
+		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
+			.isInstanceOf(InvalidRefreshTokenException.class);
+
+		verify(fixture.sessionStore).compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		);
+		verify(fixture.sessionStore, never()).revokeAllSessionsOfUser(any());
+		verify(fixture.sessionStore, never()).revokeSession(anyString());
+		verifyNoInteractions(fixture.sseConnectionRegistry);
+	}
+
+	@Test
+	void rotationScriptFailureDoesNotReturnGeneratedTokens() {
+		Fixture fixture = new Fixture();
+		AuthSession session = activeAdminSession();
+		prepareRotation(fixture, session, RefreshTokenRotationResult.ROTATED);
+		when(fixture.sessionStore.compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		)).thenThrow(new IllegalStateException("redis script failed"));
+
+		assertThatThrownBy(() -> fixture.service.refresh("refresh-token"))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("redis script failed");
+
+		verify(fixture.sessionStore, never()).revokeAllSessionsOfUser(any());
+		verify(fixture.sessionStore, never()).revokeSession(anyString());
+		verifyNoInteractions(fixture.sseConnectionRegistry);
+	}
+
+	private static void prepareRotation(
+		Fixture fixture,
+		AuthSession session,
+		RefreshTokenRotationResult rotationResult
+	) {
+		UserAuthState canonical = activeAdminState();
+		when(fixture.tokenHasher.hash("refresh-token")).thenReturn("current-refresh-hash");
+		when(fixture.sessionStore.findByRefreshTokenHash("current-refresh-hash"))
+			.thenReturn(Optional.of(session));
+		when(fixture.userRepository.findAuthStateById(42L)).thenReturn(Optional.of(canonical));
+		when(fixture.tokenGenerator.generate()).thenReturn("new-refresh-token", "new-csrf-token");
+		when(fixture.tokenHasher.hash("new-refresh-token")).thenReturn("new-refresh-hash");
+		when(fixture.accessTokenIssuer.issue(
+			42L,
+			"sid-1",
+			canonical.email(),
+			canonical.role()
+		)).thenReturn("new-access-token");
+		when(fixture.sessionStore.compareAndRotateRefreshToken(
+			session,
+			"current-refresh-hash",
+			"new-refresh-hash"
+		)).thenReturn(rotationResult);
 	}
 
 	private static Stream<Arguments> staleCanonicalStates() {
@@ -200,13 +310,25 @@ class RefreshServiceTest {
 		private final OpaqueTokenGenerator tokenGenerator = mock(OpaqueTokenGenerator.class);
 		private final AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
 		private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
-		private final RefreshService service = new RefreshService(
-			sessionStore,
-			new CanonicalAuthStateVerifier(userRepository),
-			tokenHasher,
-			tokenGenerator,
-			accessTokenIssuer,
-			sseConnectionRegistry
-		);
+		private final RefreshService service;
+
+		private Fixture() {
+			this.service = service(new CanonicalAuthStateVerifier(userRepository));
+		}
+
+		private Fixture(CanonicalAuthStateVerifier canonicalAuthStateVerifier) {
+			this.service = service(canonicalAuthStateVerifier);
+		}
+
+		private RefreshService service(CanonicalAuthStateVerifier canonicalAuthStateVerifier) {
+			return new RefreshService(
+				sessionStore,
+				canonicalAuthStateVerifier,
+				tokenHasher,
+				tokenGenerator,
+				accessTokenIssuer,
+				sseConnectionRegistry
+			);
+		}
 	}
 }

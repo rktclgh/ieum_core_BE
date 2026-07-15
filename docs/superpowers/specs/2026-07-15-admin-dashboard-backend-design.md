@@ -46,6 +46,10 @@ Every access-token validation and refresh performs both checks:
 
 Redis revocation remains best-effort cleanup. Once PostgreSQL commits a new version, an old session cannot authenticate or refresh even when Redis is unavailable during cleanup. A legacy Redis session with absent, blank, or malformed `authVersion` fails closed and requires login. The access JWT does not need a version claim because possession of the JWT is already coupled to a Redis session, and the Redis generation is compared with PostgreSQL on every use.
 
+Refresh issuance uses one Redis Lua compare-and-rotate operation after the canonical PostgreSQL match. The script compares the actual current/previous hashes with the presented hash, rejects any new-hash collision or attempt to cycle the previous hash back to current, and validates the session/index/user-set ownership before making any mutation. Exactly one concurrent request for a current refresh token can return `ROTATED`; a loser that observes the presented hash as the new previous value returns `PREVIOUS`, globally revokes that user's sessions, closes SSE connections, and surfaces refresh-token reuse. `MISMATCH` returns an invalid-refresh error. Generated access/refresh/CSRF values are returned only after `ROTATED`; a script exception or any non-winning result exposes none of them. On success, the script atomically moves current to previous, installs the new current hash, removes the superseded previous index, retains the presented index for reuse detection, creates the new index, and refreshes session/index/user-set TTLs.
+
+This multi-key Lua contract assumes the deployed single-node Redis instance. Its dynamic superseded-index deletion and keys without a shared cluster hash tag are not Redis Cluster compatible; moving to Redis Cluster requires a hash-tagged key redesign and a migration plan before enabling cluster mode.
+
 ### Migration and operational effect
 
 - `db/migrations/v25_user_auth_version.sql` adds and backfills version `0` without rewriting application identities.
@@ -112,4 +116,4 @@ The shared `/Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md` is outside
 
 ## 9. Verification
 
-Targeted tests prove response shape, legacy-session rejection, DB/Redis mismatch rejection, refresh/reuse ordering, concurrent last-admin safety, JPA-plus-JDBC transactional audit rollback, admin security/CSRF behavior, migration-helper ordering, and static route packaging. Final verification runs `./gradlew clean test`, builds both `app-main` and `app-ai` boot JARs, and runs the static package verifier against a real frontend export and `app-main` boot JAR. Smoke data is created only inside disposable test databases and temporary directories.
+Targeted tests prove response shape, legacy-session rejection, DB/Redis mismatch rejection, refresh/reuse ordering, one-winner Redis refresh concurrency, refresh-hash collision no-op behavior, concurrent last-admin safety, JPA-plus-JDBC transactional audit rollback, admin security/CSRF behavior, migration-helper ordering, and static route packaging. Final verification runs `./gradlew clean test`, builds both `app-main` and `app-ai` boot JARs, and runs the static package verifier against a real frontend export and `app-main` boot JAR. Smoke data is created only inside disposable test databases and temporary directories.
