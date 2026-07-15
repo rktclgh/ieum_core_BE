@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -127,13 +128,6 @@ class AnswerControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")));
 
-		doThrow(new InvalidAnswerRequestException("VALIDATION_FAILED", "answerIds", "Invalid answerIds"))
-			.when(answerService).finalizeSelection(
-				any(AuthenticatedUser.class),
-				eq(5L),
-				any(FinalizeAcceptedAnswersRequest.class)
-			);
-
 		mockMvc.perform(put("/api/v1/questions/5/accepted-answers")
 				.with(authenticated())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -145,6 +139,8 @@ class AnswerControllerTest {
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
 			.andExpect(jsonPath("$.fieldErrors[0].field", startsWith("answerIds")));
+
+		verifyNoInteractions(answerService);
 	}
 
 	@Test

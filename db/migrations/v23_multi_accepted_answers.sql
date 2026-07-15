@@ -27,11 +27,6 @@ BEGIN
 END;
 $$;
 
-DROP INDEX IF EXISTS uidx_accepted_answer;
-CREATE INDEX idx_answers_accepted_question
-    ON answers(question_id)
-    WHERE is_accepted;
-
 WITH actual AS (
     SELECT u.user_id,
            count(a.answer_id)::integer AS accepted_count

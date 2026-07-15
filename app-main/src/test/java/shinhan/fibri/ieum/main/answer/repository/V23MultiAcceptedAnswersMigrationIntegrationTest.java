@@ -44,7 +44,7 @@ class V23MultiAcceptedAnswersMigrationIntegrationTest {
 	}
 
 	@Test
-	void v23MigrationPreservesAnswersAndReconcilesAcceptedCountsAndGrades() {
+	void v23AndV24MigrationsPreserveAnswersAndReconcileAcceptedCountsAndGrades() {
 		loadV22Schema();
 		long acceptedAnswerId = seedResolvedQuestionWithAcceptedAnswerAndDriftedCounts();
 		long aiAnswerId = insertAiAnswer(100, false, "ai answer");
@@ -54,6 +54,11 @@ class V23MultiAcceptedAnswersMigrationIntegrationTest {
 		assertThat(indexExists("idx_answers_accepted_question")).isFalse();
 
 		SqlScriptRunner.run(DATABASE, "migrations/v23_multi_accepted_answers.sql");
+
+		assertThat(indexExists("uidx_accepted_answer")).isTrue();
+		assertThat(indexExists("idx_answers_accepted_question")).isFalse();
+
+		SqlScriptRunner.run(DATABASE, "migrations/v24_multi_accepted_answers_indexes.sql");
 
 		assertThat(indexExists("uidx_accepted_answer")).isFalse();
 		assertThat(indexExists("idx_answers_accepted_question")).isTrue();
