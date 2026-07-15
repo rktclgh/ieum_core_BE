@@ -73,4 +73,4 @@ Content-Type: application/json
 ## 문서 동기화
 
 - 워크스페이스 집계 문서: `/Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md`
-- Notion API 명세: `Admin / 회원 역할 변경`, `Users / 내 정보 조회`, `Users / 회원 탈퇴`, `Auth / 이메일 로그인`
+- Notion API 명세: `Admin / 회원 역할 변경`, `Admin / 문의 목록`, `Admin / 문의 상세`, `Admin / 문의 답변`, `Users / 내 정보 조회`, `Users / 회원 탈퇴`, `Auth / 이메일 로그인`
