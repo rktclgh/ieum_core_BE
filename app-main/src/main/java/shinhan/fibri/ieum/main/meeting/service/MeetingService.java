@@ -29,6 +29,7 @@ import shinhan.fibri.ieum.main.meeting.domain.Meeting;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingRecurrenceRule;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingParticipant;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingSchedule;
+import shinhan.fibri.ieum.main.meeting.domain.MeetingScheduleStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingStatus;
 import shinhan.fibri.ieum.main.meeting.domain.MeetingType;
 import shinhan.fibri.ieum.main.meeting.domain.ParticipantStatus;
@@ -757,7 +758,7 @@ public class MeetingService {
 			toResponseTime(schedule.getEndsAt()),
 			schedule.getStatus().name(),
 			schedule.getCreatedBy(),
-			canDelete
+			canDelete && schedule.getStatus() == MeetingScheduleStatus.scheduled
 		);
 	}
 

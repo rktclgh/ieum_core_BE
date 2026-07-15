@@ -641,7 +641,7 @@ class MeetingServiceTest {
 		assertThat(response.items()).extracting(item -> item.scheduleId()).containsExactly(31L, 32L);
 		assertThat(response.items()).extracting(item -> item.status()).containsExactly("scheduled", "cancelled");
 		assertThat(response.items()).extracting(item -> item.createdByUserId()).containsExactly(42L, 42L);
-		assertThat(response.items()).extracting(item -> item.canDelete()).containsExactly(true, true);
+		assertThat(response.items()).extracting(item -> item.canDelete()).containsExactly(true, false);
 	}
 
 	@Test
