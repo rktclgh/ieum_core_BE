@@ -214,9 +214,11 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          APP_MAIN_ENV_FILE: ${{ secrets.APP_MAIN_ENV_FILE }}
         run: |
           test -n "$SSH_PRIVATE_KEY"
           test -n "$SSH_KNOWN_HOSTS"
+          test -n "$APP_MAIN_ENV_FILE"
           [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
           [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
@@ -234,6 +236,12 @@ jobs:
 
           ssh "${ssh_opts[@]}" "$remote" 'if ! command -v psql >/dev/null 2>&1; then sudo -n apt-get update && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install --yes postgresql-client; fi; command -v psql'
           ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH/deploy/scripts' '$DEPLOY_PATH/db/migrations'"
+          runtime_env="$RUNNER_TEMP/app-main.env.runtime"
+          umask 077
+          printf '%s' "$APP_MAIN_ENV_FILE" > "$runtime_env"
+          test -s "$runtime_env"
+          scp "${scp_opts[@]}" "$runtime_env" "$remote:$DEPLOY_PATH/.env.runtime.next"
+          ssh "${ssh_opts[@]}" "$remote" "chmod 600 '$DEPLOY_PATH/.env.runtime.next' && mv '$DEPLOY_PATH/.env.runtime.next' '$DEPLOY_PATH/.env.runtime'"
           scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"
           scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"
           ssh "${ssh_opts[@]}" "$remote" \

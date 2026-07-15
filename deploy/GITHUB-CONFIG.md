@@ -77,7 +77,8 @@ Secrets:
 - `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
   `SPRING_DATASOURCE_URL` must use the production database host, never
   `localhost`, `127.0.0.1`, or the example placeholder, and it must include
-  `INQUIRY_ADMIN_EMAIL`
+  `INQUIRY_ADMIN_EMAIL`. Each deployment atomically replaces the server's
+  `.env.runtime` with this secret before running migrations.
 
 ### `app-ai-production`
 
@@ -93,7 +94,9 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
-- `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`
+- `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`. Each deployment
+  atomically replaces the server's `.env.runtime` with this secret before
+  running migrations.
 
 ### Remote database migration gate
 
