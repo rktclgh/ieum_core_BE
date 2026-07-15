@@ -75,8 +75,16 @@ public class ContentPurgeService {
 	private void deleteS3Objects(List<String> s3Keys) {
 		for (String s3Key : s3Keys) {
 			deleteLogOnly(s3Key);
-			deleteLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.DISPLAY));
-			deleteLogOnly(FileObjectKeys.variantKey(s3Key, FileVariant.THUMB));
+			deleteVariantLogOnly(s3Key, FileVariant.DISPLAY);
+			deleteVariantLogOnly(s3Key, FileVariant.THUMB);
+		}
+	}
+
+	private void deleteVariantLogOnly(String originKey, FileVariant variant) {
+		try {
+			fileStorage.delete(FileObjectKeys.variantKey(originKey, variant));
+		} catch (RuntimeException exception) {
+			log.warn("Failed to delete purged content file variant object. s3Key={}, variant={}", originKey, variant, exception);
 		}
 	}
 

@@ -69,6 +69,23 @@ class ContentPurgeServiceTest {
 	}
 
 	@Test
+	void invalidS3KeyDoesNotStopLaterPurgeFileCleanup() {
+		when(repository.purgeChunk(any(), eq(500)))
+			.thenReturn(new ContentPurgeChunk(2, List.of(
+				"malformed-key",
+				"final/42/question/second/original.jpg"
+			)))
+			.thenReturn(ContentPurgeChunk.empty());
+
+		assertThatCode(service::purgeExpiredQuestionContent).doesNotThrowAnyException();
+
+		verify(fileStorage).delete("malformed-key");
+		verify(fileStorage).delete("final/42/question/second/original.jpg");
+		verify(fileStorage).delete("final/42/question/second/display.webp");
+		verify(fileStorage).delete("final/42/question/second/thumb.webp");
+	}
+
+	@Test
 	void repositoryChunkFailureIsLoggedOnlyAndNextChunkIsTried() {
 		when(repository.purgeChunk(any(), eq(500)))
 			.thenThrow(new IllegalStateException("db unavailable"))

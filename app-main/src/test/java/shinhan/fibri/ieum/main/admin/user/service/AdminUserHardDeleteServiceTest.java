@@ -178,6 +178,27 @@ class AdminUserHardDeleteServiceTest {
 		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
 	}
 
+	@Test
+	void hardDeleteContinuesS3CleanupWhenVariantKeyCannotBeBuilt() {
+		TransactionSynchronizationManager.initSynchronization();
+		when(repository.findForHardDelete(10L)).thenReturn(Optional.of(target(10L, "user@example.com", UserRole.user)));
+		when(repository.hardDelete(10L)).thenReturn(List.of(
+			"malformed-key",
+			"final/10/profile/file/original.jpg"
+		));
+
+		service.hardDelete(adminPrincipal(), 10L, "user@example.com");
+
+		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+			synchronization.afterCommit();
+		}
+
+		verify(fileStorage).delete("malformed-key");
+		verify(fileStorage).delete("final/10/profile/file/original.jpg");
+		verify(fileStorage).delete("final/10/profile/file/display.webp");
+		verify(fileStorage).delete("final/10/profile/file/thumb.webp");
+	}
+
 	private static AuthenticatedUser adminPrincipal() {
 		return new AuthenticatedUser(1L, "admin@example.com", UserRole.admin, UserStatus.active);
 	}
