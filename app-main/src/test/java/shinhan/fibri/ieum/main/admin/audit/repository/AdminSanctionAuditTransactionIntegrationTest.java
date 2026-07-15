@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,6 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserStatus;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.user.domain.SanctionType;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionRequest;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
@@ -37,7 +38,6 @@ import shinhan.fibri.ieum.testsupport.CanonicalPostgresDataSource;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
 	AdminSanctionService.class,
-	AdminAuditLogWriter.class,
 	AdminSanctionAuditTransactionIntegrationTest.AuditWriterTestConfiguration.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -65,7 +65,6 @@ class AdminSanctionAuditTransactionIntegrationTest {
 
 	@BeforeEach
 	void resetRows() {
-		jdbc.execute("DROP TRIGGER IF EXISTS trg_reject_admin_audit_insert ON admin_audit_logs");
 		jdbc.execute("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
 		jdbc.update("""
 			INSERT INTO users(user_id, email, password_hash, nickname, email_verified, role, status)
@@ -76,29 +75,13 @@ class AdminSanctionAuditTransactionIntegrationTest {
 	}
 
 	@Test
-	void auditInsertFailureRollsBackJpaDomainChangesAndSkipsAfterCommitCleanup() {
-		jdbc.execute("""
-			CREATE OR REPLACE FUNCTION reject_admin_audit_insert()
-			RETURNS TRIGGER
-			LANGUAGE plpgsql
-			AS $$
-			BEGIN
-				RAISE EXCEPTION 'forced administrator audit failure';
-			END
-			$$
-			""");
-		jdbc.execute("""
-			CREATE TRIGGER trg_reject_admin_audit_insert
-			BEFORE INSERT ON admin_audit_logs
-			FOR EACH ROW EXECUTE FUNCTION reject_admin_audit_insert()
-			""");
-
+	void successfulAuditInsertFollowedByWriterFailureRollsBackJpaAndJdbcTogether() {
 		assertThatThrownBy(() -> service.sanction(
 			new AuthenticatedUser(1L, "admin@example.com", UserRole.admin, UserStatus.active),
 			10L,
 			new CreateSanctionRequest(SanctionType.permanent, "abuse", null)
-		)).isInstanceOf(DataAccessException.class)
-			.hasMessageContaining("forced administrator audit failure");
+		)).isInstanceOf(ForcedAfterAuditInsertException.class)
+			.hasMessage("forced failure after administrator audit insert");
 
 		assertThat(jdbc.queryForObject("SELECT status::text FROM users WHERE user_id = 10", String.class))
 			.isEqualTo("active");
@@ -121,6 +104,37 @@ class AdminSanctionAuditTransactionIntegrationTest {
 		@Bean
 		ObjectMapper objectMapper() {
 			return new ObjectMapper().findAndRegisterModules();
+		}
+
+		@Bean
+		AdminAuditLogWriter auditLogWriter(JdbcClient jdbcClient, ObjectMapper objectMapper) {
+			return new InsertThenFailAdminAuditLogWriter(jdbcClient, objectMapper);
+		}
+	}
+
+	private static final class InsertThenFailAdminAuditLogWriter extends AdminAuditLogWriter {
+
+		private InsertThenFailAdminAuditLogWriter(JdbcClient jdbcClient, ObjectMapper objectMapper) {
+			super(jdbcClient, objectMapper);
+		}
+
+		@Override
+		public void append(
+			Long actorUserId,
+			AdminAuditAction action,
+			String targetType,
+			long targetId,
+			Map<String, ?> details
+		) {
+			super.append(actorUserId, action, targetType, targetId, details);
+			throw new ForcedAfterAuditInsertException();
+		}
+	}
+
+	private static final class ForcedAfterAuditInsertException extends RuntimeException {
+
+		private ForcedAfterAuditInsertException() {
+			super("forced failure after administrator audit insert");
 		}
 	}
 }
