@@ -52,7 +52,6 @@ import shinhan.fibri.ieum.main.chat.exception.NotRoomMemberException;
 import shinhan.fibri.ieum.main.chat.exception.SelfChatRoomException;
 import shinhan.fibri.ieum.main.chat.service.ChatService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
-import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -372,19 +371,6 @@ class ChatControllerTest {
 				.with(authenticated()))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code", is("QUESTION_NOT_FOUND")));
-	}
-
-	@Test
-	void mapsQuestionForbiddenToForbidden() throws Exception {
-		doThrow(new QuestionForbiddenException())
-			.when(chatService).createQuestionRoom(any(AuthenticatedUser.class), eq(9L), eq(77L));
-
-		mockMvc.perform(post("/api/v1/chat/rooms/question")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"questionId\":9,\"targetUserId\":77}")
-				.with(authenticated()))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.code", is("FORBIDDEN")));
 	}
 
 	@Test

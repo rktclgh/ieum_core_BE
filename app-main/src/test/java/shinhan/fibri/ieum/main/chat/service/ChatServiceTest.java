@@ -33,7 +33,7 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
-import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
+import shinhan.fibri.ieum.main.chat.dto.ChatRoomResponse;
 import shinhan.fibri.ieum.main.chat.exception.BlockedChatException;
 import shinhan.fibri.ieum.main.chat.exception.ChatRoomNotFoundException;
 import shinhan.fibri.ieum.main.chat.exception.NotFriendsException;
@@ -43,7 +43,6 @@ import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
-import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -57,7 +56,6 @@ class ChatServiceTest {
 	private final FriendService friendService = org.mockito.Mockito.mock(FriendService.class);
 	private final MeetingRepository meetingRepository = org.mockito.Mockito.mock(MeetingRepository.class);
 	private final QuestionRepository questionRepository = org.mockito.Mockito.mock(QuestionRepository.class);
-	private final AnswerRepository answerRepository = org.mockito.Mockito.mock(AnswerRepository.class);
 	private final ChatRoomLifecycle chatRoomLifecycle = org.mockito.Mockito.mock(ChatRoomLifecycle.class);
 	private final List<TransactionDefinition> transactionDefinitions = new ArrayList<>();
 	private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
@@ -83,7 +81,6 @@ class ChatServiceTest {
 		friendService,
 		meetingRepository,
 		questionRepository,
-		answerRepository,
 		chatRoomLifecycle,
 		transactionManager
 	);
@@ -96,7 +93,6 @@ class ChatServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
 		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
-		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
 		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
 		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
@@ -118,7 +114,6 @@ class ChatServiceTest {
 		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
 		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
-		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
 		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
 		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
@@ -157,36 +152,34 @@ class ChatServiceTest {
 			.allSatisfy(definition -> assertThat(definition.getPropagationBehavior())
 				.isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
 		verify(questionRepository, times(2)).findActiveByIdForShare(9L);
-		verify(answerRepository, times(2)).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
 	}
 
 	@Test
-	void createQuestionRoomRejectsNonAuthorInitiator() {
-		User me = user(42L, "me@example.com", "me");
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findActiveByIdForShare(9L))
-			.thenReturn(Optional.of(Question.create(5L, 88L, "title", "content")));
+	void createQuestionRoomAllowsNonAuthorInitiator() {
+		User requester = user(42L, "requester@example.com", "requester");
+		User target = user(77L, "target@example.com", "target");
+		Question question = Question.create(5L, 99L, "title", "content");
+		ChatRoom room = room(ChatRoom.question(9L, 42L, 77L), 100L);
+		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(requester));
+		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
+		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(target));
+		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
+		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
 
-		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
-			.isInstanceOf(QuestionForbiddenException.class);
+		ChatRoomResponse response = service.createQuestionRoom(principal(42L), 9L, 77L);
 
-		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
-		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+		assertThat(response.questionTitle()).isEqualTo("title");
 	}
 
 	@Test
-	void createQuestionRoomRejectsTargetWithoutHumanAnswerIncludingAiOnly() {
-		User me = user(42L, "me@example.com", "me");
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(me));
-		when(questionRepository.findActiveByIdForShare(9L))
-			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
-		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
-		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(false);
+	void createQuestionRoomAllowsTargetWithoutAnswer() {
+		stubQuestionRoomCreation();
 
-		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
-			.isInstanceOf(QuestionForbiddenException.class);
+		ChatRoomResponse response = service.createQuestionRoom(principal(42L), 9L, 77L);
 
-		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
+		assertThat(response.roomType()).isEqualTo(RoomType.question);
+		verify(chatRoomLifecycle).getOrCreateQuestionRoom(9L, 42L, 77L);
 	}
 
 	@Test
@@ -208,8 +201,6 @@ class ChatServiceTest {
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 42L))
 			.isInstanceOf(SelfChatRoomException.class);
-
-		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 42L);
 	}
 
 	@Test
@@ -223,7 +214,6 @@ class ChatServiceTest {
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
 			.isInstanceOf(UserNotFoundException.class);
 
-		verify(answerRepository, never()).existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L);
 		verify(chatRoomLifecycle, never()).getOrCreateQuestionRoom(9L, 42L, 77L);
 	}
 
@@ -234,7 +224,6 @@ class ChatServiceTest {
 		when(questionRepository.findActiveByIdForShare(9L))
 			.thenReturn(Optional.of(Question.create(5L, 42L, "title", "content")));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.of(user(77L, "target@example.com", "target")));
-		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(true);
 
 		assertThatThrownBy(() -> service.createQuestionRoom(principal(42L), 9L, 77L))
@@ -629,7 +618,6 @@ class ChatServiceTest {
 		when(questionRepository.findActiveByIdForShare(9L)).thenReturn(Optional.of(question));
 		when(userRepository.findByIdAndDeletedAtIsNull(77L))
 			.thenReturn(Optional.of(user(77L, "target@example.com", "target")));
-		when(answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(9L, 77L)).thenReturn(true);
 		when(friendService.hasBlockBetween(42L, 77L)).thenReturn(false);
 		when(chatRoomLifecycle.getOrCreateQuestionRoom(9L, 42L, 77L)).thenReturn(100L);
 		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));

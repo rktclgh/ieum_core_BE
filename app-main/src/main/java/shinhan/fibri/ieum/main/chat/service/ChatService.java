@@ -26,7 +26,6 @@ import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.ChatRoomRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
-import shinhan.fibri.ieum.main.answer.repository.AnswerRepository;
 import shinhan.fibri.ieum.main.chat.dto.ChatCursorPage;
 import shinhan.fibri.ieum.main.chat.dto.ChatMessageResponse;
 import shinhan.fibri.ieum.main.chat.dto.ChatRoomDetailResponse;
@@ -42,7 +41,6 @@ import shinhan.fibri.ieum.main.friend.service.FriendService;
 import shinhan.fibri.ieum.main.meeting.exception.NotHostException;
 import shinhan.fibri.ieum.main.meeting.repository.MeetingRepository;
 import shinhan.fibri.ieum.main.question.domain.Question;
-import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.exception.QuestionNotFoundException;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
 import shinhan.fibri.ieum.main.question.repository.QuestionTitleProjection;
@@ -62,7 +60,6 @@ public class ChatService {
 	private final FriendService friendService;
 	private final MeetingRepository meetingRepository;
 	private final QuestionRepository questionRepository;
-	private final AnswerRepository answerRepository;
 	private final ChatRoomLifecycle chatRoomLifecycle;
 	private final PlatformTransactionManager transactionManager;
 
@@ -135,16 +132,10 @@ public class ChatService {
 		User currentUser = findActiveUser(principal.userId());
 		Question question = questionRepository.findActiveByIdForShare(questionId)
 			.orElseThrow(QuestionNotFoundException::new);
-		if (!question.getAuthorId().equals(currentUser.getId())) {
-			throw new QuestionForbiddenException();
-		}
 		if (currentUser.getId().equals(targetUserId)) {
 			throw new SelfChatRoomException();
 		}
 		User targetUser = findActiveUser(targetUserId);
-		if (!answerRepository.existsByQuestionIdAndAuthorIdAndAiFalse(questionId, targetUser.getId())) {
-			throw new QuestionForbiddenException();
-		}
 		if (friendService.hasBlockBetween(currentUser.getId(), targetUser.getId())) {
 			throw new BlockedChatException();
 		}
