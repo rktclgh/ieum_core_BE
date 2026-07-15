@@ -27,4 +27,10 @@ public record WebPushSubscription(
 		Objects.requireNonNull(createdAt, "createdAt must not be null");
 		Objects.requireNonNull(updatedAt, "updatedAt must not be null");
 	}
+
+	@Override
+	public String toString() {
+		return "WebPushSubscription[subscriptionId=%d, userId=%d, bindingVersion=%d, expiresAt=%s, createdAt=%s, updatedAt=%s]"
+			.formatted(subscriptionId, userId, bindingVersion, expiresAt, createdAt, updatedAt);
+	}
 }

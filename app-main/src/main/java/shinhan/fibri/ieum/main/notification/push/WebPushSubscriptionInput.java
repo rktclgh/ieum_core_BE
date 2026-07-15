@@ -26,4 +26,9 @@ public record WebPushSubscriptionInput(
 			throw new IllegalArgumentException(fieldName + " must contain between 1 and " + maxLength + " characters");
 		}
 	}
+
+	@Override
+	public String toString() {
+		return "WebPushSubscriptionInput[userId=%d, expiresAt=%s]".formatted(userId, expiresAt);
+	}
 }
