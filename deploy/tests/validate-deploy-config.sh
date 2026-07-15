@@ -30,6 +30,7 @@ required_files=(
   deploy/app-main/compose.yml
   deploy/app-ai/Dockerfile
   deploy/app-ai/compose.yml
+  deploy/env/admin-dashboard-migration.env.example
   deploy/env/app-main.env.example
   deploy/env/app-ai.env.example
   deploy/nginx/ieum.rktclgh.site.http.conf
@@ -100,6 +101,16 @@ grep -Fq '`PGDATABASE`' deploy/GITHUB-CONFIG.md
 grep -Fq '`PGUSER`' deploy/GITHUB-CONFIG.md
 grep -Fq '`PGPASSWORD`' deploy/GITHUB-CONFIG.md
 grep -Fq 'before either application binary is built' deploy/GITHUB-CONFIG.md
+grep -Fq 'private RDS' deploy/GITHUB-CONFIG.md
+grep -Fq '`.migration.env`' deploy/GITHUB-CONFIG.md
+
+migration_env_example=deploy/env/admin-dashboard-migration.env.example
+grep -Eq '^PGHOST=' "$migration_env_example"
+grep -Eq '^PGPORT=' "$migration_env_example"
+grep -Eq '^PGDATABASE=' "$migration_env_example"
+grep -Eq '^PGUSER=' "$migration_env_example"
+grep -Eq '^PGPASSWORD=' "$migration_env_example"
+grep -Eq '^# PGPASSFILE=' "$migration_env_example"
 
 for workflow in "$main_workflow" "$ai_workflow"; do
   test "$(grep -Fc 'cancel-in-progress: false' "$workflow")" -eq 1 || {
@@ -107,26 +118,59 @@ for workflow in "$main_workflow" "$ai_workflow"; do
     exit 1
   }
   forbid_literal 'cancel-in-progress: true' "$workflow"
-  grep -Fq 'PGHOST: ${{ secrets.PGHOST }}' "$workflow"
-  grep -Fq 'PGPORT: ${{ secrets.PGPORT }}' "$workflow"
-  grep -Fq 'PGDATABASE: ${{ secrets.PGDATABASE }}' "$workflow"
-  grep -Fq 'PGUSER: ${{ secrets.PGUSER }}' "$workflow"
-  grep -Fq 'PGPASSWORD: ${{ secrets.PGPASSWORD }}' "$workflow"
-  grep -Fq 'test -n "$PGPASSWORD"' "$workflow"
-  test "$(grep -Fc '          deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow")" -eq 1 || {
-    echo "Migration helper must be executed exactly once: $workflow" >&2
+  for pg_secret in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE; do
+    forbid_literal "secrets.$pg_secret" "$workflow"
+  done
+  forbid_regex '^[[:space:]]+PG(HOST|PORT|DATABASE|USER|PASSWORD|PASSFILE):' "$workflow"
+  forbid_regex '\$\{\{[^}]*PG(HOST|PORT|DATABASE|USER|PASSWORD|PASSFILE)' "$workflow"
+  forbid_regex 'ssh .*PG(PASSWORD|PASSFILE)' "$workflow"
+  forbid_regex 'scp .*migration\.env' "$workflow"
+  forbid_regex '^[[:space:]]+deploy/scripts/apply-admin-dashboard-migrations\.sh[[:space:]]*$' "$workflow"
+
+  grep -Fq 'migration_env="$deploy_path/.migration.env"' "$workflow"
+  grep -Fq 'test -f "$migration_env"' "$workflow"
+  grep -Fq 'test ! -L "$migration_env"' "$workflow"
+  grep -Fq '[[ "$(stat -c '\''%a'\'' "$migration_env")" == "600" ]]' "$workflow"
+  grep -Fq 'command -v psql >/dev/null 2>&1' "$workflow"
+  grep -Fq 'set -a' "$workflow"
+  grep -Fq 'source "$migration_env"' "$workflow"
+  grep -Fq 'set +a' "$workflow"
+  grep -Fq 'if [[ -z "${PGPASSWORD:-}" ]]; then' "$workflow"
+  grep -Fq 'test -n "${PGPASSFILE:-}"' "$workflow"
+  grep -Fq '[[ "$PGPASSFILE" == /* ]]' "$workflow"
+  grep -Fq 'test -f "$PGPASSFILE"' "$workflow"
+  grep -Fq 'test ! -L "$PGPASSFILE"' "$workflow"
+  grep -Fq '[[ "$(stat -c '\''%a'\'' "$PGPASSFILE")" == "600" ]]' "$workflow"
+
+  test "$(grep -Ec '^[[:space:]]+scp .*db/migrations/' "$workflow")" -eq 1 || {
+    echo "Only one exact migration copy command is allowed: $workflow" >&2
+    exit 1
+  }
+  grep -Fq 'scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow"
+  grep -Fq 'scp "${scp_opts[@]}" db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql "$remote:$DEPLOY_PATH/db/migrations/"' "$workflow"
+  forbid_regex 'scp .*db/migrations/.*[?*]' "$workflow"
+  test "$(grep -Fc '"$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow")" -eq 1 || {
+    echo "Remote migration helper must be executed exactly once: $workflow" >&2
     exit 1
   }
 
-  migration_line="$(grep -n -m1 -F '          deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow" | cut -d: -f1)"
+  helper_copy_line="$(grep -n -m1 -F 'scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow" | cut -d: -f1)"
+  migration_copy_line="$(grep -n -m1 -F 'scp "${scp_opts[@]}" db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql' "$workflow" | cut -d: -f1)"
+  migration_line="$(grep -n -m1 -F '"$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"' "$workflow" | cut -d: -f1)"
   binary_build_line="$(grep -n -m1 -E 'run: ./gradlew :app-(main|ai):test :app-(main|ai):bootJar' "$workflow" | cut -d: -f1)"
   image_build_line="$(grep -n -m1 -F 'docker build --file' "$workflow" | cut -d: -f1)"
-  test -n "$migration_line" && test -n "$binary_build_line" && test -n "$image_build_line" || {
+  deploy_line="$(grep -n -m1 -F -- '- name: Deploy over SSH' "$workflow" | cut -d: -f1)"
+  test -n "$helper_copy_line" && test -n "$migration_copy_line" && test -n "$migration_line" \
+    && test -n "$binary_build_line" && test -n "$image_build_line" && test -n "$deploy_line" || {
     echo "migration/build ordering marker missing: $workflow" >&2
     exit 1
   }
-  (( migration_line < binary_build_line && migration_line < image_build_line )) || {
-    echo "Admin dashboard migrations must run before binary/image build: $workflow" >&2
+  (( helper_copy_line < migration_line \
+    && migration_copy_line < migration_line \
+    && migration_line < binary_build_line \
+    && migration_line < image_build_line \
+    && migration_line < deploy_line )) || {
+    echo "Remote admin migrations must be copied and run before binary/image/deployment: $workflow" >&2
     exit 1
   }
 done

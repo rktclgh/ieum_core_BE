@@ -55,12 +55,6 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.123.11`
-- `PGHOST`: production PostgreSQL host used by the migration helper
-- `PGPORT`: production PostgreSQL port, normally `5432`
-- `PGDATABASE`: production PostgreSQL database name
-- `PGUSER`: production PostgreSQL migration user
-- `PGPASSWORD`: password for the migration user; it is passed through the
-  standard libpq environment and never placed in a command-line argument
 - `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
   `SPRING_DATASOURCE_URL` must use the production database host, never
   `localhost`, `127.0.0.1`, or the example placeholder, and it must include
@@ -80,19 +74,33 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
-- `PGHOST`: the same production PostgreSQL host configured for app-main
-- `PGPORT`: the same production PostgreSQL port configured for app-main
-- `PGDATABASE`: the same production PostgreSQL database configured for app-main
-- `PGUSER`: production PostgreSQL migration user
-- `PGPASSWORD`: password for the migration user
 - `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`
 
-Both binary workflows run `deploy/scripts/apply-admin-dashboard-migrations.sh`
-before either application binary is built. Missing libpq connection values,
-an unavailable `psql`, a schema mismatch, or any migration error stops the
-workflow before image build or SSH deployment. The GitHub workflows use the
-`PGPASSWORD` environment secret; controlled manual execution may instead use a
-permission-restricted libpq `.pgpass` file.
+### Remote database migration gate
+
+The production database is a private RDS instance whose port 5432 accepts
+traffic only from the production EC2 security groups. GitHub-hosted runners
+must not receive database credentials and cannot connect to that private RDS
+endpoint. Each binary workflow therefore copies only the migration helper,
+`v25_user_auth_version.sql`, and `v26_admin_audit_logs.sql` to its production
+EC2 host and runs the helper there before either application binary is built.
+
+Before enabling either workflow, install the PostgreSQL client on both EC2
+hosts. On each host, copy
+`deploy/env/admin-dashboard-migration.env.example` to
+`$DEPLOY_PATH/.migration.env`, fill in `PGHOST`, `PGPORT`, `PGDATABASE`, and
+`PGUSER`, then configure either `PGPASSWORD` or an absolute `PGPASSFILE` path.
+The file is sourced as a shell environment file, so quote values containing
+shell-special characters. Make it owned by the SSH deployment user and run
+`chmod 600 "$DEPLOY_PATH/.migration.env"`. If `PGPASSFILE` is used, that file
+must also be a regular, non-symlink file with mode 600.
+
+The workflow checks `.migration.env`, its permissions, the selected password
+source, and the remote `psql` command before running the helper. The password
+stays on EC2: it is never interpolated as a GitHub secret and never appears in
+an SSH argument or workflow log. Missing configuration, unsafe permissions,
+an unavailable `psql`, a schema mismatch, or a migration error stops the
+workflow before Gradle, image build, or SSH application deployment.
 
 Generate candidate host-key lines with `ssh-keyscan -H <host>`, but verify the
 fingerprint through AWS or another trusted channel before saving the result as
