@@ -1,16 +1,12 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
-import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
-import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
-import shinhan.fibri.ieum.main.pin.repository.PinWriter;
-import shinhan.fibri.ieum.main.question.domain.Question;
-import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
-import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
+import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 
 @Service
 @RequiredArgsConstructor
@@ -18,9 +14,7 @@ public class AdminContentService {
 
 	private static final String QUESTION_TYPE = "question";
 
-	private final QuestionRepository questionRepository;
-	private final PinWriter pinWriter;
-	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
+	private final QuestionDeletionExecutor questionDeletionExecutor;
 
 	@Transactional
 	public void hide(String type, Long id) {
@@ -31,20 +25,11 @@ public class AdminContentService {
 	}
 
 	private void hideQuestion(Long questionId) {
-		QuestionDeletionState precheck = questionRepository.findDeletionState(questionId)
-			.orElseThrow(ContentNotFoundException::new);
-		if (precheck.getDeletedAt() != null) {
-			return;
-		}
-
-		questionAnswerTicketWriter.requestCancellation(questionId);
-		Question question = questionRepository.findByIdForUpdate(questionId).orElse(null);
-		if (question == null || question.isDeleted()) {
-			return;
-		}
-
-		OffsetDateTime deletedAt = OffsetDateTime.now();
-		question.softDelete(deletedAt);
-		pinWriter.softDelete(question.getPinId(), deletedAt);
+		questionDeletionExecutor.deleteQuestion(
+			questionId,
+			null,
+			ContentNotFoundException::new,
+			QuestionForbiddenException::new
+		);
 	}
 }

@@ -23,17 +23,19 @@ import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
 import shinhan.fibri.ieum.main.question.repository.QuestionDeletionState;
 import shinhan.fibri.ieum.main.question.repository.QuestionRepository;
+import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 
 class AdminContentServiceTest {
 
 	private final QuestionRepository questionRepository = mock(QuestionRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
-	private final AdminContentService service = new AdminContentService(
+	private final QuestionDeletionExecutor questionDeletionExecutor = new QuestionDeletionExecutor(
 		questionRepository,
 		pinWriter,
 		questionAnswerTicketWriter
 	);
+	private final AdminContentService service = new AdminContentService(questionDeletionExecutor);
 
 	@Test
 	void hideQuestionCancelsAiThenSoftDeletesQuestionAndPinAtSameTimeWithoutAuthorCheck() {

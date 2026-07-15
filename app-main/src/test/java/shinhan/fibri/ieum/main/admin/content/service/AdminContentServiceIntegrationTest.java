@@ -15,12 +15,13 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import shinhan.fibri.ieum.main.ai.question.repository.JdbcQuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.pin.repository.JdbcPinWriter;
+import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
 import shinhan.fibri.ieum.testsupport.SqlScriptRunner;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({AdminContentService.class, JdbcPinWriter.class, JdbcQuestionAnswerTicketWriter.class})
+@Import({AdminContentService.class, QuestionDeletionExecutor.class, JdbcPinWriter.class, JdbcQuestionAnswerTicketWriter.class})
 class AdminContentServiceIntegrationTest {
 
 	private static final String DATABASE = "ieum_admin_content_service";
