@@ -81,6 +81,42 @@ class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 	}
 
 	@Test
+	void hardDeleteCollectsFilesReferencedByRowsCascadedFromTargetOwnedContent() {
+		long targetUserId = insertUser("cascade-owner", "user");
+		long otherUserId = insertUser("cascade-other", "user");
+		UUID questionImageFileId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+		UUID answerImageFileId = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		UUID meetingImageFileId = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+		UUID meetingMessageFileId = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
+		insertFile(questionImageFileId, otherUserId, "final/" + otherUserId + "/question/" + questionImageFileId + "/original.jpg");
+		insertFile(answerImageFileId, otherUserId, "final/" + otherUserId + "/answer/" + answerImageFileId + "/original.jpg");
+		insertFile(meetingImageFileId, otherUserId, "final/" + otherUserId + "/meeting/" + meetingImageFileId + "/original.jpg");
+		insertFile(meetingMessageFileId, otherUserId, "final/" + otherUserId + "/chat/" + meetingMessageFileId + "/original.jpg");
+		long questionPinId = insertPin(targetUserId);
+		long questionId = insertQuestion(targetUserId, questionPinId);
+		insertQuestionImage(questionId, questionImageFileId);
+		long answerId = insertAnswerReturningId(questionId, otherUserId);
+		insertAnswerImage(answerId, answerImageFileId);
+		long meetingPinId = insertPin(targetUserId);
+		long meetingId = insertMeeting(targetUserId, meetingPinId, meetingImageFileId);
+		long roomId = insertGroupRoom(meetingId);
+		insertImageOnlyMessageInRoom(roomId, otherUserId, meetingMessageFileId);
+
+		List<String> s3Keys = repository.hardDelete(targetUserId);
+
+		assertThat(s3Keys).contains(
+			"final/" + otherUserId + "/question/" + questionImageFileId + "/original.jpg",
+			"final/" + otherUserId + "/answer/" + answerImageFileId + "/original.jpg",
+			"final/" + otherUserId + "/meeting/" + meetingImageFileId + "/original.jpg",
+			"final/" + otherUserId + "/chat/" + meetingMessageFileId + "/original.jpg"
+		);
+		assertThat(count("files", "file_id", questionImageFileId)).isZero();
+		assertThat(count("files", "file_id", answerImageFileId)).isZero();
+		assertThat(count("files", "file_id", meetingImageFileId)).isZero();
+		assertThat(count("files", "file_id", meetingMessageFileId)).isZero();
+	}
+
+	@Test
 	void hardDeleteWorksForSoftDeletedUsers() {
 		long userId = insertUser("soft", "user");
 		jdbc.update(
@@ -170,6 +206,76 @@ class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 				VALUES (:questionId, :userId, false, 'answer')
 				""",
 			new MapSqlParameterSource("questionId", questionId).addValue("userId", userId)
+		);
+	}
+
+	private long insertAnswerReturningId(long questionId, long userId) {
+		return jdbc.queryForObject(
+			"""
+				INSERT INTO answers (question_id, author_id, is_ai, content)
+				VALUES (:questionId, :userId, false, 'answer')
+				RETURNING answer_id
+				""",
+			new MapSqlParameterSource("questionId", questionId).addValue("userId", userId),
+			Long.class
+		);
+	}
+
+	private void insertQuestionImage(long questionId, UUID fileId) {
+		jdbc.update(
+			"""
+				INSERT INTO question_images (question_id, file_id)
+				VALUES (:questionId, :fileId)
+				""",
+			new MapSqlParameterSource("questionId", questionId).addValue("fileId", fileId)
+		);
+	}
+
+	private void insertAnswerImage(long answerId, UUID fileId) {
+		jdbc.update(
+			"""
+				INSERT INTO answer_images (answer_id, file_id)
+				VALUES (:answerId, :fileId)
+				""",
+			new MapSqlParameterSource("answerId", answerId).addValue("fileId", fileId)
+		);
+	}
+
+	private long insertMeeting(long userId, long pinId, UUID imageFileId) {
+		return jdbc.queryForObject(
+			"""
+				INSERT INTO meetings (pin_id, host_id, title, content, meeting_at, image_file_id)
+				VALUES (:pinId, :userId, 'meeting', 'content', now() + interval '1 day', :imageFileId)
+				RETURNING meeting_id
+				""",
+			new MapSqlParameterSource("pinId", pinId)
+				.addValue("userId", userId)
+				.addValue("imageFileId", imageFileId),
+			Long.class
+		);
+	}
+
+	private long insertGroupRoom(long meetingId) {
+		return jdbc.queryForObject(
+			"""
+				INSERT INTO chat_rooms (room_type, meeting_id)
+				VALUES ('group', :meetingId)
+				RETURNING room_id
+				""",
+			new MapSqlParameterSource("meetingId", meetingId),
+			Long.class
+		);
+	}
+
+	private void insertImageOnlyMessageInRoom(long roomId, long userId, UUID fileId) {
+		jdbc.update(
+			"""
+				INSERT INTO messages (room_id, sender_id, image_file_id)
+				VALUES (:roomId, :userId, :fileId)
+				""",
+			new MapSqlParameterSource("roomId", roomId)
+				.addValue("userId", userId)
+				.addValue("fileId", fileId)
 		);
 	}
 

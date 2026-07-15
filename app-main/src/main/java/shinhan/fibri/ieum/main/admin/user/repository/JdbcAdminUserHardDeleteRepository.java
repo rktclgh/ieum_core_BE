@@ -62,7 +62,7 @@ public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRep
 	@Override
 	@Transactional
 	public List<String> hardDelete(Long userId) {
-		List<FileRow> files = selectUploadedFiles(userId);
+		List<FileRow> files = selectFilesForHardDelete(userId);
 		logCollectedKeys(userId, files);
 
 		MapSqlParameterSource params = new MapSqlParameterSource("userId", userId);
@@ -77,13 +77,77 @@ public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRep
 		return files.stream().map(FileRow::s3Key).toList();
 	}
 
-	private List<FileRow> selectUploadedFiles(Long userId) {
+	private List<FileRow> selectFilesForHardDelete(Long userId) {
 		return jdbc.query(
 			"""
-				SELECT file_id, s3_key
-				  FROM files
-				 WHERE uploader_id = :userId
-				 ORDER BY file_id
+				WITH target_questions AS (
+					SELECT question_id
+					  FROM questions
+					 WHERE author_id = :userId
+				),
+				target_meetings AS (
+					SELECT meeting_id, image_file_id, thumbnail_file_id
+					  FROM meetings
+					 WHERE host_id = :userId
+				),
+				target_rooms AS (
+					SELECT room_id
+					  FROM chat_rooms
+					 WHERE question_id IN (SELECT question_id FROM target_questions)
+					UNION
+					SELECT room_id
+					  FROM chat_rooms
+					 WHERE meeting_id IN (SELECT meeting_id FROM target_meetings)
+				),
+				target_answers AS (
+					SELECT answer_id
+					  FROM answers
+					 WHERE author_id = :userId
+					UNION
+					SELECT answer_id
+					  FROM answers
+					 WHERE question_id IN (SELECT question_id FROM target_questions)
+				),
+				file_refs AS (
+					SELECT file_id
+					  FROM files
+					 WHERE uploader_id = :userId
+					UNION
+					SELECT profile_file_id AS file_id
+					  FROM users
+					 WHERE user_id = :userId
+					   AND profile_file_id IS NOT NULL
+					UNION
+					SELECT file_id
+					  FROM question_images
+					 WHERE question_id IN (SELECT question_id FROM target_questions)
+					UNION
+					SELECT file_id
+					  FROM answer_images
+					 WHERE answer_id IN (SELECT answer_id FROM target_answers)
+					UNION
+					SELECT image_file_id AS file_id
+					  FROM target_meetings
+					 WHERE image_file_id IS NOT NULL
+					UNION
+					SELECT thumbnail_file_id AS file_id
+					  FROM target_meetings
+					 WHERE thumbnail_file_id IS NOT NULL
+					UNION
+					SELECT image_file_id AS file_id
+					  FROM messages
+					 WHERE sender_id = :userId
+					   AND image_file_id IS NOT NULL
+					UNION
+					SELECT image_file_id AS file_id
+					  FROM messages
+					 WHERE room_id IN (SELECT room_id FROM target_rooms)
+					   AND image_file_id IS NOT NULL
+				)
+				SELECT DISTINCT f.file_id, f.s3_key
+				  FROM files f
+				  JOIN file_refs fr ON fr.file_id = f.file_id
+				 ORDER BY f.file_id
 				""",
 			new MapSqlParameterSource("userId", userId),
 			this::toFileRow
