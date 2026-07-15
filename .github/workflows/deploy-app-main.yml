@@ -10,10 +10,12 @@ on:
       - "settings.gradle.kts"
       - "gradle/**"
       - "gradlew"
+      - "db/migrations/**"
       - "deploy/app-main/**"
       - "deploy/env/app-main.env.example"
       - "deploy/nginx/**"
       - "deploy/scripts/**"
+      - "deploy/scripts/apply-admin-dashboard-migrations.sh"
       - "deploy/tests/**"
       - ".dockerignore"
       - ".github/workflows/deploy-app-main.yml"
@@ -27,7 +29,7 @@ permissions:
 
 concurrency:
   group: deploy-app-main-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -45,18 +47,40 @@ jobs:
         run: |
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
 
+      - name: Resolve frontend source
+        id: frontend-source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
+            [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]
+            echo "ref=$DISPATCH_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out frontend
         uses: actions/checkout@v4
         with:
           repository: rktclgh/ieum_FE
-          ref: main
+          ref: ${{ steps.frontend-source.outputs.ref }}
           path: frontend
           token: ${{ secrets.CI_GITHUB_TOKEN }}
           persist-credentials: false
 
-      - name: Capture frontend SHA
+      - name: Verify frontend checkout
         id: frontend-sha
-        run: echo "sha=$(git -C frontend rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
+        run: |
+          FRONTEND_SHA="$(git -C frontend rev-parse HEAD)"
+          [[ "$FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
+            [[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]
+          fi
+          echo "sha=$FRONTEND_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -96,6 +120,20 @@ jobs:
           test -s "$static_dir/index.html"
           test -s "$static_dir/index.txt"
 
+      - name: Validate deployment configuration
+        run: bash deploy/tests/validate-deploy-config.sh
+
+      - name: Apply admin dashboard migrations
+        env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        run: |
+          test -n "$PGPASSWORD"
+          deploy/scripts/apply-admin-dashboard-migrations.sh
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -134,6 +172,22 @@ jobs:
           docker build --file deploy/app-main/Dockerfile --tag "$image" .
           docker push "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse stale frontend deployment
+        env:
+          CI_GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          test -n "$CI_GITHUB_TOKEN"
+          [[ "$FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          latest_frontend_sha="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $CI_GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/rktclgh/ieum_FE/git/ref/heads/main" \
+            | jq -r '.object.sha')"
+          [[ "$latest_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
 
       - name: Deploy over SSH
         env:

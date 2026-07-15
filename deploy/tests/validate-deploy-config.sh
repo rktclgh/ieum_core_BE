@@ -36,8 +36,10 @@ required_files=(
   deploy/nginx/ieum.rktclgh.site.conf
   deploy/nginx/reload-nginx.sh
   deploy/scripts/bootstrap-docker.sh
+  deploy/scripts/apply-admin-dashboard-migrations.sh
   deploy/scripts/configure-nginx.sh
   deploy/scripts/deploy-compose.sh
+  deploy/tests/apply-admin-dashboard-migrations-test.sh
   deploy/tests/verify-static-frontend-package.sh
   deploy/tests/verify-static-frontend-package-test.sh
   deploy/GITHUB-CONFIG.md
@@ -47,7 +49,15 @@ for file in "${required_files[@]}"; do
   test -s "$file" || { echo "missing: $file" >&2; exit 1; }
 done
 
-bash -n deploy/scripts/bootstrap-docker.sh deploy/scripts/configure-nginx.sh deploy/scripts/deploy-compose.sh deploy/tests/verify-static-frontend-package.sh deploy/tests/verify-static-frontend-package-test.sh
+bash -n \
+  deploy/scripts/apply-admin-dashboard-migrations.sh \
+  deploy/scripts/bootstrap-docker.sh \
+  deploy/scripts/configure-nginx.sh \
+  deploy/scripts/deploy-compose.sh \
+  deploy/tests/apply-admin-dashboard-migrations-test.sh \
+  deploy/tests/verify-static-frontend-package.sh \
+  deploy/tests/verify-static-frontend-package-test.sh
+bash deploy/tests/apply-admin-dashboard-migrations-test.sh
 bash deploy/tests/verify-static-frontend-package-test.sh
 
 main_workflow=.github/workflows/deploy-app-main.yml
@@ -55,12 +65,18 @@ ai_workflow=.github/workflows/deploy-app-ai.yml
 
 grep -Fq 'types: ["frontend-updated"]' "$main_workflow"
 grep -Fq 'rktclgh/ieum_FE' "$main_workflow"
-grep -Fq 'ref: main' "$main_workflow"
+grep -Fq 'DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}' "$main_workflow"
+grep -Fq '[[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]' "$main_workflow"
+grep -Fq 'ref: ${{ steps.frontend-source.outputs.ref }}' "$main_workflow"
+grep -Fq 'echo "ref=main" >> "$GITHUB_OUTPUT"' "$main_workflow"
 grep -Fq '[[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]' "$main_workflow"
 grep -Fq '[[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]' "$main_workflow"
 grep -Fq '[[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]' "$main_workflow"
 grep -Fq 'cancel-in-progress: false' "$main_workflow"
 forbid_literal 'frontend_ref:' "$main_workflow"
+forbid_literal 'ref: ${{ github.event.client_payload.frontend_sha }}' "$main_workflow"
+grep -Fq '"db/migrations/**"' "$main_workflow"
+grep -Fq '"deploy/scripts/apply-admin-dashboard-migrations.sh"' "$main_workflow"
 grep -Fq 'test -s out/index.html' "$main_workflow"
 grep -Fq 'test -s out/index.txt' "$main_workflow"
 grep -Fq 'pnpm verify' "$main_workflow"
@@ -76,6 +92,56 @@ grep -Fq 'if [[ -n "$LETSENCRYPT_EMAIL" ]]; then' "$main_workflow"
 grep -Fq '[[ "$status" == "200" ]]' "$main_workflow"
 forbid_literal 'vars.APP_MAIN_PORT' "$main_workflow"
 grep -Fq '54.116.123.11' deploy/GITHUB-CONFIG.md
+grep -Fq '`client_payload.frontend_sha`' deploy/GITHUB-CONFIG.md
+grep -Fq '`cancel-in-progress: false`' deploy/GITHUB-CONFIG.md
+grep -Fq '`PGHOST`' deploy/GITHUB-CONFIG.md
+grep -Fq '`PGPORT`' deploy/GITHUB-CONFIG.md
+grep -Fq '`PGDATABASE`' deploy/GITHUB-CONFIG.md
+grep -Fq '`PGUSER`' deploy/GITHUB-CONFIG.md
+grep -Fq '`PGPASSWORD`' deploy/GITHUB-CONFIG.md
+grep -Fq 'before either application binary is built' deploy/GITHUB-CONFIG.md
+
+for workflow in "$main_workflow" "$ai_workflow"; do
+  test "$(grep -Fc 'cancel-in-progress: false' "$workflow")" -eq 1 || {
+    echo "Deployment cancellation policy must be declared exactly once: $workflow" >&2
+    exit 1
+  }
+  forbid_literal 'cancel-in-progress: true' "$workflow"
+  grep -Fq 'PGHOST: ${{ secrets.PGHOST }}' "$workflow"
+  grep -Fq 'PGPORT: ${{ secrets.PGPORT }}' "$workflow"
+  grep -Fq 'PGDATABASE: ${{ secrets.PGDATABASE }}' "$workflow"
+  grep -Fq 'PGUSER: ${{ secrets.PGUSER }}' "$workflow"
+  grep -Fq 'PGPASSWORD: ${{ secrets.PGPASSWORD }}' "$workflow"
+  grep -Fq 'test -n "$PGPASSWORD"' "$workflow"
+  test "$(grep -Fc '          deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow")" -eq 1 || {
+    echo "Migration helper must be executed exactly once: $workflow" >&2
+    exit 1
+  }
+
+  migration_line="$(grep -n -m1 -F '          deploy/scripts/apply-admin-dashboard-migrations.sh' "$workflow" | cut -d: -f1)"
+  binary_build_line="$(grep -n -m1 -E 'run: ./gradlew :app-(main|ai):test :app-(main|ai):bootJar' "$workflow" | cut -d: -f1)"
+  image_build_line="$(grep -n -m1 -F 'docker build --file' "$workflow" | cut -d: -f1)"
+  test -n "$migration_line" && test -n "$binary_build_line" && test -n "$image_build_line" || {
+    echo "migration/build ordering marker missing: $workflow" >&2
+    exit 1
+  }
+  (( migration_line < binary_build_line && migration_line < image_build_line )) || {
+    echo "Admin dashboard migrations must run before binary/image build: $workflow" >&2
+    exit 1
+  }
+done
+
+latest_frontend_line="$(grep -n -m1 -F '[[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]' "$main_workflow" | cut -d: -f1)"
+ssh_deploy_line="$(grep -n -m1 -F -- '- name: Deploy over SSH' "$main_workflow" | cut -d: -f1)"
+test -n "$latest_frontend_line" && test -n "$ssh_deploy_line" && (( latest_frontend_line < ssh_deploy_line )) || {
+  echo "The latest frontend main SHA must be checked immediately before deployment." >&2
+  exit 1
+}
+if sed -n "$((latest_frontend_line + 1)),$((ssh_deploy_line - 1))p" "$main_workflow" \
+  | grep -Eq '^      - name:'; then
+  echo "No deployment step may bypass the final frontend SHA check." >&2
+  exit 1
+fi
 
 nginx_configure_line="$(grep -n -m1 -F '"sudo bash '\''$DEPLOY_PATH/configure-nginx.sh' "$main_workflow" | cut -d: -f1)"
 compose_deploy_line="$(grep -n -m1 -F '"sudo env APP_MAIN_PRIVATE_BIND_ADDRESS=' "$main_workflow" | cut -d: -f1)"
@@ -89,6 +155,8 @@ grep -Fq 'docker.io/${DOCKERHUB_USERNAME}/ieum-app-ai:' "$ai_workflow"
 grep -Fq '54.116.69.21' deploy/GITHUB-CONFIG.md
 grep -Fq '[[ "$latest_run_id" == "$GITHUB_RUN_ID" ]]' "$ai_workflow"
 grep -Fq 'cancel-in-progress: false' "$ai_workflow"
+grep -Fq '"db/migrations/**"' "$ai_workflow"
+grep -Fq '"deploy/scripts/apply-admin-dashboard-migrations.sh"' "$ai_workflow"
 forbid_literal 'repository_dispatch:' "$ai_workflow"
 forbid_literal 'ieum_FE' "$ai_workflow"
 forbid_literal 'vars.APP_AI_PORT' "$ai_workflow"

@@ -10,8 +10,10 @@ on:
       - "settings.gradle.kts"
       - "gradle/**"
       - "gradlew"
+      - "db/migrations/**"
       - "deploy/app-ai/**"
       - "deploy/env/app-ai.env.example"
+      - "deploy/scripts/apply-admin-dashboard-migrations.sh"
       - "deploy/scripts/bootstrap-docker.sh"
       - "deploy/scripts/deploy-compose.sh"
       - ".dockerignore"
@@ -24,7 +26,7 @@ permissions:
 
 concurrency:
   group: deploy-app-ai-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -38,6 +40,20 @@ jobs:
       - name: Validate deployment source
         run: |
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Validate deployment configuration
+        run: bash deploy/tests/validate-deploy-config.sh
+
+      - name: Apply admin dashboard migrations
+        env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        run: |
+          test -n "$PGPASSWORD"
+          deploy/scripts/apply-admin-dashboard-migrations.sh
 
       - name: Set up Java
         uses: actions/setup-java@v4

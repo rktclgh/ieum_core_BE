@@ -12,6 +12,18 @@ Repository secrets:
 - `CI_GITHUB_TOKEN`: fine-grained PAT targeting `rktclgh/ieum_BE` with
   repository Contents write permission, used only for `repository_dispatch`.
 
+The `frontend-updated` dispatch must include the commit that produced the
+frontend export in `client_payload.frontend_sha`. The value must be the full
+40-character lowercase Git commit SHA. The backend workflow checks out exactly
+that SHA and verifies it again after checkout. Backend push and manual runs use
+the frontend `main` branch as their fallback source.
+
+The app-main deployment performs one final comparison with the current
+frontend `main` SHA immediately before SSH deployment. A newer frontend commit
+therefore makes an older run fail closed instead of publishing stale assets.
+Production deployment concurrency uses `cancel-in-progress: false`, so an
+in-flight migration or deployment is never interrupted by a newer run.
+
 ## Backend repository
 
 Repository secrets:
@@ -43,6 +55,12 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.123.11`
+- `PGHOST`: production PostgreSQL host used by the migration helper
+- `PGPORT`: production PostgreSQL port, normally `5432`
+- `PGDATABASE`: production PostgreSQL database name
+- `PGUSER`: production PostgreSQL migration user
+- `PGPASSWORD`: password for the migration user; it is passed through the
+  standard libpq environment and never placed in a command-line argument
 - `APP_MAIN_ENV_FILE`: completed `deploy/env/app-main.env.example`; its
   `SPRING_DATASOURCE_URL` must use the production database host, never
   `localhost`, `127.0.0.1`, or the example placeholder, and it must include
@@ -62,7 +80,19 @@ Secrets:
 
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
+- `PGHOST`: the same production PostgreSQL host configured for app-main
+- `PGPORT`: the same production PostgreSQL port configured for app-main
+- `PGDATABASE`: the same production PostgreSQL database configured for app-main
+- `PGUSER`: production PostgreSQL migration user
+- `PGPASSWORD`: password for the migration user
 - `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`
+
+Both binary workflows run `deploy/scripts/apply-admin-dashboard-migrations.sh`
+before either application binary is built. Missing libpq connection values,
+an unavailable `psql`, a schema mismatch, or any migration error stops the
+workflow before image build or SSH deployment. The GitHub workflows use the
+`PGPASSWORD` environment secret; controlled manual execution may instead use a
+permission-restricted libpq `.pgpass` file.
 
 Generate candidate host-key lines with `ssh-keyscan -H <host>`, but verify the
 fingerprint through AWS or another trusted channel before saving the result as
