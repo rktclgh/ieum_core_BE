@@ -61,7 +61,7 @@ public class ReportReviewInternalController {
 		try {
 			return objectMapper.writeValueAsBytes(response);
 		} catch (JsonProcessingException exception) {
-			throw new ReportReviewModelGatewayException();
+			throw new ReportReviewModelGatewayException(exception);
 		}
 	}
 }

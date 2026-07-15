@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.ai.report.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -10,7 +11,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -163,6 +166,30 @@ class ReportReviewInternalControllerTest {
 			.andExpect(jsonPath("$.retryable").value(true));
 
 		assertSafeFailureLog(output, "report_model_inference_failed");
+	}
+
+	@Test
+	void preservesTheSerializationFailureAsTheGatewayExceptionCause() throws Exception {
+		ObjectMapper failingObjectMapper = mock(ObjectMapper.class);
+		ReportReviewObservationLogger logger = mock(ReportReviewObservationLogger.class);
+		ReportReviewInternalController controller = new ReportReviewInternalController(
+			preparationService,
+			inferenceOrchestrator,
+			logger,
+			failingObjectMapper
+		);
+		ReportReviewRequest request = request();
+		PreparedReportReview prepared = preparedReview();
+		ReportReviewResponse response = response();
+		JsonProcessingException serializationFailure = new JsonProcessingException("serialization failed") {
+		};
+		when(preparationService.prepare(900L, request)).thenReturn(prepared);
+		when(inferenceOrchestrator.review(prepared)).thenReturn(response);
+		when(failingObjectMapper.writeValueAsBytes(response)).thenThrow(serializationFailure);
+
+		assertThatThrownBy(() -> controller.review(900L, request, mock(HttpServletRequest.class)))
+			.isInstanceOf(ReportReviewModelGatewayException.class)
+			.hasCause(serializationFailure);
 	}
 
 	private void assertSafeSuccessLogs(CapturedOutput output) {
