@@ -5,6 +5,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -24,6 +25,7 @@ public class ChatRoomListChangeListener {
 	private final Lock[] roomPublishLocks = createRoomPublishLocks();
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+	@Async
 	public void handle(ChatRoomListChangeEvent event) {
 		try {
 			if (event.type() == ChatRoomListChangeEvent.Type.REMOVE) {

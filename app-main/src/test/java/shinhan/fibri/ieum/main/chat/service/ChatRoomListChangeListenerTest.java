@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
@@ -48,6 +50,14 @@ class ChatRoomListChangeListenerTest {
 
 		verify(publisher).publish(42L, ChatRoomListEvent.upsert(meSummary));
 		verify(publisher).publish(77L, ChatRoomListEvent.upsert(friendSummary));
+	}
+
+	@Test
+	void handleRunsThroughAsyncProxyWhenInvokedAsTransactionalListener() throws NoSuchMethodException {
+		assertThat(ChatRoomListChangeListener.class
+			.getMethod("handle", ChatRoomListChangeEvent.class)
+			.isAnnotationPresent(Async.class))
+			.isTrue();
 	}
 
 	@Test
