@@ -1,5 +1,7 @@
 package shinhan.fibri.ieum.main.chat.service;
 
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -18,6 +20,7 @@ public class ChatRoomListChangeListener {
 	private final ChatRoomSummaryQueryService summaryQueryService;
 	private final ChatRoomListEventPublisher publisher;
 	private final PlatformTransactionManager transactionManager;
+	private final Lock[] roomPublishLocks = createRoomPublishLocks();
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
 	public void handle(ChatRoomListChangeEvent event) {
@@ -33,14 +36,14 @@ public class ChatRoomListChangeListener {
 	}
 
 	private void publishUpsert(ChatRoomListChangeEvent event) {
-		executeInNewTransaction(() ->
+		executeForRoomInNewTransaction(event.roomId(), () ->
 			summaryQueryService.findActiveForRoomAndUsers(event.roomId(), event.userIds())
 				.forEach((userId, summary) -> publishSafely(userId, ChatRoomListEvent.upsert(summary), event))
 		);
 	}
 
 	private void publishRemove(ChatRoomListChangeEvent event) {
-		executeInNewTransaction(() ->
+		executeForRoomInNewTransaction(event.roomId(), () ->
 			event.userIds()
 				.forEach(userId -> publishSafely(userId, ChatRoomListEvent.remove(event.roomId()), event))
 		);
@@ -60,9 +63,23 @@ public class ChatRoomListChangeListener {
 		}
 	}
 
-	private void executeInNewTransaction(Runnable action) {
-		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
-		transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-		transaction.executeWithoutResult(status -> action.run());
+	private void executeForRoomInNewTransaction(Long roomId, Runnable action) {
+		Lock lock = roomPublishLocks[Math.floorMod(roomId.hashCode(), roomPublishLocks.length)];
+		lock.lock();
+		try {
+			TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+			transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+			transaction.executeWithoutResult(status -> action.run());
+		} finally {
+			lock.unlock();
+		}
+	}
+
+	private Lock[] createRoomPublishLocks() {
+		Lock[] locks = new Lock[64];
+		for (int index = 0; index < locks.length; index++) {
+			locks[index] = new ReentrantLock();
+		}
+		return locks;
 	}
 }
