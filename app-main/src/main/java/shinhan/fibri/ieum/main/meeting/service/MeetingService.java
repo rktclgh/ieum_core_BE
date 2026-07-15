@@ -95,6 +95,7 @@ public class MeetingService {
 	@Transactional
 	public CreateMeetingResponse create(AuthenticatedUser principal, CreateMeetingRequest request) {
 		validateCreateRuleCombination(request);
+		validateScheduleWindow(request.schedule(), "schedule.endsAt");
 		validateRecurrenceRule(request);
 		OffsetDateTime meetingAtCache = initialMeetingAtCache(request);
 		UUID imageFileId = validateImage(request.imageFileId(), principal.userId());
@@ -295,6 +296,7 @@ public class MeetingService {
 		Long meetingId,
 		CreateMeetingScheduleRequest request
 	) {
+		validateScheduleWindow(request, "endsAt");
 		Meeting meeting = meetingRepository.findActiveByIdForUpdate(meetingId)
 			.orElseThrow(MeetingNotFoundException::new);
 		ensureJoinedMeetingMember(meetingId, principal.userId());
@@ -422,6 +424,19 @@ public class MeetingService {
 				"VALIDATION_FAILED",
 				"schedule",
 				"schedule is required for recurring meeting"
+			);
+		}
+	}
+
+	private void validateScheduleWindow(CreateMeetingScheduleRequest schedule, String field) {
+		if (schedule == null || schedule.startsAt() == null || schedule.endsAt() == null) {
+			return;
+		}
+		if (!schedule.endsAt().isAfter(schedule.startsAt())) {
+			throw new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				field,
+				"endsAt must be after startsAt"
 			);
 		}
 	}

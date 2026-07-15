@@ -220,6 +220,23 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void createRejectsScheduleEndingAtOrBeforeStartBeforeWritingRows() {
+		OffsetDateTime startsAt = OffsetDateTime.parse("2099-07-10T19:00:00+09:00");
+		CreateMeetingRequest invalidRequest = requestWithSchedule(
+			new CreateMeetingScheduleRequest(startsAt, startsAt)
+		);
+
+		assertThatThrownBy(() -> service.create(principal(42L), invalidRequest))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+				assertThat(exception.field()).isEqualTo("schedule.endsAt");
+				assertThat(exception).hasMessage("endsAt must be after startsAt");
+			});
+		verify(pinWriter, never()).create(any(), any(), any(LocationSnapshot.class));
+		verify(meetingRepository, never()).save(any(Meeting.class));
+	}
+
+	@Test
 	void createRecurringMeetingStoresRuleAndInitialSchedules() {
 		when(pinWriter.create(eq(42L), eq(PinType.meeting), any(LocationSnapshot.class))).thenReturn(11L);
 		when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> {
@@ -958,6 +975,23 @@ class MeetingServiceTest {
 	}
 
 	@Test
+	void addScheduleRejectsScheduleEndingBeforeStartBeforeReadingMeeting() {
+		CreateMeetingScheduleRequest request = new CreateMeetingScheduleRequest(
+			OffsetDateTime.parse("2099-07-10T19:00:00+09:00"),
+			OffsetDateTime.parse("2099-07-10T18:59:59+09:00")
+		);
+
+		assertThatThrownBy(() -> service.addSchedule(principal(42L), 3L, request))
+			.isInstanceOfSatisfying(InvalidMeetingRequestException.class, exception -> {
+				assertThat(exception.code()).isEqualTo("VALIDATION_FAILED");
+				assertThat(exception.field()).isEqualTo("endsAt");
+				assertThat(exception).hasMessage("endsAt must be after startsAt");
+			});
+		verify(meetingRepository, never()).findActiveByIdForUpdate(any());
+		verify(meetingScheduleRepository, never()).save(any(MeetingSchedule.class));
+	}
+
+	@Test
 	void addScheduleRejectsNonMember() {
 		Meeting meeting = meeting(3L, 42L, OffsetDateTime.parse("2026-07-01T19:00:00+09:00"), 7);
 		when(meetingRepository.findActiveByIdForUpdate(3L)).thenReturn(Optional.of(meeting));
@@ -1492,6 +1526,19 @@ class MeetingServiceTest {
 			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
 			null,
 			recurrenceRule,
+			7,
+			null
+		);
+	}
+
+	private CreateMeetingRequest requestWithSchedule(CreateMeetingScheduleRequest schedule) {
+		return new CreateMeetingRequest(
+			"저녁 모임",
+			"같이 밥 먹어요",
+			MeetingType.one_time,
+			new LocationSnapshot(37.5, 127.0, "서울특별시 강남구 테헤란로 123", "2번 출구 앞", "동선역 2번 출구"),
+			schedule,
+			null,
 			7,
 			null
 		);

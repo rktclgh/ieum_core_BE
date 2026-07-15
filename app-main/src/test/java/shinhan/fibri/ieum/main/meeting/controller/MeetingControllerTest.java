@@ -491,6 +491,30 @@ class MeetingControllerTest {
 	}
 
 	@Test
+	void addScheduleMapsInvalidTimeWindowToValidationFailed() throws Exception {
+		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
+			.thenThrow(new InvalidMeetingRequestException(
+				"VALIDATION_FAILED",
+				"endsAt",
+				"endsAt must be after startsAt"
+			));
+
+		mockMvc.perform(post("/api/v1/meetings/{meetingId}/schedules", 3L)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "startsAt": "2099-07-10T19:00:00+09:00",
+					  "endsAt": "2099-07-10T19:00:00+09:00"
+					}
+					""")
+				.with(authenticated()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("endsAt")))
+			.andExpect(jsonPath("$.fieldErrors[0].message", is("endsAt must be after startsAt")));
+	}
+
+	@Test
 	void addScheduleMapsNotMeetingMemberToForbidden() throws Exception {
 		when(meetingService.addSchedule(any(AuthenticatedUser.class), org.mockito.ArgumentMatchers.eq(3L), any()))
 			.thenThrow(new NotMeetingMemberException());
