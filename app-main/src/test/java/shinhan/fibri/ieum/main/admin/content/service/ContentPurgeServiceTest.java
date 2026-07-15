@@ -67,4 +67,17 @@ class ContentPurgeServiceTest {
 
 		verify(fileStorage).delete("final/42/question/second/original.jpg");
 	}
+
+	@Test
+	void repositoryChunkFailureIsLoggedOnlyAndNextChunkIsTried() {
+		when(repository.purgeChunk(any(), eq(500)))
+			.thenThrow(new IllegalStateException("db unavailable"))
+			.thenReturn(new ContentPurgeChunk(1, List.of("final/42/question/recovered/original.jpg")))
+			.thenReturn(ContentPurgeChunk.empty());
+
+		assertThatCode(service::purgeExpiredQuestionContent).doesNotThrowAnyException();
+
+		verify(repository, times(3)).purgeChunk(any(), eq(500));
+		verify(fileStorage).delete("final/42/question/recovered/original.jpg");
+	}
 }

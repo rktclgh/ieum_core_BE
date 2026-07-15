@@ -40,7 +40,19 @@ public class ContentPurgeService {
 		OffsetDateTime cutoff = OffsetDateTime.now(clock).minusDays(RETENTION_DAYS);
 		int purged = 0;
 		for (int chunk = 0; chunk < MAX_CHUNKS_PER_RUN; chunk++) {
-			ContentPurgeChunk result = repository.purgeChunk(cutoff, CHUNK_SIZE);
+			ContentPurgeChunk result;
+			try {
+				result = repository.purgeChunk(cutoff, CHUNK_SIZE);
+			} catch (RuntimeException exception) {
+				log.error(
+					"Failed to purge content chunk. chunkIndex={}, cutoff={}, chunkSize={}",
+					chunk,
+					cutoff,
+					CHUNK_SIZE,
+					exception
+				);
+				continue;
+			}
 			if (result.isEmpty()) {
 				break;
 			}
