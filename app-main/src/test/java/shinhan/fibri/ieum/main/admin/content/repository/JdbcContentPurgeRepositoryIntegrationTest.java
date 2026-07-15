@@ -88,6 +88,20 @@ class JdbcContentPurgeRepositoryIntegrationTest {
 		assertThat(result.isEmpty()).isTrue();
 	}
 
+	@Test
+	void purgesOnlyQuestionsStrictlyOlderThanCutoff() {
+		long userId = insertUser("boundary");
+		OffsetDateTime cutoff = OffsetDateTime.parse("2026-04-16T01:00:00Z");
+		long beforeCutoffQuestionId = insertQuestion(userId, "before cutoff", cutoff.minusSeconds(1));
+		long atCutoffQuestionId = insertQuestion(userId, "at cutoff", cutoff);
+
+		ContentPurgeChunk result = repository.purgeChunk(cutoff, 500);
+
+		assertThat(result.purgedCount()).isEqualTo(1);
+		assertThat(count("questions", "question_id", beforeCutoffQuestionId)).isZero();
+		assertThat(count("questions", "question_id", atCutoffQuestionId)).isEqualTo(1);
+	}
+
 	private long insertUser(String suffix) {
 		return jdbc.queryForObject(
 			"""
