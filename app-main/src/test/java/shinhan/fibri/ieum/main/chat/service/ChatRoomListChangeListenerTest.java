@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
@@ -49,6 +51,21 @@ class ChatRoomListChangeListenerTest {
 	}
 
 	@Test
+	void upsertCommitsReadTransactionBeforeBrokerPublication() {
+		ChatRoomSummaryResponse summary = summary(100L, 2L);
+		when(summaryQueryService.findActiveForRoomAndUsers(100L, List.of(42L)))
+			.thenReturn(Map.of(42L, summary));
+
+		listener.handle(ChatRoomListChangeEvent.upsert(100L, List.of(42L)));
+
+		InOrder order = inOrder(transactionManager, summaryQueryService, publisher);
+		order.verify(transactionManager).getTransaction(ArgumentMatchers.any());
+		order.verify(summaryQueryService).findActiveForRoomAndUsers(100L, List.of(42L));
+		order.verify(transactionManager).commit(ArgumentMatchers.any());
+		order.verify(publisher).publish(42L, ChatRoomListEvent.upsert(summary));
+	}
+
+	@Test
 	void upsertContinuesPublishingRemainingUsersWhenOneBrokerPublishFails() {
 		ChatRoomSummaryResponse meSummary = summary(100L, 2L);
 		ChatRoomSummaryResponse friendSummary = summary(100L, 0L);
@@ -75,6 +92,7 @@ class ChatRoomListChangeListenerTest {
 		verify(publisher).publish(42L, ChatRoomListEvent.remove(100L));
 		verify(publisher).publish(77L, ChatRoomListEvent.remove(100L));
 		verifyNoInteractions(summaryQueryService);
+		verifyNoInteractions(transactionManager);
 	}
 
 	@Test
