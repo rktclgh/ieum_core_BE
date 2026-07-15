@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -47,6 +48,9 @@ class ChatRoomListChangeTransactionIntegrationTest {
 
 	@Autowired
 	private ChatRoomListChangeEmitter emitter;
+
+	@Autowired
+	private ApplicationEventPublisher eventPublisher;
 
 	@Autowired
 	private RecordingChatRoomListEventPublisher publisher;
@@ -164,34 +168,44 @@ class ChatRoomListChangeTransactionIntegrationTest {
 		});
 		CountDownLatch upsertReachedPublisher = new CountDownLatch(1);
 		CountDownLatch releaseUpsertPublisher = new CountDownLatch(1);
+		CountDownLatch removeRowUpdateAttempted = new CountDownLatch(1);
 		CountDownLatch removePublished = new CountDownLatch(1);
 		publisher.blockNextUpsertBeforeRecording(upsertReachedPublisher, releaseUpsertPublisher);
 		publisher.countDownRemovePublish(removePublished);
 		ExecutorService executor = Executors.newFixedThreadPool(2);
-
-		Future<?> upsert = executor.submit(() -> transaction.execute(status -> {
-			insertMessage(ids[2], ids[1], "in flight");
-			emitter.upsert(ids[2], List.of(ids[0]));
-			return null;
-		}));
-		assertThat(upsertReachedPublisher.await(5, TimeUnit.SECONDS))
-			.as("upsert summary must be read and held at the publisher boundary")
-			.isTrue();
-
-		Future<?> remove = executor.submit(() -> transaction.execute(status -> {
-			leaveMember(ids[2], ids[0]);
-			emitter.remove(ids[2], List.of(ids[0]));
-			return null;
-		}));
+		Future<?> upsert = null;
+		Future<?> remove = null;
 
 		try {
+			upsert = executor.submit(() -> transaction.execute(status -> {
+				insertMessage(ids[2], ids[1], "in flight");
+				emitter.upsert(ids[2], List.of(ids[0]));
+				return null;
+			}));
+			assertThat(upsertReachedPublisher.await(5, TimeUnit.SECONDS))
+				.as("upsert summary must be read and held at the publisher boundary")
+				.isTrue();
+
+			remove = executor.submit(() -> transaction.execute(status -> {
+				removeRowUpdateAttempted.countDown();
+				leaveMember(ids[2], ids[0]);
+				emitter.remove(ids[2], List.of(ids[0]));
+				return null;
+			}));
+			assertThat(removeRowUpdateAttempted.await(5, TimeUnit.SECONDS))
+				.as("remove worker must reach the row update attempt before checking publish ordering")
+				.isTrue();
 			assertThat(removePublished.await(500, TimeUnit.MILLISECONDS))
 				.as("remove must wait for the in-flight upsert lock instead of publishing before it")
 				.isFalse();
 		} finally {
 			releaseUpsertPublisher.countDown();
-			upsert.get(5, TimeUnit.SECONDS);
-			remove.get(5, TimeUnit.SECONDS);
+			if (upsert != null) {
+				upsert.get(5, TimeUnit.SECONDS);
+			}
+			if (remove != null) {
+				remove.get(5, TimeUnit.SECONDS);
+			}
 			executor.shutdownNow();
 		}
 
@@ -200,6 +214,43 @@ class ChatRoomListChangeTransactionIntegrationTest {
 			.containsExactly("upsert", "remove");
 		assertThat(publisher.deliveries().get(0).event().room().roomId()).isEqualTo(ids[2]);
 		assertThat(publisher.deliveries().get(1).event().roomId()).isEqualTo(ids[2]);
+	}
+
+	@Test
+	void staleUpsertEventAfterRemoveCommitIsSuppressedWhenMemberIsNoLongerActive() {
+		TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+		Long[] ids = new Long[3];
+		transaction.execute(status -> {
+			ids[0] = insertUser("stale-me");
+			ids[1] = insertUser("stale-friend");
+			ids[2] = insertDirectRoom(ids[0], ids[1]);
+			insertActiveMember(ids[2], ids[0]);
+			insertActiveMember(ids[2], ids[1]);
+			return null;
+		});
+		ChatRoomListChangeEvent staleUpsert = ChatRoomListChangeEvent.upsert(ids[2], List.of(ids[0]));
+
+		transaction.execute(status -> {
+			leaveMember(ids[2], ids[0]);
+			emitter.remove(ids[2], List.of(ids[0]));
+			return null;
+		});
+		assertThat(publisher.deliveries())
+			.singleElement()
+			.satisfies(delivery -> {
+				assertThat(delivery.userId()).isEqualTo(ids[0]);
+				assertThat(delivery.event().type()).isEqualTo("remove");
+				assertThat(delivery.event().roomId()).isEqualTo(ids[2]);
+			});
+
+		transaction.execute(status -> {
+			eventPublisher.publishEvent(staleUpsert);
+			return null;
+		});
+
+		assertThat(publisher.deliveries())
+			.extracting(delivery -> delivery.event().type())
+			.containsExactly("remove");
 	}
 
 	private Long insertUser(String nicknamePrefix) {
