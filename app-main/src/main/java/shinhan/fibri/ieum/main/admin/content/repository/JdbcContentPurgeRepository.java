@@ -32,13 +32,19 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 		List<Long> questionIds = targets.stream().map(TargetRow::questionId).toList();
 		List<Long> pinIds = targets.stream().map(TargetRow::pinId).toList();
 		MapSqlParameterSource params = new MapSqlParameterSource("questionIds", questionIds);
-		List<Long> answerIds = selectAnswerIds(params);
 		List<FileRow> files = selectFiles(params);
 		logPurgeKeys(questionIds, files);
 
-		deleteByAnswerIds("DELETE FROM answer_images WHERE answer_id IN (:answerIds)", answerIds);
+		deleteByQuestionIds("""
+			DELETE FROM answer_images
+			 WHERE answer_id IN (
+			       SELECT answer_id
+			         FROM answers
+			        WHERE question_id IN (:questionIds)
+			 )
+			""", params);
 		deleteByQuestionIds("DELETE FROM question_images WHERE question_id IN (:questionIds)", params);
-		deleteKnowledgeRows(questionIds, answerIds);
+		deleteKnowledgeRows(params);
 		deleteByQuestionIds("DELETE FROM ai_question_tasks WHERE question_id IN (:questionIds)", params);
 		deleteByQuestionIds("DELETE FROM answers WHERE question_id IN (:questionIds)", params);
 		deleteByQuestionIds("DELETE FROM questions WHERE question_id IN (:questionIds)", params);
@@ -62,14 +68,6 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 				.addValue("cutoff", cutoff)
 				.addValue("limit", limit),
 			(rs, rowNum) -> new TargetRow(rs.getLong("question_id"), rs.getLong("pin_id"))
-		);
-	}
-
-	private List<Long> selectAnswerIds(MapSqlParameterSource params) {
-		return jdbc.query(
-			"SELECT answer_id FROM answers WHERE question_id IN (:questionIds)",
-			params,
-			(rs, rowNum) -> rs.getLong("answer_id")
 		);
 	}
 
@@ -114,12 +112,15 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 		);
 	}
 
-	private void deleteKnowledgeRows(List<Long> questionIds, List<Long> answerIds) {
-		MapSqlParameterSource params = new MapSqlParameterSource("questionIds", questionIds)
-			.addValue("answerIds", answerIds);
-		String sourceFilter = answerIds.isEmpty()
-			? "question_id IN (:questionIds)"
-			: "(question_id IN (:questionIds) OR answer_id IN (:answerIds))";
+	private void deleteKnowledgeRows(MapSqlParameterSource params) {
+		String sourceFilter = """
+			question_id IN (:questionIds)
+			OR answer_id IN (
+			      SELECT answer_id
+			        FROM answers
+			       WHERE question_id IN (:questionIds)
+			)
+			""";
 		jdbc.update("DELETE FROM knowledge_relations WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
 		jdbc.update("DELETE FROM knowledge_chunks WHERE source_id IN (SELECT source_id FROM knowledge_sources WHERE " + sourceFilter + ")", params);
 		jdbc.update("DELETE FROM knowledge_sources WHERE " + sourceFilter, params);
@@ -127,12 +128,6 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 
 	private void deleteByQuestionIds(String sql, MapSqlParameterSource params) {
 		jdbc.update(sql, params);
-	}
-
-	private void deleteByAnswerIds(String sql, List<Long> answerIds) {
-		if (!answerIds.isEmpty()) {
-			deleteByIds(sql.replace(":answerIds", ":ids"), answerIds);
-		}
 	}
 
 	private void deleteByIds(String sql, List<?> ids) {
