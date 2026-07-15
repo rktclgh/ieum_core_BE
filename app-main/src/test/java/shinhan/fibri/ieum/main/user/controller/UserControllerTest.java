@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.user.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -47,6 +48,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserProfileRequest;
 import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.service.UserService;
 
 @WebMvcTest(UserController.class)
@@ -73,6 +75,7 @@ class UserControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.userId", is(42)))
 			.andExpect(jsonPath("$.email", is("user@example.com")))
+			.andExpect(jsonPath("$.role", is("admin")))
 			.andExpect(jsonPath("$.nickname", is("nickname")))
 			.andExpect(jsonPath("$.grade", is("bronze")))
 			.andExpect(jsonPath("$.acceptedCount", is(0)))
@@ -222,6 +225,18 @@ class UserControllerTest {
 		verify(userService).withdraw(any(AuthenticatedUser.class));
 	}
 
+	@Test
+	void adminWithdrawalMapsToConflictWithoutExpiringAuthCookies() throws Exception {
+		doThrow(new AdminWithdrawalForbiddenException())
+			.when(userService)
+			.withdraw(any(AuthenticatedUser.class));
+
+		mockMvc.perform(delete("/api/v1/users/me").with(authenticated()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("ADMIN_WITHDRAWAL_FORBIDDEN")))
+			.andExpect(result -> assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).isEmpty());
+	}
+
 	private static RequestPostProcessor authenticated() {
 		return request -> {
 			AuthenticatedUser principal = new AuthenticatedUser(
@@ -240,6 +255,7 @@ class UserControllerTest {
 		return new UserMeResponse(
 			42L,
 			"user@example.com",
+			UserRole.admin,
 			"nickname",
 			LocalDate.of(1995, 5, 20),
 			"female",

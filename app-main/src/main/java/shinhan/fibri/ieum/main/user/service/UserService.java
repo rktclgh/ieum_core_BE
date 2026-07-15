@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
@@ -25,6 +26,7 @@ import shinhan.fibri.ieum.common.file.repository.FileRepository;
 import shinhan.fibri.ieum.common.auth.validation.AuthValidationRules;
 import shinhan.fibri.ieum.main.auth.session.RedisAuthSessionStore;
 import shinhan.fibri.ieum.main.friend.service.FriendService;
+import shinhan.fibri.ieum.main.notification.push.WebPushSubscriptionCleanup;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 import shinhan.fibri.ieum.main.notification.presence.PresenceRegistry;
 import shinhan.fibri.ieum.main.user.dto.ProfileImageResponse;
@@ -36,6 +38,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserSettingsRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.exception.InvalidUserFieldException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -54,6 +57,7 @@ public class UserService {
 	private final FileRepository fileRepository;
 	private final ProfileFileCleanupService profileFileCleanupService;
 	private final FriendService friendService;
+	private final WebPushSubscriptionCleanup webPushSubscriptionCleanup;
 	private final SseConnectionRegistry sseConnectionRegistry;
 	private final PresenceRegistry presenceRegistry;
 
@@ -156,9 +160,13 @@ public class UserService {
 
 	@Transactional
 	public void withdraw(AuthenticatedUser principal) {
-		User user = findActiveUser(principal.userId());
+		User user = userRepository.findByIdForUpdate(principal.userId())
+			.orElseThrow(UserNotFoundException::new);
+		if (user.getRole() == UserRole.admin) {
+			throw new AdminWithdrawalForbiddenException();
+		}
 		user.markDeleted(OffsetDateTime.now());
-		revokeSessionsAndCloseSseAfterCommit(user.getId());
+		invalidateUserAfterCommit(user.getId());
 	}
 
 	@Transactional(readOnly = true)
@@ -267,16 +275,38 @@ public class UserService {
 		}
 	}
 
-	private void revokeSessionsAndCloseSseAfterCommit(Long userId) {
-		runAfterCommit(() -> revokeSessionsAndCloseSse(userId));
+	private void invalidateUserAfterCommit(Long userId) {
+		runAfterCommit(() -> invalidateUser(userId));
 	}
 
-	private void revokeSessionsAndCloseSse(Long userId) {
+	private void invalidateUser(Long userId) {
+		runSafely(
+			"withdraw_session_revoke_failed",
+			userId,
+			() -> sessionStore.revokeAllSessionsOfUser(userId)
+		);
+		runSafely(
+			"withdraw_push_cleanup_failed",
+			userId,
+			() -> webPushSubscriptionCleanup.deleteForUser(userId)
+		);
+		runSafely(
+			"withdraw_sse_close_failed",
+			userId,
+			() -> sseConnectionRegistry.closeUser(userId)
+		);
+	}
+
+	private void runSafely(String event, Long userId, Runnable action) {
 		try {
-			sessionStore.revokeAllSessionsOfUser(userId);
-			sseConnectionRegistry.closeUser(userId);
+			action.run();
 		} catch (RuntimeException exception) {
-			log.warn("Failed to revoke sessions or close SSE after user withdrawal. userId={}", userId, exception);
+			log.warn(
+				"event={} userId={} failureClass={}",
+				event,
+				userId,
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 }

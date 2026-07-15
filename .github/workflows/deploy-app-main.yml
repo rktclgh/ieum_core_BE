@@ -10,10 +10,12 @@ on:
       - "settings.gradle.kts"
       - "gradle/**"
       - "gradlew"
+      - "db/migrations/**"
       - "deploy/app-main/**"
       - "deploy/env/app-main.env.example"
       - "deploy/nginx/**"
       - "deploy/scripts/**"
+      - "deploy/scripts/apply-admin-dashboard-migrations.sh"
       - "deploy/tests/**"
       - ".dockerignore"
       - ".github/workflows/deploy-app-main.yml"
@@ -30,36 +32,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  frontend-build:
     runs-on: ubuntu-latest
-    environment: app-main-production
+    permissions:
+      contents: read
     env:
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
       NEXT_PUBLIC_KAKAO_REST_API_KEY: ${{ vars.NEXT_PUBLIC_KAKAO_REST_API_KEY }}
+    outputs:
+      frontend_sha: ${{ steps.frontend-sha.outputs.sha }}
+      artifact_id: ${{ steps.frontend-artifact.outputs.artifact-id }}
 
     steps:
-      - name: Check out backend
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Validate deployment source
-        if: github.event_name == 'push'
+      - name: Resolve frontend source
+        id: frontend-source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
         run: |
-          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
+            [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]
+            echo "ref=$DISPATCH_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check out frontend
         uses: actions/checkout@v4
         with:
           repository: rktclgh/ieum_FE
-          ref: main
+          ref: ${{ steps.frontend-source.outputs.ref }}
           path: frontend
-          token: ${{ secrets.CI_GITHUB_TOKEN }}
           persist-credentials: false
 
-      - name: Capture frontend SHA
+      - name: Verify frontend checkout
         id: frontend-sha
-        run: echo "sha=$(git -C frontend rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SHA: ${{ github.event.client_payload.frontend_sha }}
+        run: |
+          FRONTEND_SHA="$(git -C frontend rev-parse HEAD)"
+          [[ "$FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$EVENT_NAME" == "repository_dispatch" ]]; then
+            [[ "$DISPATCH_SHA" == "$FRONTEND_SHA" ]]
+          fi
+          echo "sha=$FRONTEND_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -84,20 +101,154 @@ jobs:
           test -s out/index.txt
           test -s out/404.html
 
-      - name: Verify static frontend export
-        run: deploy/tests/verify-static-frontend-package.sh frontend/out
+      - name: Prepare immutable frontend artifact
+        env:
+          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+        run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
+          test ! -e "$artifact_root"
+          mkdir -p "$artifact_root/export"
+
+          unsafe_entry="$(find frontend/out -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          if [[ -n "$unsafe_entry" ]]; then
+            echo "::error::Unsafe frontend export entry: $unsafe_entry"
+            exit 1
+          fi
+
+          cp -a frontend/out/. "$artifact_root/export/"
+          printf '%s\n' "$FRONTEND_SHA" > "$artifact_root/frontend-sha"
+
+      - name: Upload immutable frontend artifact
+        id: frontend-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-${{ steps.frontend-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: false
+          retention-days: 1
+
+  deploy:
+    needs: frontend-build
+    runs-on: ubuntu-latest
+    environment: app-main-production
+
+    steps:
+      - name: Check out backend
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Validate deployment source
+        if: github.event_name == 'push'
+        run: |
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Download immutable frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.frontend-build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/frontend-static-artifact
+          merge-multiple: true
+
+      - name: Verify downloaded frontend artifact
+        env:
+          EXPECTED_FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
+          test -d "$artifact_root/export"
+          test -f "$artifact_root/frontend-sha"
+          test ! -L "$artifact_root/frontend-sha"
+
+          unsafe_entry="$(find "$artifact_root" -mindepth 1 \( -name '.*' -o \( ! -type f -a ! -type d \) \) -print -quit)"
+          if [[ -n "$unsafe_entry" ]]; then
+            echo "::error::Unsafe downloaded artifact entry: $unsafe_entry"
+            exit 1
+          fi
+
+          [[ "$EXPECTED_FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(wc -l < "$artifact_root/frontend-sha")" -eq 1 ]]
+          artifact_frontend_sha="$(<"$artifact_root/frontend-sha")"
+          [[ "$artifact_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$artifact_frontend_sha" == "$EXPECTED_FRONTEND_SHA" ]]
+          deploy/tests/verify-static-frontend-package.sh "$artifact_root/export"
 
       - name: Package frontend into app-main
         run: |
+          artifact_root="$RUNNER_TEMP/frontend-static-artifact"
           static_dir="app-main/src/main/resources/static"
           rm -rf "$static_dir"
           mkdir -p "$static_dir/error"
-          cp -a frontend/out/. "$static_dir/"
-          cp frontend/out/404.html "$static_dir/error/404.html"
+          cp -a "$artifact_root/export/." "$static_dir/"
+          cp "$artifact_root/export/404.html" "$static_dir/error/404.html"
           test ! -e "$static_dir/out"
           test ! -e "$static_dir/.next"
           test -s "$static_dir/index.html"
           test -s "$static_dir/index.txt"
+
+      - name: Validate deployment configuration
+        run: bash deploy/tests/validate-deploy-config.sh
+
+      - name: Apply admin dashboard migrations over SSH
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/home/[A-Za-z0-9._/-]+$ ]]
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          remote="$SSH_USER@$SSH_HOST"
+
+          ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH/deploy/scripts' '$DEPLOY_PATH/db/migrations'"
+          scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"
+          ssh "${ssh_opts[@]}" "$remote" \
+            "chmod 700 '$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh' && chmod 600 '$DEPLOY_PATH/db/migrations/v24_seed_report_policy_rules.sql' '$DEPLOY_PATH/db/migrations/v25_user_auth_version.sql' '$DEPLOY_PATH/db/migrations/v26_admin_audit_logs.sql' '$DEPLOY_PATH/db/migrations/v27_report_policy_sanction_durations.sql'"
+
+          ssh "${ssh_opts[@]}" "$remote" bash -s -- "$DEPLOY_PATH" <<'REMOTE_MIGRATION'
+          set -euo pipefail
+
+          deploy_path="$1"
+          migration_env="$deploy_path/.migration.env"
+          test -f "$migration_env"
+          test ! -L "$migration_env"
+          [[ "$(stat -c '%a' "$migration_env")" == "600" ]]
+          command -v psql >/dev/null 2>&1
+
+          set -a
+          source "$migration_env"
+          set +a
+
+          for required_name in PGHOST PGPORT PGDATABASE PGUSER; do
+            test -n "${!required_name:-}"
+          done
+          if [[ -z "${PGPASSWORD:-}" ]]; then
+            test -n "${PGPASSFILE:-}"
+            [[ "$PGPASSFILE" == /* ]]
+            test -f "$PGPASSFILE"
+            test ! -L "$PGPASSFILE"
+            [[ "$(stat -c '%a' "$PGPASSFILE")" == "600" ]]
+          fi
+
+          "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          REMOTE_MIGRATION
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -129,7 +280,7 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          FRONTEND_SHA: ${{ steps.frontend-sha.outputs.sha }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
         run: |
           test -n "$DOCKERHUB_USERNAME"
           test -n "$DOCKERHUB_TOKEN"
@@ -138,6 +289,22 @@ jobs:
           docker build --file deploy/app-main/Dockerfile --tag "$image" .
           docker push "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse stale frontend deployment
+        env:
+          CI_GITHUB_TOKEN: ${{ secrets.CI_GITHUB_TOKEN }}
+          FRONTEND_SHA: ${{ needs.frontend-build.outputs.frontend_sha }}
+        run: |
+          test -n "$CI_GITHUB_TOKEN"
+          [[ "$FRONTEND_SHA" =~ ^[0-9a-f]{40}$ ]]
+          latest_frontend_sha="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $CI_GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/rktclgh/ieum_FE/git/ref/heads/main" \
+            | jq -r '.object.sha')"
+          [[ "$latest_frontend_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$latest_frontend_sha" == "$FRONTEND_SHA" ]]
 
       - name: Deploy over SSH
         env:

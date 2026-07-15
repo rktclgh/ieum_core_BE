@@ -2,6 +2,7 @@ package shinhan.fibri.ieum.main.admin.content.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,9 @@ class AdminContentServiceIntegrationTest {
 	@Autowired
 	private JdbcTemplate jdbc;
 
+	@Autowired
+	private EntityManager entityManager;
+
 	@AfterAll
 	static void cleanUpDatabase() {
 		JdbcTemplate admin = new JdbcTemplate(CanonicalPostgresContainer.dataSource("postgres"));
@@ -65,6 +69,7 @@ class AdminContentServiceIntegrationTest {
 		jdbc.update("INSERT INTO ai_question_tasks (question_id) VALUES (?)", questionId);
 
 		service.hide("question", questionId);
+		entityManager.flush();
 
 		OffsetDateTime questionDeletedAt = jdbc.queryForObject(
 			"SELECT deleted_at FROM questions WHERE question_id = ?",

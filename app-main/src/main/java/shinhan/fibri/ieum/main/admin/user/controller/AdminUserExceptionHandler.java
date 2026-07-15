@@ -6,6 +6,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -13,10 +14,16 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
 import shinhan.fibri.ieum.main.admin.user.exception.CannotSanctionAdminException;
+import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidSanctionRequestException;
+import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.admin.user.exception.SanctionAlreadyActiveException;
 import shinhan.fibri.ieum.main.admin.user.exception.UserNotSanctionedException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
@@ -40,16 +47,53 @@ public class AdminUserExceptionHandler {
 		return validationFailure(List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage())));
 	}
 
+	@ExceptionHandler(HardDeleteConfirmationMismatchException.class)
+	public ResponseEntity<AuthErrorResponse> handleHardDeleteConfirmationMismatch(
+		HardDeleteConfirmationMismatchException exception
+	) {
+		return validationFailure(List.of(new AuthErrorResponse.FieldError(exception.field(), exception.getMessage())));
+	}
+
 	@ExceptionHandler(AdminUserNotFoundException.class)
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(AdminUserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
 	}
 
+	@ExceptionHandler(AdminRoleRequiredException.class)
+	public ResponseEntity<AuthErrorResponse> handleAdminRoleRequired(AdminRoleRequiredException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("ADMIN_ROLE_REQUIRED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(CannotChangeOwnRoleException.class)
+	public ResponseEntity<AuthErrorResponse> handleCannotChangeOwnRole(CannotChangeOwnRoleException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("CANNOT_CHANGE_OWN_ROLE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(LastAdminRequiredException.class)
+	public ResponseEntity<AuthErrorResponse> handleLastAdminRequired(LastAdminRequiredException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("LAST_ADMIN_REQUIRED", exception.getMessage()));
+	}
+
 	@ExceptionHandler(CannotSanctionAdminException.class)
 	public ResponseEntity<AuthErrorResponse> handleCannotSanctionAdmin(CannotSanctionAdminException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 			.body(new AuthErrorResponse("CANNOT_SANCTION_ADMIN", exception.getMessage()));
+	}
+
+	@ExceptionHandler(CannotHardDeleteUserException.class)
+	public ResponseEntity<AuthErrorResponse> handleCannotHardDeleteUser(CannotHardDeleteUserException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("CANNOT_HARD_DELETE_USER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(CannotDeleteSelfException.class)
+	public ResponseEntity<AuthErrorResponse> handleCannotDeleteSelf(CannotDeleteSelfException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("CANNOT_DELETE_SELF", exception.getMessage()));
 	}
 
 	@ExceptionHandler(SanctionAlreadyActiveException.class)
@@ -88,6 +132,11 @@ public class AdminUserExceptionHandler {
 			.sorted(Comparator.comparing(AuthErrorResponse.FieldError::field))
 			.toList();
 		return validationFailure(fieldErrors);
+	}
+
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<AuthErrorResponse> handleUnreadableMessage(HttpMessageNotReadableException exception) {
+		return validationFailure(List.of(new AuthErrorResponse.FieldError("body", "Request body is required")));
 	}
 
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)

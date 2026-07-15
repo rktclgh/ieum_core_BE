@@ -69,6 +69,12 @@ class QuestionRoomSingleConnectionIntegrationTest {
 	@MockitoBean
 	private FriendRequestNotifier friendRequestNotifier;
 
+	@MockitoBean
+	private ChatRoomSummaryQueryService chatRoomSummaryQueryService;
+
+	@MockitoBean
+	private ChatRoomListChangeEmitter chatRoomListChangeEmitter;
+
 	private long ownerId;
 	private long answererId;
 	private long questionId;
@@ -85,10 +91,6 @@ class QuestionRoomSingleConnectionIntegrationTest {
 		ownerId = insertUser("question-owner");
 		answererId = insertUser("question-answerer");
 		questionId = insertQuestion(ownerId);
-		jdbc.update("""
-			INSERT INTO answers (question_id, author_id, is_ai, content)
-			VALUES (?, ?, false, 'human answer')
-			""", questionId, answererId);
 	}
 
 	@Test

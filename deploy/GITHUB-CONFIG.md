@@ -2,7 +2,15 @@
 
 ## Frontend repository
 
-Repository variables:
+The frontend repository must be readable without credentials by the isolated
+`frontend-build` job. That job intentionally has no production Environment and
+no repository or Environment secrets. If `rktclgh/ieum_FE` becomes private,
+replace this boundary with a reviewed artifact-provenance flow; do not expose a
+production token to frontend package scripts.
+
+The following non-secret, browser-visible build values must be configured as
+repository-level variables in the backend repository (not only as production
+Environment variables), so the isolated build job can read them:
 
 - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
 - `NEXT_PUBLIC_KAKAO_REST_API_KEY`
@@ -12,12 +20,37 @@ Repository secrets:
 - `CI_GITHUB_TOKEN`: fine-grained PAT targeting `rktclgh/ieum_BE` with
   repository Contents write permission, used only for `repository_dispatch`.
 
+The `frontend-updated` dispatch must include the commit that produced the
+frontend export in `client_payload.frontend_sha`. The value must be the full
+40-character lowercase Git commit SHA. The isolated `frontend-build` job checks
+out exactly that SHA and verifies it again after checkout. Backend push and
+manual runs use the frontend `main` branch as their fallback source.
+
+The build job runs `pnpm verify` without production credentials and uploads the
+static export with its exact `frontend-sha` metadata through
+`actions/upload-artifact@v4`. The immutable artifact ID, rather than a mutable
+name or workspace path, is passed to the `deploy` job. The deploy job starts on
+a clean runner, checks out only backend source, and downloads that exact
+artifact ID. Before copying any bytes into Spring resources, backend-owned
+checks reject hidden entries, symlinks, and non-file/non-directory entries,
+compare the embedded SHA with the build job output, and run the static package
+verifier. Frontend source, package scripts, Node, and pnpm never run inside the
+production Environment.
+
+The app-main deployment performs one final comparison with the current
+frontend `main` SHA immediately before SSH deployment. A newer frontend commit
+therefore makes an older run fail closed instead of publishing stale assets.
+Production deployment concurrency uses `cancel-in-progress: false`, so an
+in-flight migration or deployment is never interrupted by a newer run.
+
 ## Backend repository
 
 Repository secrets:
 
-- `CI_GITHUB_TOKEN`: token that can read `rktclgh/ieum_FE` when the
-  frontend repository is private.
+- `CI_GITHUB_TOKEN`: fine-grained token with read access to
+  `rktclgh/ieum_FE`, used only by the production `deploy` job for the final
+  frontend `main` SHA freshness gate. It is never exposed to frontend checkout,
+  install, build, or verification steps.
 - `DOCKERHUB_USERNAME`: Docker Hub account or organization name.
 - `DOCKERHUB_TOKEN`: Docker Hub access token with read/write permission.
 
@@ -36,8 +69,6 @@ Variables:
 - `APP_MAIN_PRIVATE_BIND_ADDRESS=172.31.38.97`
 - `LETSENCRYPT_EMAIL`: optional when the origin certificate already exists;
   required only for initial Let's Encrypt issuance
-- `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-- `NEXT_PUBLIC_KAKAO_REST_API_KEY`
 
 Secrets:
 
@@ -63,6 +94,40 @@ Secrets:
 - `SSH_PRIVATE_KEY`: complete PEM contents
 - `SSH_KNOWN_HOSTS`: verified known_hosts line for `54.116.69.21`
 - `APP_AI_ENV_FILE`: completed `deploy/env/app-ai.env.example`
+
+### Remote database migration gate
+
+The production database is a private RDS instance whose port 5432 accepts
+traffic only from the production EC2 security groups. GitHub-hosted runners
+must not receive database credentials and cannot connect to that private RDS
+endpoint. Each binary workflow therefore copies only the migration helper and
+the explicitly ordered `v24_seed_report_policy_rules.sql`,
+`v25_user_auth_version.sql`, `v26_admin_audit_logs.sql`, and
+`v27_report_policy_sanction_durations.sql` files to its production EC2 host and
+runs the helper there before either application binary is built. The report
+policy files run only when the canonical `ai_report_policy_rules` table exists.
+
+Before enabling either workflow, install the PostgreSQL client on both EC2
+hosts. On each host, copy
+`deploy/env/admin-dashboard-migration.env.example` to
+`$DEPLOY_PATH/.migration.env`, fill in `PGHOST`, `PGPORT`, `PGDATABASE`, and
+`PGUSER`, then configure either `PGPASSWORD` or an absolute `PGPASSFILE` path.
+The file is sourced as a shell environment file, so quote values containing
+shell-special characters. Make it owned by the SSH deployment user and run
+`chmod 600 "$DEPLOY_PATH/.migration.env"`. If `PGPASSFILE` is used, that file
+must also be a regular, non-symlink file with mode 600.
+
+The workflow checks `.migration.env`, its permissions, the selected password
+source, and the remote `psql` command before running the helper. The password
+stays on EC2: it is never interpolated as a GitHub secret and never appears in
+an SSH argument or workflow log. Missing configuration, unsafe permissions,
+an unavailable `psql`, a schema mismatch, or a migration error stops the
+workflow before Gradle, image build, or SSH application deployment.
+
+The deployment validator also runs the helper against an ephemeral PostgreSQL
+16 instance. It verifies that a hostile role `search_path` cannot redirect DDL,
+an exact rerun preserves the existing users constraint OID, and incompatible
+audit sequence properties fail closed before any repair is attempted.
 
 Generate candidate host-key lines with `ssh-keyscan -H <host>`, but verify the
 fingerprint through AWS or another trusted channel before saving the result as

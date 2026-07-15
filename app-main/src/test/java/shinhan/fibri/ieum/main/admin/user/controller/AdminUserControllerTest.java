@@ -3,10 +3,12 @@ package shinhan.fibri.ieum.main.admin.user.controller;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -46,7 +48,15 @@ import shinhan.fibri.ieum.main.admin.user.dto.AdminUserItem;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminUserProfile;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
+import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
+import shinhan.fibri.ieum.main.admin.user.exception.AdminUserNotFoundException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotDeleteSelfException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotHardDeleteUserException;
+import shinhan.fibri.ieum.main.admin.user.exception.HardDeleteConfirmationMismatchException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
+import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
+import shinhan.fibri.ieum.main.admin.user.service.AdminUserHardDeleteService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserRoleService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserQueryService;
@@ -68,10 +78,13 @@ class AdminUserControllerTest {
 	@Autowired
 	private AdminUserRoleService roleService;
 
+	@Autowired
+	private AdminUserHardDeleteService hardDeleteService;
+
 	@AfterEach
 	void clearSecurityContext() {
 		SecurityContextHolder.clearContext();
-		reset(queryService, sanctionService, roleService);
+		reset(queryService, sanctionService, roleService, hardDeleteService);
 	}
 
 	@Test
@@ -137,6 +150,142 @@ class AdminUserControllerTest {
 			.andExpect(content().string(""));
 
 		verify(roleService).changeRole(any(AuthenticatedUser.class), eq(10L), eq(UserRole.user));
+	}
+
+	@Test
+	void selfDemotionMapsToConflict() throws Exception {
+		doThrow(new CannotChangeOwnRoleException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(1L), eq(UserRole.user));
+
+		mockMvc.perform(patch("/api/v1/admin/users/1/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"user"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("CANNOT_CHANGE_OWN_ROLE")));
+	}
+
+	@Test
+	void finalAdminDemotionMapsToConflict() throws Exception {
+		doThrow(new LastAdminRequiredException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(1L), eq(UserRole.user));
+
+		mockMvc.perform(patch("/api/v1/admin/users/1/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"user"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("LAST_ADMIN_REQUIRED")));
+	}
+
+	@Test
+	void staleAdminRoleMapsToConflict() throws Exception {
+		doThrow(new AdminRoleRequiredException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(10L), eq(UserRole.admin));
+
+		mockMvc.perform(patch("/api/v1/admin/users/10/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"admin"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("ADMIN_ROLE_REQUIRED")));
+	}
+
+	@Test
+	void hardDeleteReturnsNoContent() throws Exception {
+		mockMvc.perform(delete("/api/v1/admin/users/10")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"user@example.com"}
+					"""))
+			.andExpect(status().isNoContent())
+			.andExpect(content().string(""));
+
+		verify(hardDeleteService).hardDelete(any(AuthenticatedUser.class), eq(10L), eq("user@example.com"));
+	}
+
+	@Test
+	void hardDeleteMissingUserMapsToNotFound() throws Exception {
+		doThrow(new AdminUserNotFoundException())
+			.when(hardDeleteService).hardDelete(any(), eq(10L), eq("user@example.com"));
+
+		mockMvc.perform(delete("/api/v1/admin/users/10")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"user@example.com"}
+					"""))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code", is("USER_NOT_FOUND")));
+	}
+
+	@Test
+	void hardDeleteConfirmationMismatchMapsToValidationFailed() throws Exception {
+		doThrow(new HardDeleteConfirmationMismatchException())
+			.when(hardDeleteService).hardDelete(any(), eq(10L), eq("wrong@example.com"));
+
+		mockMvc.perform(delete("/api/v1/admin/users/10")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"wrong@example.com"}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("confirmationEmail")));
+	}
+
+	@Test
+	void hardDeleteSelfMapsToConflict() throws Exception {
+		doThrow(new CannotDeleteSelfException())
+			.when(hardDeleteService).hardDelete(any(), eq(1L), eq("admin@example.com"));
+
+		mockMvc.perform(delete("/api/v1/admin/users/1")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"admin@example.com"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("CANNOT_DELETE_SELF")));
+	}
+
+	@Test
+	void hardDeleteAdminTargetMapsToConflict() throws Exception {
+		doThrow(new CannotHardDeleteUserException("Admin users cannot be hard deleted"))
+			.when(hardDeleteService).hardDelete(any(), eq(10L), eq("target@example.com"));
+
+		mockMvc.perform(delete("/api/v1/admin/users/10")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"target@example.com"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("CANNOT_HARD_DELETE_USER")));
+	}
+
+	@Test
+	void hardDeleteBlankConfirmationEmailMapsToValidationFailed() throws Exception {
+		mockMvc.perform(delete("/api/v1/admin/users/10")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"confirmationEmail":"   "}
+					"""))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
+			.andExpect(jsonPath("$.fieldErrors[0].field", is("confirmationEmail")));
 	}
 
 	@Test
@@ -219,6 +368,12 @@ class AdminUserControllerTest {
 		@Primary
 		AdminUserRoleService adminUserRoleService() {
 			return mock(AdminUserRoleService.class);
+		}
+
+		@Bean
+		@Primary
+		AdminUserHardDeleteService adminUserHardDeleteService() {
+			return mock(AdminUserHardDeleteService.class);
 		}
 
 		@Bean

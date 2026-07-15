@@ -10,8 +10,10 @@ on:
       - "settings.gradle.kts"
       - "gradle/**"
       - "gradlew"
+      - "db/migrations/**"
       - "deploy/app-ai/**"
       - "deploy/env/app-ai.env.example"
+      - "deploy/scripts/apply-admin-dashboard-migrations.sh"
       - "deploy/scripts/bootstrap-docker.sh"
       - "deploy/scripts/deploy-compose.sh"
       - ".dockerignore"
@@ -38,6 +40,69 @@ jobs:
       - name: Validate deployment source
         run: |
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
+
+      - name: Validate deployment configuration
+        run: bash deploy/tests/validate-deploy-config.sh
+
+      - name: Apply admin dashboard migrations over SSH
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/home/[A-Za-z0-9._/-]+$ ]]
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          remote="$SSH_USER@$SSH_HOST"
+
+          ssh "${ssh_opts[@]}" "$remote" "install -d -m 700 '$DEPLOY_PATH/deploy/scripts' '$DEPLOY_PATH/db/migrations'"
+          scp "${scp_opts[@]}" deploy/scripts/apply-admin-dashboard-migrations.sh "$remote:$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          scp "${scp_opts[@]}" db/migrations/v24_seed_report_policy_rules.sql db/migrations/v25_user_auth_version.sql db/migrations/v26_admin_audit_logs.sql db/migrations/v27_report_policy_sanction_durations.sql "$remote:$DEPLOY_PATH/db/migrations/"
+          ssh "${ssh_opts[@]}" "$remote" \
+            "chmod 700 '$DEPLOY_PATH/deploy/scripts/apply-admin-dashboard-migrations.sh' && chmod 600 '$DEPLOY_PATH/db/migrations/v24_seed_report_policy_rules.sql' '$DEPLOY_PATH/db/migrations/v25_user_auth_version.sql' '$DEPLOY_PATH/db/migrations/v26_admin_audit_logs.sql' '$DEPLOY_PATH/db/migrations/v27_report_policy_sanction_durations.sql'"
+
+          ssh "${ssh_opts[@]}" "$remote" bash -s -- "$DEPLOY_PATH" <<'REMOTE_MIGRATION'
+          set -euo pipefail
+
+          deploy_path="$1"
+          migration_env="$deploy_path/.migration.env"
+          test -f "$migration_env"
+          test ! -L "$migration_env"
+          [[ "$(stat -c '%a' "$migration_env")" == "600" ]]
+          command -v psql >/dev/null 2>&1
+
+          set -a
+          source "$migration_env"
+          set +a
+
+          for required_name in PGHOST PGPORT PGDATABASE PGUSER; do
+            test -n "${!required_name:-}"
+          done
+          if [[ -z "${PGPASSWORD:-}" ]]; then
+            test -n "${PGPASSFILE:-}"
+            [[ "$PGPASSFILE" == /* ]]
+            test -f "$PGPASSFILE"
+            test ! -L "$PGPASSFILE"
+            [[ "$(stat -c '%a' "$PGPASSFILE")" == "600" ]]
+          fi
+
+          "$deploy_path/deploy/scripts/apply-admin-dashboard-migrations.sh"
+          REMOTE_MIGRATION
 
       - name: Set up Java
         uses: actions/setup-java@v4

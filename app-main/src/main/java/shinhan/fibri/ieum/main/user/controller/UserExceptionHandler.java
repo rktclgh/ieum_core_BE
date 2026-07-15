@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.exception.InvalidUserFieldException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
@@ -23,6 +24,14 @@ public class UserExceptionHandler {
 	public ResponseEntity<AuthErrorResponse> handleUserNotFound(UserNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 			.body(new AuthErrorResponse("USER_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(AdminWithdrawalForbiddenException.class)
+	public ResponseEntity<AuthErrorResponse> handleAdminWithdrawalForbidden(
+		AdminWithdrawalForbiddenException exception
+	) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+			.body(new AuthErrorResponse("ADMIN_WITHDRAWAL_FORBIDDEN", exception.getMessage()));
 	}
 
 	@ExceptionHandler(NicknameAlreadyUsedException.class)

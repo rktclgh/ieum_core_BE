@@ -2,11 +2,13 @@ package shinhan.fibri.ieum.main.user.dto;
 
 import java.time.LocalDate;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 
 public record UserMeResponse(
 	Long userId,
 	String email,
+	UserRole role,
 	String nickname,
 	LocalDate birthDate,
 	String gender,
@@ -20,6 +22,7 @@ public record UserMeResponse(
 		return new UserMeResponse(
 			user.getId(),
 			user.getEmail(),
+			user.getRole(),
 			user.getNickname(),
 			user.getBirthDate(),
 			user.getGender() == null ? null : user.getGender().name(),

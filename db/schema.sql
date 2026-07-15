@@ -147,11 +147,13 @@ CREATE TABLE users (
     last_active_at TIMESTAMPTZ,
     role user_role NOT NULL DEFAULT 'user',
     status user_status NOT NULL DEFAULT 'active',
+    auth_version BIGINT NOT NULL DEFAULT 0,
     accepted_count INTEGER NOT NULL DEFAULT 0 CHECK (accepted_count >= 0),  -- [신규 v6] 채택된 답변 수 (증분 유지)
     grade user_grade NOT NULL DEFAULT 'bronze',                             -- [신규 v6] 등급 (임계 돌파 시 갱신)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ,
+    CONSTRAINT ck_users_auth_version_nonnegative CHECK (auth_version >= 0),
     CHECK (provider = 'email' OR provider_uid IS NOT NULL),
     CHECK (provider <> 'email' OR email IS NOT NULL)
 );
@@ -637,6 +639,7 @@ CREATE TABLE ai_report_policy_rules (
     criteria TEXT NOT NULL CHECK (btrim(criteria) <> ''),
     decision VARCHAR(16) NOT NULL CHECK (decision IN ('suspend','hold','normal')),
     severity VARCHAR(16) NOT NULL CHECK (severity IN ('low','medium','high','critical')),
+    automatic_sanction_days SMALLINT,
     min_confidence NUMERIC(5,4) NOT NULL CHECK (min_confidence BETWEEN 0 AND 1),
     evidence_types VARCHAR(10) NOT NULL CHECK (evidence_types IN ('text','image','both')),
     priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN -1000 AND 1000),
@@ -649,6 +652,10 @@ CREATE TABLE ai_report_policy_rules (
     updated_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_ai_report_policy_rules_automatic_sanction_days
+        CHECK (automatic_sanction_days IS NULL OR (
+            decision = 'suspend' AND automatic_sanction_days BETWEEN 1 AND 365
+        )),
     CHECK (decision <> 'suspend' OR severity IN ('high','critical'))
 );
 CREATE INDEX idx_ai_report_policy_rules_snapshot
@@ -664,7 +671,7 @@ CREATE TABLE meetings (
     title VARCHAR(200) NOT NULL,
     content TEXT,
     type meeting_type NOT NULL DEFAULT 'one_time',                        -- [신규 v9] 일회성/정기
-    meeting_at TIMESTAMPTZ NOT NULL,                                      -- [v9] legacy 캐시(다음 회차 시각) — 정본은 meeting_schedules
+    meeting_at TIMESTAMPTZ,                                               -- [v25] nullable legacy 캐시(다음 회차 시각) — 정본은 meeting_schedules
     max_members SMALLINT NOT NULL DEFAULT 2,
     image_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,      -- [신규 v6] 원본(배경사진)
     thumbnail_file_id UUID REFERENCES files(file_id) ON DELETE SET NULL,  -- 300x300 썸네일 (원본에서 생성)
@@ -696,6 +703,7 @@ CREATE INDEX idx_mparticipants_user ON meeting_participants(user_id);
 CREATE TABLE meeting_schedules (
     schedule_id BIGSERIAL PRIMARY KEY,
     meeting_id BIGINT NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+    created_by BIGINT REFERENCES users(user_id) ON DELETE SET NULL,       -- [v25] 최초 작성자. 하드 삭제 시 일정은 보존
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ,
     visible_until TIMESTAMPTZ NOT NULL,
@@ -783,8 +791,10 @@ CREATE TABLE chat_members (
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     left_at TIMESTAMPTZ,
     last_read_at TIMESTAMPTZ,
+    visible_after_message_id BIGINT NOT NULL DEFAULT 0,
     pinned_at TIMESTAMPTZ,
     notify_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT ck_chat_members_visible_after_message_id CHECK (visible_after_message_id >= 0),
     PRIMARY KEY (room_id, user_id)
 );
 CREATE INDEX idx_chatmembers_user ON chat_members(user_id);
@@ -1020,6 +1030,41 @@ CREATE TABLE inquiries (
 CREATE INDEX idx_inquiries_user ON inquiries(user_id, created_at DESC);
 CREATE INDEX idx_inquiries_status ON inquiries(status, created_at DESC);
 
+-- ============================================================
+-- 관리자 변경 감사 로그 (append-only)
+-- ============================================================
+CREATE TABLE admin_audit_logs (
+    audit_id BIGSERIAL PRIMARY KEY,
+    actor_user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id BIGINT NOT NULL,
+    details JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_admin_audit_logs_action CHECK (
+        action IN (
+            'USER_SANCTION_CREATED',
+            'USER_ACTIVATED',
+            'USER_ROLE_CHANGED',
+            'REPORT_CONFIRMED',
+            'REPORT_DISMISSED',
+            'INQUIRY_ANSWERED'
+        )
+    ),
+    CONSTRAINT ck_admin_audit_logs_target_type CHECK (
+        target_type IN ('user', 'report', 'inquiry')
+    ),
+    CONSTRAINT ck_admin_audit_logs_details_object CHECK (
+        jsonb_typeof(details) = 'object'
+    )
+);
+CREATE INDEX idx_admin_audit_logs_actor_created
+    ON admin_audit_logs(actor_user_id, created_at DESC, audit_id DESC);
+CREATE INDEX idx_admin_audit_logs_target_created
+    ON admin_audit_logs(target_type, target_id, created_at DESC, audit_id DESC);
+CREATE INDEX idx_admin_audit_logs_created_desc
+    ON admin_audit_logs(created_at DESC, audit_id DESC);
+
 CREATE TABLE notifications (
     notification_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -1038,6 +1083,22 @@ CREATE INDEX idx_notif_user ON notifications(user_id, created_at DESC);
 CREATE UNIQUE INDEX uidx_notifications_user_event_key
     ON notifications(user_id, event_key)
     WHERE event_key IS NOT NULL;
+
+CREATE TABLE web_push_subscriptions (
+    subscription_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    session_id VARCHAR(64) NOT NULL,
+    endpoint TEXT NOT NULL,
+    endpoint_hash CHAR(64) NOT NULL UNIQUE,
+    p256dh VARCHAR(512) NOT NULL,
+    auth_secret VARCHAR(256) NOT NULL,
+    binding_version BIGINT NOT NULL DEFAULT 1 CHECK (binding_version > 0),
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_web_push_subscriptions_user ON web_push_subscriptions(user_id);
+CREATE UNIQUE INDEX uidx_web_push_subscriptions_session ON web_push_subscriptions(session_id);
 
 CREATE TABLE login_logs (
     log_id BIGSERIAL PRIMARY KEY,
@@ -1116,6 +1177,8 @@ CREATE TRIGGER trg_ai_report_policy_rules_updated BEFORE UPDATE ON ai_report_pol
 CREATE TRIGGER trg_ai_report_policy_rules_notify
     AFTER INSERT OR UPDATE OR DELETE ON ai_report_policy_rules
     FOR EACH STATEMENT EXECUTE FUNCTION notify_ai_report_policy_rules_changed();
+CREATE TRIGGER trg_web_push_subscriptions_updated BEFORE UPDATE ON web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_meetings_updated  BEFORE UPDATE ON meetings      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_meeting_schedules_updated BEFORE UPDATE ON meeting_schedules FOR EACH ROW EXECUTE FUNCTION set_updated_at();          -- [신규 v9]
 CREATE TRIGGER trg_meeting_recurrence_rules_updated BEFORE UPDATE ON meeting_recurrence_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at(); -- [신규 v9]
