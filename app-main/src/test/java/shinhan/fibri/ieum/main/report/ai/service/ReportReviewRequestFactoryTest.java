@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -88,6 +89,49 @@ class ReportReviewRequestFactoryTest {
 			.isInstanceOf(ReportAiPermanentException.class)
 			.hasMessage("REPORT_CONTEXT_IMAGE_MISSING");
 		verifyNoInteractions(fileStorage);
+	}
+
+	@Test
+	void rejectsFractionalSnapshotIdentifiers() {
+		List<String> snapshots = List.of(
+			"""
+				{"after":[],"before":[],"roomId":100,"reported":{"content":"reported","senderId":30,"createdAt":1767225720,"messageId":3,"imageFileId":null},"schemaVersion":1.5}
+				""".strip(),
+			"""
+				{"after":[],"before":[],"roomId":100.5,"reported":{"content":"reported","senderId":30,"createdAt":1767225720,"messageId":3,"imageFileId":null},"schemaVersion":1}
+				""".strip(),
+			"""
+				{"after":[],"before":[],"roomId":100,"reported":{"content":"reported","senderId":30,"createdAt":1767225720,"messageId":3.5,"imageFileId":null},"schemaVersion":1}
+				""".strip(),
+			"""
+				{"after":[],"before":[],"roomId":100,"reported":{"content":"reported","senderId":30.5,"createdAt":1767225720,"messageId":3,"imageFileId":null},"schemaVersion":1}
+				""".strip()
+		);
+
+		for (String snapshot : snapshots) {
+			assertThatThrownBy(() -> factory.create(claimed(snapshot, sha256(snapshot))))
+				.isInstanceOf(ReportAiPermanentException.class)
+				.hasMessage("REPORT_CONTEXT_INVALID");
+		}
+		verifyNoInteractions(fileRepository, fileStorage);
+	}
+
+	@Test
+	void rejectsEpochTimestampMorePreciseThanNanoseconds() {
+		String snapshot = """
+			{"after":[],"before":[],"roomId":100,"reported":{"content":"reported","senderId":30,"createdAt":1767225720.1234567891,"messageId":3,"imageFileId":null},"schemaVersion":1}
+			""".strip();
+		ReportReviewRequestFactory preciseFactory = new ReportReviewRequestFactory(
+			new ObjectMapper().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS),
+			fileRepository,
+			fileStorage,
+			IMAGE_TTL
+		);
+
+		assertThatThrownBy(() -> preciseFactory.create(claimed(snapshot, sha256(snapshot))))
+			.isInstanceOf(ReportAiPermanentException.class)
+			.hasMessage("REPORT_CONTEXT_INVALID");
+		verifyNoInteractions(fileRepository, fileStorage);
 	}
 
 	private ClaimedReport claimed(String snapshot, String hash) {

@@ -111,11 +111,12 @@ public class ReportReviewRequestFactory {
 	private Snapshot parseSnapshot(String serialized) {
 		try {
 			JsonNode root = objectMapper.readTree(serialized);
-			if (root == null || !root.isObject() || root.path("schemaVersion").asInt(-1) != SCHEMA_VERSION
+			if (root == null || !root.isObject() || !hasSchemaVersion(root)
 					|| !root.path("before").isArray() || !root.path("reported").isObject()
-					|| !root.path("after").isArray() || root.path("roomId").asLong(0) < 1) {
+					|| !root.path("after").isArray()) {
 				throw permanent("REPORT_CONTEXT_INVALID");
 			}
+			requiredPositiveLong(root, "roomId");
 			List<SnapshotMessage> before = parseMessages(root.path("before"));
 			SnapshotMessage reported = parseMessage(root.path("reported"));
 			List<SnapshotMessage> after = parseMessages(root.path("after"));
@@ -153,10 +154,18 @@ public class ReportReviewRequestFactory {
 
 	private long requiredPositiveLong(JsonNode node, String field) {
 		JsonNode value = node.get(field);
-		if (value == null || !value.canConvertToLong() || value.longValue() < 1) {
+		if (value == null || !value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() < 1) {
 			throw permanent("REPORT_CONTEXT_INVALID");
 		}
 		return value.longValue();
+	}
+
+	private boolean hasSchemaVersion(JsonNode root) {
+		JsonNode value = root.get("schemaVersion");
+		return value != null
+			&& value.isIntegralNumber()
+			&& value.canConvertToInt()
+			&& value.intValue() == SCHEMA_VERSION;
 	}
 
 	private String nullableText(JsonNode node) {

@@ -29,7 +29,8 @@ public class ReportAiRetryPolicy {
 		if (!retryable(failure)) {
 			return new ReportAiFailureDisposition(errorCode, null);
 		}
-		return new ReportAiFailureDisposition(errorCode, BACKOFFS.get(attempts - 1));
+		int backoffIndex = Math.min(Math.max(attempts - 1, 0), BACKOFFS.size() - 1);
+		return new ReportAiFailureDisposition(errorCode, BACKOFFS.get(backoffIndex));
 	}
 
 	private boolean retryable(RuntimeException failure) {

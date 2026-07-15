@@ -59,7 +59,8 @@ public class ReportAiReviewResultMapper {
 	}
 
 	private boolean valid(ReportReviewResponse response, OffsetDateTime reviewedAt) {
-		if (response == null || reviewedAt == null || !DECISIONS.contains(response.decision())) {
+		if (response == null || reviewedAt == null || response.decision() == null
+				|| !DECISIONS.contains(response.decision())) {
 			return false;
 		}
 		if (response.severity() != null && !SEVERITIES.contains(response.severity())) {
@@ -155,6 +156,7 @@ public class ReportAiReviewResultMapper {
 				|| !messageId.canConvertToLong()
 				|| messageId.asLong() < 1
 				|| !messageIds.add(messageId.asLong())
+				|| type == null
 				|| !EVIDENCE_TYPES.contains(type)) {
 				return false;
 			}

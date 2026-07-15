@@ -131,6 +131,30 @@ class ReportAiReviewResultMapperTest {
 			.hasMessage("REPORT_AI_RESPONSE_INVALID");
 	}
 
+	@Test
+	void rejectsNullDecisionAsAnInvalidAiResponse() {
+		assertThatThrownBy(() -> mapper.map(response(null, "medium"), OffsetDateTime.now()))
+			.isInstanceOf(ReportAiPermanentException.class)
+			.hasMessage("REPORT_AI_RESPONSE_INVALID");
+	}
+
+	@Test
+	void rejectsNullEvidenceTypeAsAnInvalidAiResponse() {
+		ReportReviewResponse valid = response("suspend", "critical");
+		var evidence = valid.evidence().deepCopy();
+		((com.fasterxml.jackson.databind.node.ObjectNode)evidence.get(0)).putNull("type");
+
+		assertThatThrownBy(() -> mapper.map(copy(
+			valid,
+			evidence,
+			valid.matchedRules(),
+			valid.policySnapshot(),
+			valid.confidence()
+		), OffsetDateTime.now()))
+			.isInstanceOf(ReportAiPermanentException.class)
+			.hasMessage("REPORT_AI_RESPONSE_INVALID");
+	}
+
 	private ReportReviewResponse response(String decision, String severity) {
 		var providerAttempts = objectMapper.createArrayNode();
 		providerAttempts.addObject()
