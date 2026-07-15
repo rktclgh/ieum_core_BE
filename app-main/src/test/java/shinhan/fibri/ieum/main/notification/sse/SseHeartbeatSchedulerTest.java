@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.notification.sse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -133,6 +134,47 @@ class SseHeartbeatSchedulerTest {
 			.allMatch(event -> event.getThrowableProxy() == null)
 			.extracting(ILoggingEvent::getFormattedMessage)
 			.noneMatch(message -> message.contains("sid-redis-secret") || message.contains("sid-db-secret"));
+	}
+
+	@Test
+	void closeFailureDoesNotStopLaterStaleAndValidSessionChecksOrLogSecrets() {
+		SseSessionConnection closeFailure = new SseSessionConnection(70L, "sid-close-secret");
+		SseSessionConnection laterStale = new SseSessionConnection(71L, "sid-later-stale");
+		SseSessionConnection laterValid = new SseSessionConnection(72L, "sid-later-valid");
+		when(registry.activeSessionsInShard(0, 4))
+			.thenReturn(List.of(closeFailure, laterStale, laterValid));
+		when(sessionStore.findBySessionId("sid-close-secret")).thenReturn(Optional.empty());
+		when(sessionStore.findBySessionId("sid-later-stale"))
+			.thenReturn(Optional.of(session("sid-later-stale", 71L, UserStatus.active)));
+		when(sessionStore.findBySessionId("sid-later-valid"))
+			.thenReturn(Optional.of(session("sid-later-valid", 72L, UserStatus.active)));
+		when(userRepository.findAuthStateById(71L))
+			.thenReturn(Optional.of(canonical(71L, UserRole.user, UserStatus.active, 1L)));
+		when(userRepository.findAuthStateById(72L))
+			.thenReturn(Optional.of(canonical(72L, UserRole.user, UserStatus.active, 0L)));
+		doThrow(new IllegalStateException("emitter-close-message-secret"))
+			.when(registry).closeSession("sid-close-secret");
+		Logger logger = (Logger) LoggerFactory.getLogger(SseHeartbeatScheduler.class);
+		ListAppender<ILoggingEvent> logs = new ListAppender<>();
+		logs.start();
+		logger.addAppender(logs);
+
+		try {
+			scheduler.runHeartbeat();
+		} finally {
+			logger.detachAppender(logs);
+			logs.stop();
+		}
+
+		verify(registry).closeSession("sid-close-secret");
+		verify(registry).closeSession("sid-later-stale");
+		verify(registry, never()).closeSession("sid-later-valid");
+		verify(userRepository).findAuthStateById(72L);
+		assertThat(logs.list).hasSize(1);
+		assertThat(logs.list)
+			.allMatch(event -> event.getThrowableProxy() == null)
+			.extracting(ILoggingEvent::getFormattedMessage)
+			.noneMatch(message -> message.contains("sid-close-secret") || message.contains("emitter-close-message-secret"));
 	}
 
 	@Test

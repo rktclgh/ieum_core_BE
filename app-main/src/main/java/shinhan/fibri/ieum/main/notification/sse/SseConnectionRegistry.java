@@ -193,8 +193,11 @@ public class SseConnectionRegistry {
 	}
 
 	private void closeAndRemove(Connection connection) {
-		connection.emitter.complete();
-		remove(connection);
+		try {
+			connection.emitter.complete();
+		} finally {
+			remove(connection);
+		}
 	}
 
 	private void remove(Connection connection) {

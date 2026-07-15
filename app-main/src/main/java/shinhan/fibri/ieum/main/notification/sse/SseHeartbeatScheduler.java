@@ -37,18 +37,32 @@ public class SseHeartbeatScheduler {
 		int shardCount = properties.sessionCheckShards();
 		int shard = Math.floorMod(tickCounter.getAndIncrement(), shardCount);
 		for (SseSessionConnection connection : registry.activeSessionsInShard(shard, shardCount)) {
+			boolean valid;
 			try {
-				if (!hasActiveSession(connection)) {
-					registry.closeSession(connection.sessionId());
-				}
+				valid = hasActiveSession(connection);
 			} catch (RuntimeException exception) {
 				log.warn(
 					"SSE session authorization revalidation failed; closing connection: userId={} cause={}",
 					connection.userId(),
 					exception.getClass().getSimpleName()
 				);
-				registry.closeSession(connection.sessionId());
+				valid = false;
 			}
+			if (!valid) {
+				safeCloseSession(connection);
+			}
+		}
+	}
+
+	private void safeCloseSession(SseSessionConnection connection) {
+		try {
+			registry.closeSession(connection.sessionId());
+		} catch (RuntimeException exception) {
+			log.warn(
+				"SSE session close failed; continuing heartbeat shard: userId={} cause={}",
+				connection.userId(),
+				exception.getClass().getSimpleName()
+			);
 		}
 	}
 

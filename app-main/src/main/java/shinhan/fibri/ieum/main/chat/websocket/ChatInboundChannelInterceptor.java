@@ -3,6 +3,8 @@ package shinhan.fibri.ieum.main.chat.websocket;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -18,6 +20,7 @@ import shinhan.fibri.ieum.main.chat.service.ChatMessageRateLimiter;
 
 @Component
 public class ChatInboundChannelInterceptor implements ChannelInterceptor {
+	private static final Logger log = LoggerFactory.getLogger(ChatInboundChannelInterceptor.class);
 
 	private static final Pattern ROOM_TOPIC_PATTERN = Pattern.compile("^/topic/rooms/(\\d+)$");
 	private static final Pattern SEND_DESTINATION_PATTERN = Pattern.compile("^/app/rooms/(\\d+)/send$");
@@ -159,10 +162,19 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 	}
 
 	private boolean hasActiveSession(ChatWebSocketPrincipal principal) {
-		return sessionStore.findBySessionId(principal.sessionId())
-			.filter(session -> session.userId().equals(principal.authenticatedUser().userId()))
-			.flatMap(canonicalAuthStateVerifier::findActiveMatching)
-			.isPresent();
+		try {
+			return sessionStore.findBySessionId(principal.sessionId())
+				.filter(session -> session.userId().equals(principal.authenticatedUser().userId()))
+				.flatMap(canonicalAuthStateVerifier::findActiveMatching)
+				.isPresent();
+		} catch (RuntimeException exception) {
+			log.warn(
+				"WebSocket session authorization revalidation failed; rejecting frame: userId={} cause={}",
+				principal.authenticatedUser().userId(),
+				exception.getClass().getSimpleName()
+			);
+			return false;
+		}
 	}
 
 	private boolean isActiveRoomMember(Long roomId, ChatWebSocketPrincipal principal) {
@@ -173,6 +185,14 @@ public class ChatInboundChannelInterceptor implements ChannelInterceptor {
 	}
 
 	private void sendError(ChatWebSocketPrincipal principal, String code, String message, Long roomId) {
-		errorSender.send(principal, new ChatWebSocketErrorResponse(code, message, roomId));
+		try {
+			errorSender.send(principal, new ChatWebSocketErrorResponse(code, message, roomId));
+		} catch (RuntimeException exception) {
+			log.warn(
+				"WebSocket error response delivery failed: userId={} cause={}",
+				principal.authenticatedUser().userId(),
+				exception.getClass().getSimpleName()
+			);
+		}
 	}
 }
