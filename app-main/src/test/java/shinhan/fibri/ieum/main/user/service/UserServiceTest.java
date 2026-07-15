@@ -50,6 +50,7 @@ import shinhan.fibri.ieum.main.user.dto.UpdateUserLocationRequest;
 import shinhan.fibri.ieum.main.user.dto.UserMeResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSearchResponse;
 import shinhan.fibri.ieum.main.user.dto.UserSettingsResponse;
+import shinhan.fibri.ieum.main.user.exception.AdminWithdrawalForbiddenException;
 import shinhan.fibri.ieum.main.user.exception.NicknameAlreadyUsedException;
 import shinhan.fibri.ieum.main.user.exception.UserNotFoundException;
 
@@ -345,7 +346,7 @@ class UserServiceTest {
 	@Test
 	void withdrawSoftDeletesUserAndRevokesSessionsBeforeClosingAllSseConnections() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {
@@ -369,7 +370,7 @@ class UserServiceTest {
 	@Test
 	void withdrawKeepsSoftDeleteWhenSessionRevocationFails() {
 		User user = user();
-		when(userRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(user));
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(user));
 		doThrow(new IllegalStateException("redis unavailable"))
 			.when(sessionStore)
 			.revokeAllSessionsOfUser(42L);
@@ -378,6 +379,30 @@ class UserServiceTest {
 
 		assertThat(user.getDeletedAt()).isNotNull();
 		verify(sessionStore).revokeAllSessionsOfUser(42L);
+		verify(sseConnectionRegistry, never()).closeUser(42L);
+	}
+
+	@Test
+	void withdrawRejectsCanonicalAdminEvenWhenPrincipalClaimsUserRole() {
+		User admin = user();
+		admin.changeRole(UserRole.admin);
+		long authVersionBeforeWithdrawal = admin.getAuthVersion();
+		when(userRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(admin));
+
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			assertThatThrownBy(() -> service.withdraw(principal()))
+				.isInstanceOf(AdminWithdrawalForbiddenException.class);
+
+			assertThat(admin.getDeletedAt()).isNull();
+			assertThat(admin.getAuthVersion()).isEqualTo(authVersionBeforeWithdrawal);
+			assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+		} finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+
+		verify(userRepository).findByIdForUpdate(42L);
+		verify(sessionStore, never()).revokeAllSessionsOfUser(42L);
 		verify(sseConnectionRegistry, never()).closeUser(42L);
 	}
 

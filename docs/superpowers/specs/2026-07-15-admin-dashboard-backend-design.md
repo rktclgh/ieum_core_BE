@@ -67,11 +67,13 @@ This multi-key Lua contract assumes the deployed single-node Redis instance. Its
 
 All role writes serialize through `UserRepository.findAllAdminsForUpdate()`, which locks non-deleted administrator rows in ascending `user_id` order before the target is resolved.
 
+- After acquiring that lock set, the acting principal must still be a canonical non-deleted administrator. A stale principal is rejected with `409 ADMIN_ROLE_REQUIRED` before any target lookup or mutation.
 - An administrator cannot demote their own account: `409 CANNOT_CHANGE_OWN_ROLE`.
 - The final non-deleted administrator cannot be demoted: `409 LAST_ADMIN_REQUIRED`.
+- When the final administrator attempts to demote their own account, the final-administrator invariant takes precedence and returns `LAST_ADMIN_REQUIRED`; self-demotion with another administrator present returns `CANNOT_CHANGE_OWN_ROLE`.
 - An administrator cannot bypass those rules through the ordinary self-withdrawal endpoint: `409 ADMIN_WITHDRAWAL_FORBIDDEN`. Another administrator must first demote the account after ensuring a different administrator remains.
 - Promotions and demotions still revoke Redis sessions after commit, but correctness comes from `auth_version`.
-- Lock ordering is shared by every role change, preventing two concurrent demotions from both observing two administrators and committing zero.
+- Lock ordering is shared by every role change, preventing two concurrent reciprocal demotions from both committing. One succeeds; the waiting request observes that its actor is no longer an administrator and returns `ADMIN_ROLE_REQUIRED`, leaving exactly one non-deleted administrator.
 
 Initial administrator provisioning remains an operations responsibility; this slice does not add a public bootstrap endpoint.
 
@@ -112,7 +114,7 @@ The shared `/Users/songchiho/Desktop/Hackerthon/code/api/API-SPEC.md` is outside
 - identify `/auth/login` as the canonical admin login;
 - mark the current admin user/report/inquiry/stats APIs AS-BUILT, including `PATCH .../role`;
 - retain content deletion, permanent deletion, pending-review, and AI admin APIs as TARGET;
-- document all three new `409` errors (`CANNOT_CHANGE_OWN_ROLE`, `LAST_ADMIN_REQUIRED`, `ADMIN_WITHDRAWAL_FORBIDDEN`) and the auth-version logout behavior.
+- document all four new `409` errors (`ADMIN_ROLE_REQUIRED`, `CANNOT_CHANGE_OWN_ROLE`, `LAST_ADMIN_REQUIRED`, `ADMIN_WITHDRAWAL_FORBIDDEN`) and the auth-version logout behavior.
 
 ## 9. Verification
 

@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.admin.user.controller;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -46,7 +47,10 @@ import shinhan.fibri.ieum.main.admin.user.dto.AdminUserItem;
 import shinhan.fibri.ieum.main.admin.user.dto.AdminUserProfile;
 import shinhan.fibri.ieum.main.admin.user.dto.CreateSanctionResponse;
 import shinhan.fibri.ieum.main.admin.user.dto.CursorPage;
+import shinhan.fibri.ieum.main.admin.user.exception.AdminRoleRequiredException;
+import shinhan.fibri.ieum.main.admin.user.exception.CannotChangeOwnRoleException;
 import shinhan.fibri.ieum.main.admin.user.exception.InvalidAdminCursorException;
+import shinhan.fibri.ieum.main.admin.user.exception.LastAdminRequiredException;
 import shinhan.fibri.ieum.main.admin.user.service.AdminSanctionService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserRoleService;
 import shinhan.fibri.ieum.main.admin.user.service.AdminUserQueryService;
@@ -137,6 +141,54 @@ class AdminUserControllerTest {
 			.andExpect(content().string(""));
 
 		verify(roleService).changeRole(any(AuthenticatedUser.class), eq(10L), eq(UserRole.user));
+	}
+
+	@Test
+	void selfDemotionMapsToConflict() throws Exception {
+		doThrow(new CannotChangeOwnRoleException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(1L), eq(UserRole.user));
+
+		mockMvc.perform(patch("/api/v1/admin/users/1/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"user"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("CANNOT_CHANGE_OWN_ROLE")));
+	}
+
+	@Test
+	void finalAdminDemotionMapsToConflict() throws Exception {
+		doThrow(new LastAdminRequiredException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(1L), eq(UserRole.user));
+
+		mockMvc.perform(patch("/api/v1/admin/users/1/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"user"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("LAST_ADMIN_REQUIRED")));
+	}
+
+	@Test
+	void staleAdminRoleMapsToConflict() throws Exception {
+		doThrow(new AdminRoleRequiredException())
+			.when(roleService)
+			.changeRole(any(AuthenticatedUser.class), eq(10L), eq(UserRole.admin));
+
+		mockMvc.perform(patch("/api/v1/admin/users/10/role")
+				.with(admin())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{"role":"admin"}
+					"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code", is("ADMIN_ROLE_REQUIRED")));
 	}
 
 	@Test

@@ -45,6 +45,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 	@Query("select u from User u where u.id = :userId and u.deletedAt is null")
 	Optional<User> findByIdForUpdate(@Param("userId") Long userId);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select u
+		from User u
+		where u.role = shinhan.fibri.ieum.common.auth.domain.UserRole.admin
+		  and u.deletedAt is null
+		order by u.id asc
+		""")
+	List<User> findAllAdminsForUpdate();
+
 	@Query("""
 		SELECT u
 		FROM User u
