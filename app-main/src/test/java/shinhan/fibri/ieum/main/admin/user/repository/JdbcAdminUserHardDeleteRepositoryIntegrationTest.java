@@ -131,6 +131,30 @@ class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 	}
 
 	@Test
+	void hardDeleteResetsQuestionResolvedByDeletedUsersAcceptedAnswer() {
+		long questionOwnerId = insertUser("question-owner", "user");
+		long answerAuthorId = insertUser("accepted-answer-author", "user");
+		long pinId = insertPin(questionOwnerId);
+		long questionId = insertQuestion(questionOwnerId, pinId);
+		insertAcceptedAnswer(questionId, answerAuthorId);
+		jdbc.update(
+			"UPDATE questions SET is_resolved = true WHERE question_id = :questionId",
+			new MapSqlParameterSource("questionId", questionId)
+		);
+
+		repository.hardDelete(answerAuthorId);
+
+		Boolean resolved = jdbc.queryForObject(
+			"SELECT is_resolved FROM questions WHERE question_id = :questionId",
+			new MapSqlParameterSource("questionId", questionId),
+			Boolean.class
+		);
+		assertThat(resolved).isFalse();
+		assertThat(count("answers", "author_id", answerAuthorId)).isZero();
+		assertThat(count("questions", "question_id", questionId)).isOne();
+	}
+
+	@Test
 	void isReferencedAsActorDetectsNonCascadingAdminSanctionReferences() {
 		long actorId = insertUser("actor", "user");
 		long otherUserId = insertUser("other", "user");
@@ -218,6 +242,16 @@ class JdbcAdminUserHardDeleteRepositoryIntegrationTest {
 				""",
 			new MapSqlParameterSource("questionId", questionId).addValue("userId", userId),
 			Long.class
+		);
+	}
+
+	private void insertAcceptedAnswer(long questionId, long userId) {
+		jdbc.update(
+			"""
+				INSERT INTO answers (question_id, author_id, is_ai, content, is_accepted)
+				VALUES (:questionId, :userId, false, 'accepted answer', true)
+				""",
+			new MapSqlParameterSource("questionId", questionId).addValue("userId", userId)
 		);
 	}
 

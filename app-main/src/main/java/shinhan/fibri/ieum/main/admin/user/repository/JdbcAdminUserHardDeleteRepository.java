@@ -66,15 +66,37 @@ public class JdbcAdminUserHardDeleteRepository implements AdminUserHardDeleteRep
 		logCollectedKeys(userId, files);
 
 		MapSqlParameterSource params = new MapSqlParameterSource("userId", userId);
+		int resetQuestions = resetQuestionsResolvedByAcceptedAnswers(userId);
 		int userDeletes = jdbc.update("DELETE FROM users WHERE user_id = :userId", params);
 		int fileDeletes = deleteFiles(files);
 		log.info(
-			"Admin user hard delete DB deletes completed. userId={}, users={}, files={}",
+			"Admin user hard delete DB deletes completed. userId={}, users={}, files={}, resetQuestions={}",
 			userId,
 			userDeletes,
-			fileDeletes
+			fileDeletes,
+			resetQuestions
 		);
 		return files.stream().map(FileRow::s3Key).toList();
+	}
+
+	private int resetQuestionsResolvedByAcceptedAnswers(Long userId) {
+		return jdbc.update(
+			"""
+				UPDATE questions q
+				   SET is_resolved = false,
+				       updated_at = now()
+				 WHERE q.author_id <> :userId
+				   AND q.is_resolved = true
+				   AND EXISTS (
+				   	SELECT 1
+				   	  FROM answers a
+				   	 WHERE a.question_id = q.question_id
+				   	   AND a.author_id = :userId
+				   	   AND a.is_accepted = true
+				   )
+				""",
+			new MapSqlParameterSource("userId", userId)
+		);
 	}
 
 	private List<FileRow> selectFilesForHardDelete(Long userId) {
