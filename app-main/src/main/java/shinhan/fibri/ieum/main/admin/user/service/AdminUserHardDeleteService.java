@@ -1,9 +1,11 @@
 package shinhan.fibri.ieum.main.admin.user.service;
 
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -24,7 +26,6 @@ import shinhan.fibri.ieum.main.file.storage.FileStorage;
 import shinhan.fibri.ieum.main.notification.sse.SseConnectionRegistry;
 
 @Service
-@RequiredArgsConstructor
 public class AdminUserHardDeleteService {
 
 	private static final Logger log = LoggerFactory.getLogger(AdminUserHardDeleteService.class);
@@ -33,6 +34,21 @@ public class AdminUserHardDeleteService {
 	private final RedisAuthSessionStore sessionStore;
 	private final SseConnectionRegistry sseConnectionRegistry;
 	private final FileStorage fileStorage;
+	private final Executor cleanupExecutor;
+
+	public AdminUserHardDeleteService(
+		AdminUserHardDeleteRepository repository,
+		RedisAuthSessionStore sessionStore,
+		SseConnectionRegistry sseConnectionRegistry,
+		FileStorage fileStorage,
+		@Qualifier("fileCleanupTaskExecutor") Executor cleanupExecutor
+	) {
+		this.repository = repository;
+		this.sessionStore = sessionStore;
+		this.sseConnectionRegistry = sseConnectionRegistry;
+		this.fileStorage = fileStorage;
+		this.cleanupExecutor = cleanupExecutor;
+	}
 
 	@Transactional
 	public void hardDelete(AuthenticatedUser principal, Long userId, String confirmationEmail) {
@@ -59,15 +75,23 @@ public class AdminUserHardDeleteService {
 
 	private void cleanupAfterCommit(Long userId, List<String> s3Keys) {
 		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-			revokeSessionsCloseSseAndDeleteS3(userId, s3Keys);
+			scheduleCleanup(userId, s3Keys);
 			return;
 		}
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				revokeSessionsCloseSseAndDeleteS3(userId, s3Keys);
+				scheduleCleanup(userId, s3Keys);
 			}
 		});
+	}
+
+	private void scheduleCleanup(Long userId, List<String> s3Keys) {
+		try {
+			cleanupExecutor.execute(() -> revokeSessionsCloseSseAndDeleteS3(userId, s3Keys));
+		} catch (RejectedExecutionException exception) {
+			log.error("Failed to schedule hard-deleted user cleanup. userId={}, s3KeyCount={}", userId, s3Keys.size(), exception);
+		}
 	}
 
 	private void revokeSessionsCloseSseAndDeleteS3(Long userId, List<String> s3Keys) {

@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,11 +39,13 @@ class AdminUserHardDeleteServiceTest {
 	private final RedisAuthSessionStore sessionStore = mock(RedisAuthSessionStore.class);
 	private final SseConnectionRegistry sseConnectionRegistry = mock(SseConnectionRegistry.class);
 	private final FileStorage fileStorage = mock(FileStorage.class);
+	private final ManualExecutor cleanupExecutor = new ManualExecutor();
 	private final AdminUserHardDeleteService service = new AdminUserHardDeleteService(
 		repository,
 		sessionStore,
 		sseConnectionRegistry,
-		fileStorage
+		fileStorage,
+		cleanupExecutor
 	);
 
 	@AfterEach
@@ -139,6 +143,12 @@ class AdminUserHardDeleteServiceTest {
 			synchronization.afterCommit();
 		}
 
+		verify(sessionStore, never()).revokeAllSessionsOfUser(10L);
+		verify(sseConnectionRegistry, never()).closeUser(10L);
+		verify(fileStorage, never()).delete("final/10/profile/file/original.jpg");
+
+		cleanupExecutor.runAll();
+
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
 		verify(sseConnectionRegistry).closeUser(10L);
 		verify(fileStorage).delete("final/10/profile/file/original.jpg");
@@ -172,6 +182,7 @@ class AdminUserHardDeleteServiceTest {
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
 			synchronization.afterCommit();
 		}
+		cleanupExecutor.runAll();
 
 		verify(fileStorage).delete("final/10/profile/file/original.jpg");
 		verify(fileStorage).delete("final/10/profile/file/display.webp");
@@ -192,6 +203,7 @@ class AdminUserHardDeleteServiceTest {
 		for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
 			synchronization.afterCommit();
 		}
+		cleanupExecutor.runAll();
 
 		verify(fileStorage).delete("malformed-key");
 		verify(fileStorage).delete("final/10/profile/file/original.jpg");
@@ -205,5 +217,21 @@ class AdminUserHardDeleteServiceTest {
 
 	private static HardDeleteTarget target(Long userId, String email, UserRole role) {
 		return new HardDeleteTarget(userId, email, role);
+	}
+
+	private static final class ManualExecutor implements Executor {
+
+		private final List<Runnable> tasks = new ArrayList<>();
+
+		@Override
+		public void execute(Runnable command) {
+			tasks.add(command);
+		}
+
+		private void runAll() {
+			List<Runnable> pending = List.copyOf(tasks);
+			tasks.clear();
+			pending.forEach(Runnable::run);
+		}
 	}
 }
