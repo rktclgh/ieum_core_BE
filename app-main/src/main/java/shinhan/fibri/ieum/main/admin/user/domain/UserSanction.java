@@ -98,7 +98,7 @@ public class UserSanction {
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
 		this.startsAt = Objects.requireNonNull(startsAt, "startsAt must not be null");
 		this.endsAt = endsAt;
-		this.durationMinutes = calculateDurationMinutes(type, startsAt, endsAt);
+		this.durationMinutes = calculateDurationMinutes(type, this.startsAt, this.endsAt);
 		this.reviewStatus = Objects.requireNonNull(reviewStatus, "reviewStatus must not be null");
 	}
 
@@ -184,7 +184,11 @@ public class UserSanction {
 		if (type == SanctionType.permanent) {
 			return null;
 		}
-		long seconds = Duration.between(startsAt, Objects.requireNonNull(endsAt, "endsAt must not be null")).getSeconds();
+		OffsetDateTime requiredEndsAt = Objects.requireNonNull(endsAt, "endsAt must not be null");
+		if (!requiredEndsAt.isAfter(startsAt)) {
+			throw new IllegalArgumentException("endsAt must be after startsAt");
+		}
+		long seconds = Duration.between(startsAt, requiredEndsAt).getSeconds();
 		return Math.toIntExact(Math.max(1L, (seconds + 59L) / 60L));
 	}
 

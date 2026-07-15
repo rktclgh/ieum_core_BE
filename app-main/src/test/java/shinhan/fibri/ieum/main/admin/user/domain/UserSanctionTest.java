@@ -10,7 +10,7 @@ class UserSanctionTest {
 
 	@Test
 	void temporaryCreatesActiveSanctionWithEndsAt() {
-		OffsetDateTime endsAt = OffsetDateTime.parse("2026-07-11T00:00:00+09:00");
+		OffsetDateTime endsAt = OffsetDateTime.now().plusDays(1);
 
 		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, endsAt);
 
@@ -49,6 +49,22 @@ class UserSanctionTest {
 		assertThatThrownBy(() -> UserSanction.temporary(10L, "abuse", 1L, null))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("endsAt is required for temporary sanction");
+	}
+
+	@Test
+	void aiTemporaryRequiresEndsAtAfterStartsAt() {
+		OffsetDateTime startsAt = OffsetDateTime.parse("2026-07-15T12:00:00+09:00");
+
+		assertThatThrownBy(() -> UserSanction.aiTemporary(
+			10L, 20L, "ai abuse", startsAt.minusMinutes(1), startsAt, startsAt
+		))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("endsAt must be after startsAt");
+		assertThatThrownBy(() -> UserSanction.aiTemporary(
+			10L, 20L, "ai abuse", startsAt.minusMinutes(1), startsAt, startsAt.minusSeconds(1)
+		))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("endsAt must be after startsAt");
 	}
 
 	@Test

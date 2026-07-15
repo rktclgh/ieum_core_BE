@@ -41,20 +41,25 @@ public class DefaultReportAiPostCommitActions implements ReportAiPostCommitActio
 	}
 
 	private void execute(Long userId) {
+		runSafely(
+			"report_ai_session_revoke_failed",
+			userId,
+			() -> sessionStore.revokeAllSessionsOfUser(userId)
+		);
+		runSafely(
+			"report_ai_sse_close_failed",
+			userId,
+			() -> sseConnections.closeUser(userId)
+		);
+	}
+
+	private void runSafely(String event, Long userId, Runnable action) {
 		try {
-			sessionStore.revokeAllSessionsOfUser(userId);
+			action.run();
 		} catch (RuntimeException failure) {
 			log.error(
-				"event=report_ai_session_revoke_failed userId={} failureType={}",
-				userId, failure.getClass().getSimpleName()
-			);
-		}
-		try {
-			sseConnections.closeUser(userId);
-		} catch (RuntimeException failure) {
-			log.error(
-				"event=report_ai_sse_close_failed userId={} failureType={}",
-				userId, failure.getClass().getSimpleName()
+				"event={} userId={} failureType={}",
+				event, userId, failure.getClass().getSimpleName(), failure
 			);
 		}
 	}

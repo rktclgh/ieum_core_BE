@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.main.admin.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -142,7 +143,7 @@ class AdminSanctionServiceTest {
 	void sanctionAllowsAdditionalActiveSanctionForCumulativeLedger() {
 		User target = user();
 		target.suspend();
-		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
 		when(sanctionRepository.save(any(UserSanction.class))).thenAnswer(invocation -> {
 			UserSanction sanction = invocation.getArgument(0);
 			ReflectionTestUtils.setField(sanction, "id", 100L);
@@ -156,7 +157,24 @@ class AdminSanctionServiceTest {
 		);
 
 		assertThat(response.sanctionId()).isEqualTo(100L);
+		assertThat(target.getStatus()).isEqualTo(UserStatus.suspended);
 		verify(sessionStore).revokeAllSessionsOfUser(10L);
+	}
+
+	@Test
+	void sanctionClosesSseEvenWhenSessionRevocationFails() {
+		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(user()));
+		when(sanctionRepository.save(any(UserSanction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		doThrow(new IllegalStateException("redis unavailable"))
+			.when(sessionStore).revokeAllSessionsOfUser(10L);
+
+		service.sanction(
+			adminPrincipal(),
+			10L,
+			new CreateSanctionRequest(SanctionType.permanent, "abuse", null)
+		);
+
+		verify(sseConnectionRegistry).closeUser(10L);
 	}
 
 	@Test
@@ -255,7 +273,7 @@ class AdminSanctionServiceTest {
 	void releaseExpiredSanctionPreservesHistoryAndActivatesUserWhenNoEffectiveSanctionRemains() {
 		User target = user();
 		target.suspend();
-		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		UserSanction sanction = expiredTemporarySanction();
 		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
 		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
 		when(sanctionRepository.existsEffectiveSanction(any(), any())).thenReturn(false);
@@ -271,7 +289,7 @@ class AdminSanctionServiceTest {
 	void releaseExpiredSanctionKeepsUserSuspendedWhenAnotherEffectiveSanctionExists() {
 		User target = user();
 		target.suspend();
-		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		UserSanction sanction = expiredTemporarySanction();
 		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(target));
 		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
 		when(sanctionRepository.existsEffectiveSanction(any(), any())).thenReturn(true);
@@ -317,7 +335,7 @@ class AdminSanctionServiceTest {
 
 	@Test
 	void releaseExpiredSanctionWarnsAndSkipsStatusRecoveryWhenUserMissing() {
-		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		UserSanction sanction = expiredTemporarySanction();
 		when(userRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
 		when(sanctionRepository.findByIdForUpdate(99L)).thenReturn(Optional.of(sanction));
 
@@ -329,7 +347,7 @@ class AdminSanctionServiceTest {
 
 	@Test
 	void releaseExpiredSanctionIsNoopWhenAlreadyReleased() {
-		UserSanction sanction = UserSanction.temporary(10L, "abuse", 1L, OffsetDateTime.now().minusMinutes(1));
+		UserSanction sanction = expiredTemporarySanction();
 		sanction.release(OffsetDateTime.now(), 1L);
 		User target = user();
 		target.suspend();
@@ -344,6 +362,18 @@ class AdminSanctionServiceTest {
 
 	private static AuthenticatedUser adminPrincipal() {
 		return new AuthenticatedUser(1L, "admin@example.com", UserRole.admin, UserStatus.active);
+	}
+
+	private static UserSanction expiredTemporarySanction() {
+		OffsetDateTime endsAt = OffsetDateTime.now().minusMinutes(1);
+		return UserSanction.aiTemporary(
+			10L,
+			20L,
+			"abuse",
+			endsAt.minusHours(2),
+			endsAt.minusHours(1),
+			endsAt
+		);
 	}
 
 	private static User user() {

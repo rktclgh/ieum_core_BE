@@ -138,9 +138,13 @@ public class AdminSanctionService {
 	private void revokeSessionsAndCloseSse(Long userId) {
 		try {
 			sessionStore.revokeAllSessionsOfUser(userId);
+		} catch (RuntimeException exception) {
+			log.error("Failed to revoke sessions for sanctioned user: userId={}", userId, exception);
+		}
+		try {
 			sseConnectionRegistry.closeUser(userId);
 		} catch (RuntimeException exception) {
-			log.error("Failed to revoke sessions or close SSE for sanctioned user: userId={}", userId, exception);
+			log.error("Failed to close SSE for sanctioned user: userId={}", userId, exception);
 		}
 	}
 }
