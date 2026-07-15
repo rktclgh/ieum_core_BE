@@ -73,6 +73,7 @@ class UserControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.userId", is(42)))
 			.andExpect(jsonPath("$.email", is("user@example.com")))
+			.andExpect(jsonPath("$.role", is("admin")))
 			.andExpect(jsonPath("$.nickname", is("nickname")))
 			.andExpect(jsonPath("$.grade", is("bronze")))
 			.andExpect(jsonPath("$.acceptedCount", is(0)))
@@ -240,6 +241,7 @@ class UserControllerTest {
 		return new UserMeResponse(
 			42L,
 			"user@example.com",
+			UserRole.admin,
 			"nickname",
 			LocalDate.of(1995, 5, 20),
 			"female",

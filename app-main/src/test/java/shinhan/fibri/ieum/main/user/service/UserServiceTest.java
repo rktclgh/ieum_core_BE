@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import shinhan.fibri.ieum.common.auth.domain.GenderType;
 import shinhan.fibri.ieum.common.auth.domain.User;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
 import shinhan.fibri.ieum.common.auth.domain.UserSettings;
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.auth.repository.CountryRepository;
@@ -86,6 +87,7 @@ class UserServiceTest {
 
 		assertThat(response.userId()).isEqualTo(42L);
 		assertThat(response.email()).isEqualTo("user@example.com");
+		assertThat(response.role()).isEqualTo(UserRole.user);
 		assertThat(response.nickname()).isEqualTo("nickname");
 		assertThat(response.birthDate()).isEqualTo(LocalDate.of(1995, 5, 20));
 		assertThat(response.gender()).isEqualTo("female");
