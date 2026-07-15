@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
@@ -22,7 +23,7 @@ public class JdbcContentPurgeRepository implements ContentPurgeRepository {
 	private final NamedParameterJdbcTemplate jdbc;
 
 	@Override
-	@Transactional
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public ContentPurgeChunk purgeChunk(OffsetDateTime cutoff, int limit) {
 		List<TargetRow> targets = selectTargets(cutoff, limit);
 		if (targets.isEmpty()) {
