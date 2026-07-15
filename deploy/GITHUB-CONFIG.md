@@ -104,7 +104,8 @@ endpoint. Each binary workflow therefore copies only the migration helper and
 the explicitly ordered `v24_seed_report_policy_rules.sql`,
 `v25_user_auth_version.sql`, `v26_admin_audit_logs.sql`, and
 `v27_report_policy_sanction_durations.sql` files to its production EC2 host and
-runs the helper there before either application binary is built. The report
+runs the helper there after the app-main JAR is built but before its image is deployed.
+The app-ai workflow continues to run migrations before its binary is built. The report
 policy files run only when the canonical `ai_report_policy_rules` table exists.
 
 Before enabling either workflow, install the PostgreSQL client on both EC2
@@ -122,7 +123,7 @@ source, and the remote `psql` command before running the helper. The password
 stays on EC2: it is never interpolated as a GitHub secret and never appears in
 an SSH argument or workflow log. Missing configuration, unsafe permissions,
 an unavailable `psql`, a schema mismatch, or a migration error stops the
-workflow before Gradle, image build, or SSH application deployment.
+workflow before image build or SSH application deployment.
 
 The deployment validator also runs the helper against an ephemeral PostgreSQL
 16 instance. It verifies that a hostile role `search_path` cannot redirect DDL,
