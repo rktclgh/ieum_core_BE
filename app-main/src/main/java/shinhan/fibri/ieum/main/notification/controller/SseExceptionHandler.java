@@ -24,7 +24,11 @@ public class SseExceptionHandler {
 
 	@ExceptionHandler(CannotGetJdbcConnectionException.class)
 	public ResponseEntity<Void> handleDatabaseUnavailable(CannotGetJdbcConnectionException exception) {
-		log.warn("event=sse_subscription_db_unavailable failureType={}", exception.getClass().getSimpleName());
+		log.warn(
+			"event=sse_subscription_db_unavailable failureType={}",
+			exception.getClass().getSimpleName(),
+			exception
+		);
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
 			.build();
 	}
