@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +33,6 @@ import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
-import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -99,9 +99,6 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 	@Autowired
 	private RoomEventPublisher roomEventPublisher;
 
-	@Autowired
-	private SimpUserRegistry userRegistry;
-
 	@MockitoBean
 	private SessionTokenValidator sessionTokenValidator;
 
@@ -139,7 +136,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		try {
 			BlockingQueue<WsMessageEvent> events = new LinkedBlockingQueue<>();
 			session.subscribe("/topic/rooms/" + fixture.roomId(), frameHandler(WsMessageEvent.class, events));
-			awaitSubscriptionRegistration(fixture.host().id(), "/topic/rooms/" + fixture.roomId());
+			awaitCurrentQueueReadiness(fixture, events);
 
 			HttpResponse<String> response = post(
 				"/api/v1/meetings/" + fixture.meetingId() + "/leave",
@@ -164,7 +161,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		try {
 			BlockingQueue<WsMessageEvent> events = new LinkedBlockingQueue<>();
 			session.subscribe("/topic/rooms/" + fixture.roomId(), frameHandler(WsMessageEvent.class, events));
-			awaitSubscriptionRegistration(fixture.host().id(), "/topic/rooms/" + fixture.roomId());
+			awaitCurrentQueueReadiness(fixture, events);
 
 			HttpResponse<String> response = post(
 				"/api/v1/meetings/" + fixture.meetingId() + "/kick",
@@ -386,25 +383,37 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		};
 	}
 
-	private void awaitSubscriptionRegistration(long userId, String destination) throws InterruptedException {
+	private void awaitCurrentQueueReadiness(DepartureFixture fixture, BlockingQueue<WsMessageEvent> events)
+		throws InterruptedException {
+		String probeContent = "__meeting-departure-stomp-ready__" + UUID.randomUUID();
+		WsMessageEvent probe = new WsMessageEvent(
+			-System.nanoTime(),
+			fixture.roomId(),
+			fixture.host().id(),
+			"readiness-probe",
+			MessageType.system,
+			probeContent,
+			null,
+			OffsetDateTime.parse("2026-07-16T00:00:00+09:00")
+		);
 		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
 		while (System.nanoTime() < deadline) {
-			if (hasSubscription(userId, destination)) {
+			roomEventPublisher.publish(probe);
+			if (currentQueueReceived(events, probe)) {
+				events.clear();
 				return;
 			}
-			Thread.sleep(50);
 		}
-		assertThat(hasSubscription(userId, destination)).isTrue();
+		throw new AssertionError("current STOMP queue did not receive its readiness probe before the HTTP request");
 	}
 
-	private boolean hasSubscription(long userId, String destination) {
-		var user = userRegistry.getUser(String.valueOf(userId));
-		if (user == null) {
-			return false;
-		}
-		return user.getSessions().stream()
-			.flatMap(session -> session.getSubscriptions().stream())
-			.anyMatch(subscription -> destination.equals(subscription.getDestination()));
+	private boolean currentQueueReceived(BlockingQueue<WsMessageEvent> events, WsMessageEvent probe)
+		throws InterruptedException {
+		WsMessageEvent event = events.poll(100, TimeUnit.MILLISECONDS);
+		return event != null
+			&& event.messageId().equals(probe.messageId())
+			&& event.roomId().equals(probe.roomId())
+			&& event.content().equals(probe.content());
 	}
 
 	private URI serverUri(String path) {
