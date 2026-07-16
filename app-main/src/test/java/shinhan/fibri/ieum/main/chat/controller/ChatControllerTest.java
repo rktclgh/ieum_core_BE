@@ -190,6 +190,7 @@ class ChatControllerTest {
 
 	@Test
 	void getRoomReturnsDetail() throws Exception {
+		String counterpartProfileImageUrl = "/api/v1/files/123e4567-e89b-12d3-a456-426614174000";
 		when(chatService.getRoom(any(AuthenticatedUser.class), eq(100L)))
 			.thenReturn(new ChatRoomDetailResponse(
 				100L,
@@ -199,14 +200,17 @@ class ChatControllerTest {
 				null,
 				false,
 				true,
-				List.of(new ChatRoomMemberResponse(77L, "friend", null, "US"))
+				List.of(new ChatRoomMemberResponse(77L, "friend", counterpartProfileImageUrl, "US")),
+				new ChatRoomMemberResponse(77L, "friend", counterpartProfileImageUrl, "US")
 			));
 
 		mockMvc.perform(get("/api/v1/chat/rooms/{roomId}", 100L).with(authenticated()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.roomId", is(100)))
 			.andExpect(jsonPath("$.members[0].userId", is(77)))
-			.andExpect(jsonPath("$.members[0].nationality", is("US")));
+			.andExpect(jsonPath("$.members[0].nationality", is("US")))
+			.andExpect(jsonPath("$.counterpart.userId", is(77)))
+			.andExpect(jsonPath("$.counterpart.profileImageUrl", is(counterpartProfileImageUrl)));
 	}
 
 	@Test
