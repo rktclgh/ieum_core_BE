@@ -98,6 +98,33 @@ class S3FileStorageTest {
 	}
 
 	@Nested
+	class CreatePresignedPutUrlValidation {
+
+		private final S3FileStorage storage = new S3FileStorage(s3Client, s3Presigner, "bucket");
+
+		@Test
+		void rejectsBlankKey() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl(" ", "image/jpeg", Duration.ofMinutes(5)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("S3 object key is required");
+		}
+
+		@Test
+		void rejectsNullTtl() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl("tmp/original.jpg", "image/jpeg", null))
+				.isInstanceOf(NullPointerException.class)
+				.hasMessage("ttl must not be null");
+		}
+
+		@Test
+		void rejectsNonPositiveTtl() {
+			assertThatThrownBy(() -> storage.createPresignedPutUrl("tmp/original.jpg", "image/jpeg", Duration.ZERO))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("ttl must be positive");
+		}
+	}
+
+	@Nested
 	class CreatePresignedGetUrlValidation {
 
 		private final S3FileStorage storage = new S3FileStorage(s3Client, s3Presigner, "bucket");
