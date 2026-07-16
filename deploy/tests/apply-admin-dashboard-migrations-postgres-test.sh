@@ -133,7 +133,6 @@ sql "ALTER SEQUENCE public.admin_audit_logs_audit_id_seq MAXVALUE 100 CYCLE CACH
 if run_helper >/dev/null 2>&1; then
   fail "helper accepted incompatible audit sequence properties"
 fi
-
 sequence_state="$(sql "
   SELECT concat_ws(':', seqmax, seqcache, seqcycle)
   FROM pg_sequence
@@ -141,5 +140,98 @@ sequence_state="$(sql "
 ")"
 [[ "$sequence_state" == "100:2:t" ]] \
   || fail "failed preflight unexpectedly rewrote the incompatible sequence: $sequence_state"
+sql "ALTER SEQUENCE public.admin_audit_logs_audit_id_seq
+  MAXVALUE 9223372036854775807 NO CYCLE CACHE 1;" >/dev/null
+
+sql "ALTER SEQUENCE public.web_push_subscriptions_subscription_id_seq
+  MAXVALUE 100 CYCLE CACHE 2;" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted incompatible web push subscription sequence properties"
+fi
+web_push_sequence_state="$(sql "
+  SELECT concat_ws(':', seqmax, seqcache, seqcycle)
+  FROM pg_sequence
+  WHERE seqrelid = 'public.web_push_subscriptions_subscription_id_seq'::regclass;
+")"
+[[ "$web_push_sequence_state" == "100:2:t" ]] \
+  || fail "failed Web Push preflight unexpectedly rewrote the subscription sequence"
+sql "ALTER SEQUENCE public.web_push_subscriptions_subscription_id_seq
+  MAXVALUE 9223372036854775807 NO CYCLE CACHE 1;" >/dev/null
+
+sql "
+  CREATE COLLATION public.web_push_test_collation (provider = libc, locale = 'C');
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE UNIQUE INDEX uidx_web_push_subscriptions_session
+    ON public.web_push_subscriptions
+    (session_id COLLATE public.web_push_test_collation varchar_pattern_ops);
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push session index with non-default collation or opclass"
+fi
+sql "
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE UNIQUE INDEX uidx_web_push_subscriptions_session
+    ON public.web_push_subscriptions(session_id);
+  DROP COLLATION public.web_push_test_collation;
+" >/dev/null
+
+sql "
+  CREATE COLLATION public.web_push_test_collation (provider = libc, locale = 'C');
+  ALTER TABLE public.web_push_subscriptions
+    ALTER COLUMN session_id TYPE VARCHAR(64) COLLATE public.web_push_test_collation;
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push session column with non-default collation"
+fi
+sql "
+  ALTER TABLE public.web_push_subscriptions
+    ALTER COLUMN session_id TYPE VARCHAR(64) COLLATE \"default\";
+  DROP COLLATION public.web_push_test_collation;
+" >/dev/null
+
+sql "
+  DROP TRIGGER trg_web_push_subscriptions_updated ON public.web_push_subscriptions;
+  CREATE TRIGGER trg_web_push_subscriptions_updated
+    BEFORE UPDATE OF p256dh ON public.web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a column-filtered web push updated_at trigger"
+fi
+sql "
+  DROP TRIGGER trg_web_push_subscriptions_updated ON public.web_push_subscriptions;
+  CREATE TRIGGER trg_web_push_subscriptions_updated
+    BEFORE UPDATE ON public.web_push_subscriptions
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+" >/dev/null
+
+sql "
+  ALTER TABLE public.web_push_subscriptions
+    DROP CONSTRAINT web_push_subscriptions_endpoint_hash_key;
+  DROP INDEX public.uidx_web_push_subscriptions_session;
+  CREATE INDEX idx_web_push_subscriptions_session
+    ON public.web_push_subscriptions(session_id);
+" >/dev/null
+if run_helper >/dev/null 2>&1; then
+  fail "helper accepted a web push table without endpoint_hash uniqueness"
+fi
+endpoint_hash_constraint_state="$(sql "
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.web_push_subscriptions'::regclass
+      AND conname = 'web_push_subscriptions_endpoint_hash_key'
+  );
+")"
+[[ "$endpoint_hash_constraint_state" == "f" ]] \
+  || fail "failed Web Push preflight unexpectedly rewrote the endpoint hash constraint"
+legacy_session_index_state="$(sql "
+  SELECT concat_ws(':',
+    to_regclass('public.idx_web_push_subscriptions_session') IS NOT NULL,
+    to_regclass('public.uidx_web_push_subscriptions_session') IS NULL
+  );
+")"
+[[ "$legacy_session_index_state" == "t:t" ]] \
+  || fail "failed Web Push preflight ran the session-cardinality migration"
 
 echo "Admin dashboard PostgreSQL migration tests passed."
