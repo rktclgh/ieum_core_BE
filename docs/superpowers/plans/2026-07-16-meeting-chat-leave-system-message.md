@@ -8,6 +8,8 @@
 
 **Tech Stack:** Java 21, Spring Boot 4, Spring MVC, Spring Data JPA, PostgreSQL, STOMP, JUnit 5, Mockito, Testcontainers, Gradle, Bash.
 
+> **As-built status (2026-07-16, `6615609`):** Tasks 1–3의 소스 구현은 완료됐다. `659e983`(v28 `message_type` schema/helper), `a7406e9`(REST·목록·STOMP `messageType`), `387b933`(leave/kick 공용 lifecycle과 영속 system message), `77848ac`~`6615609`(실제 HTTP→after-commit STOMP→REST 통합 검증 및 probe 안정화)이 설계를 구현한다. 아래 체크리스트는 당시 실행 순서를 보존한 기록이므로, 남아 있는 빈 체크박스는 미구현 기능을 뜻하지 않는다. Task 4의 로컬 API SSOT·Notion 동기화와 운영 v28 migration은 완료됐으며, PR 검토·배포 인계만 별도 릴리스 절차로 추적한다.
+
 ## Global Constraints
 
 - Base branch is `develop`; this worktree branch is `145-fix-meeting-chat-leave-message`.

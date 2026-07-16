@@ -1,5 +1,16 @@
 # 모임 채팅방 나가기와 이탈 시스템 메시지 (#145) — 백엔드 설계
 
+## 구현 완료 기록 (2026-07-16)
+
+소스 구현은 `6615609`까지 완료됐다. 아래 설계는 구현 결과와 일치하며, 이후의 운영 반영·공유 문서 동기화는 별도 릴리스 절차로 추적한다.
+
+- `659e983`은 additive `messages.message_type`(`user|system`) v28 스키마·배포 helper 계약을 추가했다. 기존 메시지는 `user` default로 보존되고, system 메시지는 텍스트만 허용한다.
+- `a7406e9`은 REST 이력, 채팅 목록의 마지막 메시지, STOMP room event에 `messageType`을 같은 의미로 노출했다.
+- `387b933`은 자진 나가기와 방장 강퇴가 공용 group-departure lifecycle을 통해 같은 영속 system 메시지와 after-commit room event를 만들도록 구현했다. 기존 group chat leave의 `409 GROUP_LEAVE_VIA_MEETING` 보호 계약과 일반 메시지 push 경로는 유지한다.
+- `77848ac`~`6615609`은 실제 HTTP 요청→커밋 후 STOMP 수신→잔류자 REST 이력까지 검증하는 통합 테스트를 추가하고, 준비 probe의 지연 프레임을 메시지 assertion에서 분리해 안정화했다. 자진 나가기와 강퇴 모두 정확히 `"{nickname}님이 모임을 떠났습니다"` system 행을 검증한다.
+
+이 기록은 코드와 테스트 범위를 나타낸다. 운영 DB v28 migration과 로컬 API SSOT·Notion 동기화는 2026-07-16에 완료했으며, PR 검토·앱 배포 상태는 이 파일만으로 완료를 주장하지 않는다.
+
 ## 1. 배경과 확인된 사실
 
 일반 참여자가 모임(group) 채팅방에서 나가기를 누르면 `POST /api/v1/chat/rooms/{roomId}/leave`가 호출되어 `409 GROUP_LEAVE_VIA_MEETING`이 반환된다. 이는 백엔드 오류가 아니라, 채팅 멤버십만 제거해 `meeting_participants`가 `joined`로 남는 불일치를 막는 보호 계약이다.
