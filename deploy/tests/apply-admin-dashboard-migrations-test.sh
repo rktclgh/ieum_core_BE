@@ -19,6 +19,16 @@ test -s "$workflow" || fail "app-main deployment workflow is missing"
 test -s "$ai_workflow" || fail "app-ai deployment workflow is missing"
 test -s "$env_example" || fail "app-main environment example is missing"
 
+v32_migration="$root/db/migrations/v32_chat_message_reply.sql"
+test -s "$v32_migration" || fail "v32 reply migration is missing"
+v32_begin_line="$(grep -n -m1 -Fx 'BEGIN;' "$v32_migration" | cut -d: -f1 || true)"
+v32_add_column_line="$(grep -n -m1 -F 'ADD COLUMN reply_to_message_id' "$v32_migration" | cut -d: -f1 || true)"
+v32_fk_line="$(grep -n -m1 -F 'ADD CONSTRAINT fk_messages_reply_to_message' "$v32_migration" | cut -d: -f1 || true)"
+v32_commit_line="$(grep -n -m1 -Fx 'COMMIT;' "$v32_migration" | cut -d: -f1 || true)"
+test -n "$v32_begin_line" && test -n "$v32_add_column_line" && test -n "$v32_fk_line" && test -n "$v32_commit_line" \
+  && (( v32_begin_line < v32_add_column_line )) && (( v32_add_column_line < v32_fk_line )) && (( v32_fk_line < v32_commit_line )) \
+  || fail "v32 reply migration must atomically wrap column and foreign-key DDL"
+
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
 mkdir -p "$fake_bin" "$capture_dir"
