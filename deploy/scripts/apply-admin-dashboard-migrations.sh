@@ -452,6 +452,22 @@ $preflight$;
 SELECT to_regclass('public.ai_report_policy_rules') IS NOT NULL AS apply_report_policy_migrations \gset
 SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
+SELECT to_regclass('public.web_push_subscriptions') IS NULL AS apply_web_push_subscription_base_migration \gset
+SELECT NOT EXISTS (
+  SELECT 1
+  FROM pg_index index_row
+  JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+  JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+  WHERE index_row.indrelid = to_regclass('public.web_push_subscriptions')
+    AND index_namespace.nspname = 'public'
+    AND index_class.relname = 'uidx_web_push_subscriptions_session'
+    AND index_row.indisunique
+    AND index_row.indpred IS NULL
+    AND index_row.indexprs IS NULL
+    AND index_row.indnatts = 1
+    AND index_row.indnkeyatts = 1
+    AND index_row.indkey::text = '3'
+) AS apply_web_push_session_cardinality_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -461,8 +477,14 @@ SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migr
 \if :apply_auth_version_migration
 \i db/migrations/v25_user_auth_version.sql
 \endif
+\if :apply_web_push_subscription_base_migration
+\i db/migrations/v25_web_push_subscriptions.sql
+\endif
 \if :apply_admin_audit_migration
 \i db/migrations/v26_admin_audit_logs.sql
+\endif
+\if :apply_web_push_session_cardinality_migration
+\i db/migrations/v26_web_push_session_cardinality.sql
 \endif
 
 DO $verify$
@@ -472,6 +494,26 @@ BEGIN
   END IF;
   IF pg_temp.admin_audit_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'admin_audit_logs schema verification failed';
+  END IF;
+  IF to_regclass('public.web_push_subscriptions') IS NULL THEN
+    RAISE EXCEPTION 'web_push_subscriptions schema verification failed: table is missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index index_row
+    JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+    JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+    WHERE index_row.indrelid = to_regclass('public.web_push_subscriptions')
+      AND index_namespace.nspname = 'public'
+      AND index_class.relname = 'uidx_web_push_subscriptions_session'
+      AND index_row.indisunique
+      AND index_row.indpred IS NULL
+      AND index_row.indexprs IS NULL
+      AND index_row.indnatts = 1
+      AND index_row.indnkeyatts = 1
+      AND index_row.indkey::text = '3'
+  ) THEN
+    RAISE EXCEPTION 'web_push_subscriptions schema verification failed: unique session index is missing';
   END IF;
 END
 $verify$;

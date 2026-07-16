@@ -97,10 +97,20 @@ schema_state="$(sql "
         AND attname = 'auth_version'
         AND attnum > 0
         AND NOT attisdropped
+    ),
+    to_regclass('public.web_push_subscriptions') IS NOT NULL,
+    to_regclass('trap.web_push_subscriptions') IS NULL,
+    EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = 'public.web_push_subscriptions'::regclass
+        AND index_class.relname = 'uidx_web_push_subscriptions_session'
+        AND index_row.indisunique
     )
   );
 ")"
-[[ "$schema_state" == "t:t:t:t" ]] \
+[[ "$schema_state" == "t:t:t:t:t:t:t" ]] \
   || fail "DDL escaped public under a hostile search_path: $schema_state"
 
 constraint_oid_before="$(sql "

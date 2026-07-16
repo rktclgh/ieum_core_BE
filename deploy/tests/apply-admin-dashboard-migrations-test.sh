@@ -3,6 +3,9 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/deploy/scripts/apply-admin-dashboard-migrations.sh"
+workflow="$root/.github/workflows/deploy-app-main.yml"
+ai_workflow="$root/.github/workflows/deploy-app-ai.yml"
+env_example="$root/deploy/env/app-main.env.example"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
@@ -12,6 +15,9 @@ fail() {
 }
 
 test -x "$helper" || fail "migration helper is missing or not executable"
+test -s "$workflow" || fail "app-main deployment workflow is missing"
+test -s "$ai_workflow" || fail "app-ai deployment workflow is missing"
+test -s "$env_example" || fail "app-main environment example is missing"
 
 fake_bin="$work_dir/bin"
 capture_dir="$work_dir/capture"
@@ -160,6 +166,27 @@ test -n "$report_policy_guard_line" && (( report_policy_guard_line < v24_line ))
 auth_guard_line="$(grep -n -m1 -F '\if :apply_auth_version_migration' "$stdin_file" | cut -d: -f1 || true)"
 test -n "$auth_guard_line" && (( auth_guard_line < v25_line )) \
   || fail "v25 must be guarded by the auth absent-state flag"
+
+for migration in \
+  db/migrations/v25_web_push_subscriptions.sql \
+  db/migrations/v26_web_push_session_cardinality.sql; do
+  grep -Fq "\\i $migration" "$stdin_file" \
+    || fail "Web Push migration is missing from the guarded migration helper: $migration"
+  grep -Fq "$migration" "$workflow" \
+    || fail "Web Push migration is missing from the app-main deployment copy path: $migration"
+  grep -Fq "$migration" "$ai_workflow" \
+    || fail "Web Push migration is missing from the app-ai deployment copy path: $migration"
+done
+web_push_base_line="$(grep -n -m1 -F '\i db/migrations/v25_web_push_subscriptions.sql' "$stdin_file" | cut -d: -f1 || true)"
+web_push_cardinality_line="$(grep -n -m1 -F '\i db/migrations/v26_web_push_session_cardinality.sql' "$stdin_file" | cut -d: -f1 || true)"
+web_push_base_guard_line="$(grep -n -m1 -F '\if :apply_web_push_subscription_base_migration' "$stdin_file" | cut -d: -f1 || true)"
+web_push_cardinality_guard_line="$(grep -n -m1 -F '\if :apply_web_push_session_cardinality_migration' "$stdin_file" | cut -d: -f1 || true)"
+test -n "$web_push_base_guard_line" && (( web_push_base_guard_line < web_push_base_line )) \
+  || fail "Web Push base migration must be guarded by table absence"
+test -n "$web_push_cardinality_guard_line" && (( web_push_cardinality_guard_line < web_push_cardinality_line )) \
+  || fail "Web Push session-cardinality migration must be guarded by its unique index"
+grep -Fxq 'WEB_PUSH_ALLOWED_ENDPOINT_HOSTS=fcm.googleapis.com,push.services.mozilla.com,push.apple.com,notify.windows.com' "$env_example" \
+  || fail "Web Push endpoint-host example must permit the Apple Push domain boundary"
 
 if PATH="$fake_bin:$PATH" \
   CAPTURE_DIR="$capture_dir" \
