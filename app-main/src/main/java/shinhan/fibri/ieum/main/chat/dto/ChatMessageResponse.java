@@ -15,8 +15,34 @@ public record ChatMessageResponse(
 	MessageType messageType,
 	String content,
 	String imageUrl,
-	OffsetDateTime createdAt
+	OffsetDateTime createdAt,
+	ChatReplyPreview replyTo
 ) {
+
+	public ChatMessageResponse(
+		Long messageId,
+		Long roomId,
+		Long senderId,
+		String senderNickname,
+		String senderProfileImageUrl,
+		MessageType messageType,
+		String content,
+		String imageUrl,
+		OffsetDateTime createdAt
+	) {
+		this(
+			messageId,
+			roomId,
+			senderId,
+			senderNickname,
+			senderProfileImageUrl,
+			messageType,
+			content,
+			imageUrl,
+			createdAt,
+			null
+		);
+	}
 
 	public static ChatMessageResponse from(Message message) {
 		return new ChatMessageResponse(
@@ -28,7 +54,8 @@ public record ChatMessageResponse(
 			message.getMessageType(),
 			message.getContent(),
 			imageUrl(message.getImageFileId()),
-			message.getCreatedAt()
+			message.getCreatedAt(),
+			message.getReplyTo() == null ? null : ChatReplyPreview.from(message.getReplyTo())
 		);
 	}
 

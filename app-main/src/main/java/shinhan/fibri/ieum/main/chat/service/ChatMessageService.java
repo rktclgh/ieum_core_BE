@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.chat.service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
 import shinhan.fibri.ieum.common.chat.domain.ChatMember;
 import shinhan.fibri.ieum.common.chat.domain.Message;
+import shinhan.fibri.ieum.common.chat.domain.MessageType;
 import shinhan.fibri.ieum.common.chat.domain.RoomType;
 import shinhan.fibri.ieum.common.chat.repository.ChatMemberRepository;
 import shinhan.fibri.ieum.common.chat.repository.MessageRepository;
@@ -38,8 +40,9 @@ public class ChatMessageService {
 		validatePayload(request);
 		ChatMember member = chatMemberRepository.findActiveByRoomIdAndUserId(roomId, principal.userId())
 			.orElseThrow(NotRoomMemberException::new);
+		Message replyTo = findReplyTarget(member, request.replyToMessageId());
 		restoreLeftMembersForReopenableRoom(member, principal.userId());
-		Message message = messageRepository.save(toMessage(member, request));
+		Message message = messageRepository.save(toMessage(member, request, replyTo));
 		List<Long> activeUserIds = chatMemberRepository.findActiveUserIdsByRoomId(roomId);
 		chatRoomListChangeEmitter.upsert(roomId, activeUserIds);
 		WsMessageEvent event = WsMessageEvent.from(message);
@@ -76,11 +79,28 @@ public class ChatMessageService {
 		}
 	}
 
-	private Message toMessage(ChatMember member, SendChatMessageRequest request) {
-		if (request.imageFileId() != null && (request.content() == null || request.content().isBlank())) {
-			return Message.image(member.getRoom(), member.getUser(), request.imageFileId());
+	private Message findReplyTarget(ChatMember member, Long replyToMessageId) {
+		if (replyToMessageId == null) {
+			return null;
 		}
-		return Message.text(member.getRoom(), member.getUser(), request.content());
+		Message target = messageRepository.findReplyTargetById(replyToMessageId)
+			.orElseThrow(() -> new InvalidChatMessageException("reply target must be a visible user message in this room"));
+		if (
+			target.getDeletedAt() != null
+				|| target.getMessageType() != MessageType.user
+				|| !Objects.equals(target.getRoom().getId(), member.getRoom().getId())
+				|| target.getId() <= member.getVisibleAfterMessageId()
+		) {
+			throw new InvalidChatMessageException("reply target must be a visible user message in this room");
+		}
+		return target;
+	}
+
+	private Message toMessage(ChatMember member, SendChatMessageRequest request, Message replyTo) {
+		if (request.imageFileId() != null && (request.content() == null || request.content().isBlank())) {
+			return Message.image(member.getRoom(), member.getUser(), request.imageFileId(), replyTo);
+		}
+		return Message.text(member.getRoom(), member.getUser(), request.content(), replyTo);
 	}
 
 	private void publishAfterCommit(WsMessageEvent event, ChatPushTrigger pushTrigger) {
