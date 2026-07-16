@@ -209,6 +209,7 @@ class ChatWebSocketIntegrationTest {
 			100L,
 			42L,
 			"민지",
+			null,
 			MessageType.system,
 			"민지님이 모임을 떠났습니다",
 			null,

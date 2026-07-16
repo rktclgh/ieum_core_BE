@@ -392,6 +392,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 			fixture.roomId(),
 			fixture.host().id(),
 			"readiness-probe",
+			null,
 			MessageType.system,
 			probeContent,
 			null,
