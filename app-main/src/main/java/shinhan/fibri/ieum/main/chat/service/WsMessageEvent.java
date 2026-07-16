@@ -7,6 +7,7 @@ public record WsMessageEvent(
 	Long roomId,
 	Long senderId,
 	String senderNickname,
+	String senderProfileImageUrl,
 	String content,
 	String imageUrl,
 	OffsetDateTime createdAt

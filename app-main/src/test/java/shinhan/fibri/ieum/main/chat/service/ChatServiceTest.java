@@ -13,6 +13,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -407,6 +408,53 @@ class ChatServiceTest {
 			.singleElement()
 			.extracting(member -> member.nationality())
 			.isEqualTo("US");
+		assertThat(response.counterpart())
+			.extracting(member -> member.userId())
+			.isEqualTo(77L);
+	}
+
+	@Test
+	void getRoomKeepsALeftCounterpartForDirectAndQuestionRoomAvatars() {
+		User me = user(42L, "me@example.com", "me");
+		User counterpart = user(77L, "counterpart@example.com", "counterpart");
+		UUID profileFileId = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+		counterpart.linkProfileImage(profileFileId);
+		List<ChatRoom> rooms = List.of(
+			room(ChatRoom.direct(42L, 77L), 100L),
+			room(ChatRoom.question(9L, 42L, 77L), 101L)
+		);
+
+		for (ChatRoom room : rooms) {
+			ChatMember meMember = ChatMember.join(room, me);
+			ChatMember counterpartMember = ChatMember.join(room, counterpart);
+			counterpartMember.leave(OffsetDateTime.parse("2026-07-16T12:00:00+09:00"));
+			when(chatRoomRepository.findById(room.getId())).thenReturn(Optional.of(room));
+			when(chatMemberRepository.findByRoom_Id(room.getId())).thenReturn(List.of(meMember, counterpartMember));
+
+			var response = service.getRoom(principal(42L), room.getId());
+
+			assertThat(response.members())
+				.extracting(member -> member.userId())
+				.containsExactly(42L);
+			assertThat(response.counterpart()).satisfies(member -> {
+				assertThat(member.userId()).isEqualTo(77L);
+				assertThat(member.profileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
+			});
+		}
+	}
+
+	@Test
+	void getRoomDoesNotExposeCounterpartForGroupRooms() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom room = room(ChatRoom.group(7L), 100L);
+		ChatMember meMember = ChatMember.join(room, me);
+		ChatMember otherMember = ChatMember.join(room, user(77L, "other@example.com", "other"));
+		when(chatRoomRepository.findById(100L)).thenReturn(Optional.of(room));
+		when(chatMemberRepository.findByRoom_Id(100L)).thenReturn(List.of(meMember, otherMember));
+
+		var response = service.getRoom(principal(42L), 100L);
+
+		assertThat(response.counterpart()).isNull();
 	}
 
 	@Test

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -51,6 +52,8 @@ class ChatMessageServiceTest {
 	@Test
 	void sendSavesMessageAndPublishesEventWhenNoTransactionSynchronization() {
 		User me = user(42L, "me@example.com", "me");
+		UUID profileFileId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+		me.linkProfileImage(profileFileId);
 		ChatRoom room = room(ChatRoom.direct(42L, 77L), 100L);
 		ChatMember member = ChatMember.join(room, me);
 		when(chatMemberRepository.findActiveByRoomIdAndUserId(100L, 42L)).thenReturn(Optional.of(member));
@@ -63,10 +66,12 @@ class ChatMessageServiceTest {
 		var response = service.send(principal(42L), 100L, new SendChatMessageRequest("hello", null));
 
 		assertThat(response.messageId()).isEqualTo(501L);
+		assertThat(response.senderProfileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
 		verify(chatMemberRepository).restoreLeftMembersByRoomIdExceptSender(100L, 42L);
 		ArgumentCaptor<WsMessageEvent> eventCaptor = ArgumentCaptor.forClass(WsMessageEvent.class);
 		verify(roomEventPublisher).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getValue().content()).isEqualTo("hello");
+		assertThat(eventCaptor.getValue().senderProfileImageUrl()).isEqualTo("/api/v1/files/" + profileFileId);
 		ArgumentCaptor<ChatPushTrigger> triggerCaptor = ArgumentCaptor.forClass(ChatPushTrigger.class);
 		verify(chatNotificationPublisher).messageCreated(triggerCaptor.capture());
 		assertThat(triggerCaptor.getValue()).isEqualTo(new ChatPushTrigger(501L, 100L, 42L));
