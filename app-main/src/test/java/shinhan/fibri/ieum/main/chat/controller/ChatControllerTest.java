@@ -170,6 +170,7 @@ class ChatControllerTest {
 					100L,
 					77L,
 					"friend",
+					null,
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -217,6 +218,7 @@ class ChatControllerTest {
 					100L,
 					77L,
 					"friend",
+					"/api/v1/files/11111111-1111-1111-1111-111111111111",
 					"hello",
 					null,
 					OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
@@ -228,9 +230,10 @@ class ChatControllerTest {
 				.param("cursor", "cursor")
 				.param("size", "2")
 				.with(authenticated()))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.items[0].messageId", is(501)))
-			.andExpect(jsonPath("$.nextCursor", is("next")));
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].messageId", is(501)))
+				.andExpect(jsonPath("$.items[0].senderProfileImageUrl", is("/api/v1/files/11111111-1111-1111-1111-111111111111")))
+				.andExpect(jsonPath("$.nextCursor", is("next")));
 	}
 
 	@Test

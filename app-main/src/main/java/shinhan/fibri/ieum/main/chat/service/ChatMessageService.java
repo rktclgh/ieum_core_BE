@@ -90,6 +90,7 @@ public class ChatMessageService {
 			response.roomId(),
 			response.senderId(),
 			response.senderNickname(),
+			response.senderProfileImageUrl(),
 			response.content(),
 			response.imageUrl(),
 			response.createdAt()

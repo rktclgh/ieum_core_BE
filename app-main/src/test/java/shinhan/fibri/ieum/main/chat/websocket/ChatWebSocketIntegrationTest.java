@@ -156,12 +156,22 @@ class ChatWebSocketIntegrationTest {
 				roomId,
 				42L,
 				"user",
+				"/api/v1/files/11111111-1111-1111-1111-111111111111",
 				request.content(),
 				null,
 				OffsetDateTime.parse("2026-07-08T12:00:00+09:00")
 			);
 			Thread.ofPlatform().start(() -> roomEventPublisher.publish(event));
-			return new ChatMessageResponse(501L, roomId, 42L, "user", request.content(), null, event.createdAt());
+			return new ChatMessageResponse(
+				501L,
+				roomId,
+				42L,
+				"user",
+				"/api/v1/files/11111111-1111-1111-1111-111111111111",
+				request.content(),
+				null,
+				event.createdAt()
+			);
 		}).when(chatMessageService).send(any(), any(), any());
 	}
 
@@ -179,6 +189,7 @@ class ChatWebSocketIntegrationTest {
 		assertThat(message).isNotNull();
 		assertThat(message.roomId()).isEqualTo(100L);
 		assertThat(message.content()).isEqualTo("hello");
+		assertThat(message.senderProfileImageUrl()).isEqualTo("/api/v1/files/11111111-1111-1111-1111-111111111111");
 		session.disconnect();
 	}
 
