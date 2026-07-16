@@ -438,6 +438,363 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION pg_temp.web_push_subscription_contract_state()
+RETURNS text
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  table_oid oid;
+  columns_exact boolean;
+  sequence_exact boolean;
+  constraints_exact boolean;
+  base_indexes_exact boolean;
+  final_indexes_exact boolean;
+  trigger_exact boolean;
+BEGIN
+  SELECT table_class.oid
+  INTO table_oid
+  FROM pg_class table_class
+  JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+  WHERE table_namespace.nspname = 'public'
+    AND table_class.relname = 'web_push_subscriptions';
+
+  IF table_oid IS NULL THEN
+    RETURN 'absent';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class table_class
+    WHERE table_class.oid = table_oid
+      AND table_class.relkind = 'r'
+      AND table_class.relpersistence = 'p'
+      AND NOT table_class.relispartition
+  ) OR to_regclass('public.users') IS NULL THEN
+    RETURN 'mismatch';
+  END IF;
+
+  WITH expected_columns(attnum, attname, type_name, attnotnull, default_expression) AS (
+    VALUES
+      (1::smallint, 'subscription_id'::name, 'bigint'::text, true,
+        'nextval(''web_push_subscriptions_subscription_id_seq''::regclass)'::text),
+      (2::smallint, 'user_id'::name, 'bigint'::text, true, NULL::text),
+      (3::smallint, 'session_id'::name, 'character varying(64)'::text, true, NULL::text),
+      (4::smallint, 'endpoint'::name, 'text'::text, true, NULL::text),
+      (5::smallint, 'endpoint_hash'::name, 'character(64)'::text, true, NULL::text),
+      (6::smallint, 'p256dh'::name, 'character varying(512)'::text, true, NULL::text),
+      (7::smallint, 'auth_secret'::name, 'character varying(256)'::text, true, NULL::text),
+      (8::smallint, 'binding_version'::name, 'bigint'::text, true, '1'::text),
+      (9::smallint, 'expires_at'::name, 'timestamp with time zone'::text, false, NULL::text),
+      (10::smallint, 'created_at'::name, 'timestamp with time zone'::text, true, 'now()'::text),
+      (11::smallint, 'updated_at'::name, 'timestamp with time zone'::text, true, 'now()'::text)
+  )
+  SELECT
+    (
+      SELECT count(*) = 11
+      FROM pg_attribute
+      WHERE attrelid = table_oid
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+    AND count(*) = 11
+    AND bool_and(
+      attribute.attnum = expected.attnum
+      AND attribute.attname = expected.attname
+      AND format_type(attribute.atttypid, attribute.atttypmod) = expected.type_name
+      AND attribute.attnotnull = expected.attnotnull
+      AND attribute.attgenerated = ''
+      AND attribute.attidentity = ''
+      AND attribute.atthasdef = (expected.default_expression IS NOT NULL)
+      AND (
+        (expected.default_expression IS NULL AND default_value.oid IS NULL)
+        OR (
+          expected.default_expression IS NOT NULL
+          AND default_value.oid IS NOT NULL
+          AND regexp_replace(
+            pg_get_expr(default_value.adbin, default_value.adrelid),
+            '[[:space:]]',
+            '',
+            'g'
+          ) = regexp_replace(expected.default_expression, '[[:space:]]', '', 'g')
+        )
+      )
+    )
+  INTO columns_exact
+  FROM expected_columns expected
+  JOIN pg_attribute attribute
+    ON attribute.attrelid = table_oid
+   AND attribute.attnum = expected.attnum
+   AND attribute.attname = expected.attname
+   AND NOT attribute.attisdropped
+  LEFT JOIN pg_attrdef default_value
+    ON default_value.adrelid = attribute.attrelid
+   AND default_value.adnum = attribute.attnum;
+
+  SELECT
+    to_regclass(pg_get_serial_sequence('public.web_push_subscriptions', 'subscription_id'))
+      = to_regclass('public.web_push_subscriptions_subscription_id_seq')
+    AND count(*) = 1
+    AND bool_and(
+      sequence_class.relkind = 'S'
+      AND sequence_class.relpersistence = 'p'
+      AND sequence_row.seqtypid = 'bigint'::regtype
+      AND sequence_row.seqstart = 1
+      AND sequence_row.seqincrement = 1
+      AND sequence_row.seqmax = 9223372036854775807
+      AND sequence_row.seqmin = 1
+      AND sequence_row.seqcache = 1
+      AND NOT sequence_row.seqcycle
+      AND dependency.classid = 'pg_class'::regclass
+      AND dependency.objsubid = 0
+      AND dependency.refclassid = 'pg_class'::regclass
+      AND dependency.refobjid = table_oid
+      AND dependency.refobjsubid = 1
+      AND dependency.deptype = 'a'
+    )
+  INTO sequence_exact
+  FROM pg_class sequence_class
+  JOIN pg_namespace sequence_namespace ON sequence_namespace.oid = sequence_class.relnamespace
+  JOIN pg_sequence sequence_row ON sequence_row.seqrelid = sequence_class.oid
+  JOIN pg_depend dependency
+    ON dependency.objid = sequence_class.oid
+   AND dependency.classid = 'pg_class'::regclass
+   AND dependency.objsubid = 0
+   AND dependency.refclassid = 'pg_class'::regclass
+   AND dependency.deptype = 'a'
+  WHERE sequence_namespace.nspname = 'public'
+    AND sequence_class.relname = 'web_push_subscriptions_subscription_id_seq';
+
+  SELECT count(*) = 4
+    AND count(*) FILTER (
+      WHERE conname = 'web_push_subscriptions_pkey'
+        AND contype = 'p'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+        AND constraint_row.conkey = ARRAY[1]::smallint[]
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'web_push_subscriptions_endpoint_hash_key'
+        AND contype = 'u'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+        AND constraint_row.conkey = ARRAY[5]::smallint[]
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'web_push_subscriptions_user_id_fkey'
+        AND contype = 'f'
+        AND constraint_row.convalidated
+        AND constraint_row.conkey = ARRAY[2]::smallint[]
+        AND constraint_row.confrelid = 'public.users'::regclass
+        AND constraint_row.confkey = ARRAY[
+          (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'public.users'::regclass
+              AND attname = 'user_id'
+              AND attnum > 0
+              AND NOT attisdropped
+          )
+        ]::smallint[]
+        AND constraint_row.confmatchtype = 's'
+        AND constraint_row.confupdtype = 'a'
+        AND constraint_row.confdeltype = 'c'
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+    ) = 1
+    AND count(*) FILTER (
+      WHERE conname = 'web_push_subscriptions_binding_version_check'
+        AND contype = 'c'
+        AND constraint_row.convalidated
+        AND NOT constraint_row.connoinherit
+        AND NOT constraint_row.condeferrable
+        AND NOT constraint_row.condeferred
+        AND constraint_row.conkey = ARRAY[8]::smallint[]
+        AND regexp_replace(
+          pg_get_expr(constraint_row.conbin, constraint_row.conrelid),
+          '[[:space:]()]',
+          '',
+          'g'
+        ) = 'binding_version>0'
+    ) = 1
+  INTO constraints_exact
+  FROM pg_constraint constraint_row
+  WHERE constraint_row.conrelid = table_oid
+    AND constraint_row.contype <> 'n';
+
+  WITH expected_indexes(index_name, is_unique, is_primary, key_attnum) AS (
+    VALUES
+      ('web_push_subscriptions_pkey'::name, true, true, 1::smallint),
+      ('web_push_subscriptions_endpoint_hash_key'::name, true, false, 5::smallint),
+      ('idx_web_push_subscriptions_user'::name, false, false, 2::smallint),
+      ('idx_web_push_subscriptions_session'::name, false, false, 3::smallint)
+  ), actual_indexes AS (
+    SELECT index_class.relname,
+           index_class.relkind,
+           index_class.relpersistence,
+           index_namespace.nspname,
+           index_method.amname,
+           index_row.indisvalid,
+           index_row.indisready,
+           index_row.indislive,
+           index_row.indisunique,
+           index_row.indisprimary,
+           index_row.indisexclusion,
+           index_row.indpred,
+           index_row.indexprs,
+           index_row.indnatts,
+           index_row.indnkeyatts,
+           index_row.indkey,
+           index_row.indoption,
+           index_row.indcollation,
+           index_row.indclass
+    FROM pg_index index_row
+    JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+    JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+    JOIN pg_am index_method ON index_method.oid = index_class.relam
+    WHERE index_row.indrelid = table_oid
+  )
+  SELECT (SELECT count(*) = 4 FROM actual_indexes)
+    AND count(*) = 4
+    AND bool_and(
+      actual.relkind = 'i'
+      AND actual.relpersistence = 'p'
+      AND actual.nspname = 'public'
+      AND actual.amname = 'btree'
+      AND actual.indisvalid
+      AND actual.indisready
+      AND actual.indislive
+      AND actual.indisunique = expected.is_unique
+      AND actual.indisprimary = expected.is_primary
+      AND NOT actual.indisexclusion
+      AND actual.indpred IS NULL
+      AND actual.indexprs IS NULL
+      AND actual.indnatts = 1
+      AND actual.indnkeyatts = 1
+      AND actual.indkey::text = expected.key_attnum::text
+      AND actual.indoption::text = '0'
+      AND index_column.attcollation = index_type.typcollation
+      AND actual.indcollation::text = index_column.attcollation::text
+      AND actual.indclass::text = (
+        SELECT default_opclass.oid::text
+        FROM pg_opclass default_opclass
+        JOIN pg_am default_opclass_method ON default_opclass_method.oid = default_opclass.opcmethod
+        WHERE default_opclass_method.amname = 'btree'
+          AND default_opclass.opcdefault
+          AND default_opclass.opcintype = index_column.atttypid
+      )
+    )
+  INTO base_indexes_exact
+  FROM expected_indexes expected
+  JOIN actual_indexes actual ON actual.relname = expected.index_name
+  JOIN pg_attribute index_column
+    ON index_column.attrelid = table_oid
+   AND index_column.attnum = expected.key_attnum
+   AND NOT index_column.attisdropped
+  JOIN pg_type index_type ON index_type.oid = index_column.atttypid;
+
+  WITH expected_indexes(index_name, is_unique, is_primary, key_attnum) AS (
+    VALUES
+      ('web_push_subscriptions_pkey'::name, true, true, 1::smallint),
+      ('web_push_subscriptions_endpoint_hash_key'::name, true, false, 5::smallint),
+      ('idx_web_push_subscriptions_user'::name, false, false, 2::smallint),
+      ('uidx_web_push_subscriptions_session'::name, true, false, 3::smallint)
+  ), actual_indexes AS (
+    SELECT index_class.relname,
+           index_class.relkind,
+           index_class.relpersistence,
+           index_namespace.nspname,
+           index_method.amname,
+           index_row.indisvalid,
+           index_row.indisready,
+           index_row.indislive,
+           index_row.indisunique,
+           index_row.indisprimary,
+           index_row.indisexclusion,
+           index_row.indpred,
+           index_row.indexprs,
+           index_row.indnatts,
+           index_row.indnkeyatts,
+           index_row.indkey,
+           index_row.indoption,
+           index_row.indcollation,
+           index_row.indclass
+    FROM pg_index index_row
+    JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+    JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+    JOIN pg_am index_method ON index_method.oid = index_class.relam
+    WHERE index_row.indrelid = table_oid
+  )
+  SELECT (SELECT count(*) = 4 FROM actual_indexes)
+    AND count(*) = 4
+    AND bool_and(
+      actual.relkind = 'i'
+      AND actual.relpersistence = 'p'
+      AND actual.nspname = 'public'
+      AND actual.amname = 'btree'
+      AND actual.indisvalid
+      AND actual.indisready
+      AND actual.indislive
+      AND actual.indisunique = expected.is_unique
+      AND actual.indisprimary = expected.is_primary
+      AND NOT actual.indisexclusion
+      AND actual.indpred IS NULL
+      AND actual.indexprs IS NULL
+      AND actual.indnatts = 1
+      AND actual.indnkeyatts = 1
+      AND actual.indkey::text = expected.key_attnum::text
+      AND actual.indoption::text = '0'
+      AND index_column.attcollation = index_type.typcollation
+      AND actual.indcollation::text = index_column.attcollation::text
+      AND actual.indclass::text = (
+        SELECT default_opclass.oid::text
+        FROM pg_opclass default_opclass
+        JOIN pg_am default_opclass_method ON default_opclass_method.oid = default_opclass.opcmethod
+        WHERE default_opclass_method.amname = 'btree'
+          AND default_opclass.opcdefault
+          AND default_opclass.opcintype = index_column.atttypid
+      )
+    )
+  INTO final_indexes_exact
+  FROM expected_indexes expected
+  JOIN actual_indexes actual ON actual.relname = expected.index_name
+  JOIN pg_attribute index_column
+    ON index_column.attrelid = table_oid
+   AND index_column.attnum = expected.key_attnum
+   AND NOT index_column.attisdropped
+  JOIN pg_type index_type ON index_type.oid = index_column.atttypid;
+
+  SELECT count(*) = 1
+    AND bool_and(
+      trigger_row.tgname = 'trg_web_push_subscriptions_updated'
+      AND trigger_row.tgfoid = to_regprocedure('public.set_updated_at()')
+      AND trigger_row.tgtype = 19
+      AND trigger_row.tgenabled = 'O'
+      AND trigger_row.tgattr = ''::int2vector
+      AND trigger_row.tgqual IS NULL
+      AND octet_length(trigger_row.tgargs) = 0
+      AND NOT trigger_row.tgdeferrable
+      AND NOT trigger_row.tginitdeferred
+    )
+  INTO trigger_exact
+  FROM pg_trigger trigger_row
+  WHERE trigger_row.tgrelid = table_oid
+    AND NOT trigger_row.tgisinternal;
+
+  IF NOT COALESCE(columns_exact AND sequence_exact AND constraints_exact AND trigger_exact, false) THEN
+    RETURN 'mismatch';
+  END IF;
+  IF COALESCE(final_indexes_exact, false) THEN
+    RETURN 'exact';
+  END IF;
+  IF COALESCE(base_indexes_exact, false) THEN
+    RETURN 'base';
+  END IF;
+  RETURN 'mismatch';
+END
+$function$;
+
 DO $preflight$
 BEGIN
   IF pg_temp.auth_version_contract_state() = 'mismatch' THEN
@@ -446,12 +803,16 @@ BEGIN
   IF pg_temp.admin_audit_contract_state() = 'mismatch' THEN
     RAISE EXCEPTION 'partial or incompatible admin_audit_logs schema';
   END IF;
+  IF pg_temp.web_push_subscription_contract_state() = 'mismatch' THEN
+    RAISE EXCEPTION 'partial or incompatible web_push_subscriptions schema';
+  END IF;
 END
 $preflight$;
 
 SELECT to_regclass('public.ai_report_policy_rules') IS NOT NULL AS apply_report_policy_migrations \gset
 SELECT pg_temp.auth_version_contract_state() = 'absent' AS apply_auth_version_migration \gset
 SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migration \gset
+SELECT pg_temp.web_push_subscription_contract_state() = 'absent' AS apply_web_push_subscription_base_migration \gset
 
 \if :apply_report_policy_migrations
 \i db/migrations/v24_seed_report_policy_rules.sql
@@ -461,8 +822,15 @@ SELECT pg_temp.admin_audit_contract_state() = 'absent' AS apply_admin_audit_migr
 \if :apply_auth_version_migration
 \i db/migrations/v25_user_auth_version.sql
 \endif
+\if :apply_web_push_subscription_base_migration
+\i db/migrations/v25_web_push_subscriptions.sql
+\endif
+SELECT pg_temp.web_push_subscription_contract_state() = 'base' AS apply_web_push_session_cardinality_migration \gset
 \if :apply_admin_audit_migration
 \i db/migrations/v26_admin_audit_logs.sql
+\endif
+\if :apply_web_push_session_cardinality_migration
+\i db/migrations/v26_web_push_session_cardinality.sql
 \endif
 
 DO $verify$
@@ -472,6 +840,9 @@ BEGIN
   END IF;
   IF pg_temp.admin_audit_contract_state() <> 'exact' THEN
     RAISE EXCEPTION 'admin_audit_logs schema verification failed';
+  END IF;
+  IF pg_temp.web_push_subscription_contract_state() <> 'exact' THEN
+    RAISE EXCEPTION 'web_push_subscriptions schema verification failed: expected exact v25/v26 contract';
   END IF;
 END
 $verify$;
