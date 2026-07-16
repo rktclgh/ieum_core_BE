@@ -136,7 +136,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		try {
 			BlockingQueue<WsMessageEvent> events = new LinkedBlockingQueue<>();
 			session.subscribe("/topic/rooms/" + fixture.roomId(), frameHandler(WsMessageEvent.class, events));
-			awaitCurrentQueueReadiness(fixture, events);
+			WsMessageEvent readinessProbe = awaitCurrentQueueReadiness(fixture, events);
 
 			HttpResponse<String> response = post(
 				"/api/v1/meetings/" + fixture.meetingId() + "/leave",
@@ -145,7 +145,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 			);
 
 			assertThat(response.statusCode()).isEqualTo(200);
-			assertCommittedDeparture(fixture, ParticipantStatus.left, events);
+			assertCommittedDeparture(fixture, ParticipantStatus.left, readinessProbe, events);
 		} finally {
 			session.disconnect();
 		}
@@ -161,7 +161,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		try {
 			BlockingQueue<WsMessageEvent> events = new LinkedBlockingQueue<>();
 			session.subscribe("/topic/rooms/" + fixture.roomId(), frameHandler(WsMessageEvent.class, events));
-			awaitCurrentQueueReadiness(fixture, events);
+			WsMessageEvent readinessProbe = awaitCurrentQueueReadiness(fixture, events);
 
 			HttpResponse<String> response = post(
 				"/api/v1/meetings/" + fixture.meetingId() + "/kick",
@@ -170,7 +170,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 			);
 
 			assertThat(response.statusCode()).isEqualTo(200);
-			assertCommittedDeparture(fixture, ParticipantStatus.kicked, events);
+			assertCommittedDeparture(fixture, ParticipantStatus.kicked, readinessProbe, events);
 		} finally {
 			session.disconnect();
 		}
@@ -179,12 +179,13 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 	private void assertCommittedDeparture(
 		DepartureFixture fixture,
 		ParticipantStatus expectedStatus,
+		WsMessageEvent readinessProbe,
 		BlockingQueue<WsMessageEvent> events
 	) throws Exception {
-		WsMessageEvent event = events.poll(5, TimeUnit.SECONDS);
+		WsMessageEvent event = pollIgnoringReadinessProbe(events, readinessProbe, 5, TimeUnit.SECONDS);
 		assertThat(event).isNotNull();
 		assertNeutralDeparture(event, fixture);
-		assertThat(events.poll(200, TimeUnit.MILLISECONDS)).isNull();
+		assertThat(pollIgnoringReadinessProbe(events, readinessProbe, 200, TimeUnit.MILLISECONDS)).isNull();
 
 		assertThat(participantRepository.findByIdMeetingIdAndIdUserId(
 			fixture.meetingId(), fixture.departing().id()
@@ -383,7 +384,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		};
 	}
 
-	private void awaitCurrentQueueReadiness(DepartureFixture fixture, BlockingQueue<WsMessageEvent> events)
+	private WsMessageEvent awaitCurrentQueueReadiness(DepartureFixture fixture, BlockingQueue<WsMessageEvent> events)
 		throws InterruptedException {
 		String probeContent = "__meeting-departure-stomp-ready__" + UUID.randomUUID();
 		WsMessageEvent probe = new WsMessageEvent(
@@ -401,7 +402,7 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 			roomEventPublisher.publish(probe);
 			if (currentQueueReceived(events, probe)) {
 				events.clear();
-				return;
+				return probe;
 			}
 		}
 		throw new AssertionError("current STOMP queue did not receive its readiness probe before the HTTP request");
@@ -411,7 +412,30 @@ class MeetingDepartureMessageHttpStompIntegrationTest {
 		throws InterruptedException {
 		WsMessageEvent event = events.poll(100, TimeUnit.MILLISECONDS);
 		return event != null
-			&& event.messageId().equals(probe.messageId())
+			&& isReadinessProbe(event, probe);
+	}
+
+	private WsMessageEvent pollIgnoringReadinessProbe(
+		BlockingQueue<WsMessageEvent> events,
+		WsMessageEvent readinessProbe,
+		long timeout,
+		TimeUnit unit
+	) throws InterruptedException {
+		long deadline = System.nanoTime() + unit.toNanos(timeout);
+		while (true) {
+			long remainingNanos = deadline - System.nanoTime();
+			if (remainingNanos <= 0) {
+				return null;
+			}
+			WsMessageEvent event = events.poll(remainingNanos, TimeUnit.NANOSECONDS);
+			if (event == null || !isReadinessProbe(event, readinessProbe)) {
+				return event;
+			}
+		}
+	}
+
+	private boolean isReadinessProbe(WsMessageEvent event, WsMessageEvent probe) {
+		return event.messageId().equals(probe.messageId())
 			&& event.roomId().equals(probe.roomId())
 			&& event.content().equals(probe.content());
 	}
