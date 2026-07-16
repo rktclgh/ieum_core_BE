@@ -198,6 +198,34 @@ class ChatWebSocketIntegrationTest {
 	}
 
 	@Test
+	void websocketPublisherSerializesSystemDepartureMessageToSubscribedRoom() throws Exception {
+		StompSession session = connect();
+		BlockingQueue<WsMessageEvent> messages = new LinkedBlockingQueue<>();
+		session.subscribe("/topic/rooms/100", frameHandler(WsMessageEvent.class, messages));
+		awaitSubscriptionRegistration("/topic/rooms/100");
+
+		Thread.ofPlatform().start(() -> roomEventPublisher.publish(new WsMessageEvent(
+			502L,
+			100L,
+			42L,
+			"민지",
+			MessageType.system,
+			"민지님이 모임을 떠났습니다",
+			null,
+			OffsetDateTime.parse("2026-07-16T12:00:00+09:00")
+		)));
+
+		WsMessageEvent message = messages.poll(3, TimeUnit.SECONDS);
+		assertThat(message).isNotNull();
+		assertThat(message.senderId()).isEqualTo(42L);
+		assertThat(message.senderNickname()).isEqualTo("민지");
+		assertThat(message.messageType()).isEqualTo(MessageType.system);
+		assertThat(message.content()).isEqualTo("민지님이 모임을 떠났습니다");
+		assertThat(message.imageUrl()).isNull();
+		session.disconnect();
+	}
+
+	@Test
 	void websocketSubscribeSendsErrorWhenUserIsNotRoomMember() throws Exception {
 		when(chatMemberRepository.existsByRoom_IdAndUser_IdAndLeftAtIsNull(200L, 42L)).thenReturn(false);
 		StompSession session = connect();
