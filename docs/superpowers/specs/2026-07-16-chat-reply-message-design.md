@@ -16,7 +16,8 @@
 ### 비범위
 
 - 스레드, 답장 수, 원문으로 jump하는 API, 답장 편집/삭제
-- system message·자기 자신·삭제된 메시지에 답장
+- system message·삭제된 메시지에 답장, 또는 self-target을 별도 거부하는 서버 정책
+- 프론트의 답장 선택 UI 범위 확장(프론트는 다른 사용자 메시지만 선택지로 노출)
 - 기존 메시지 body, image upload, push notification 또는 notice/report 정책 재설계
 
 ## 3. 데이터 모델 결정
@@ -70,7 +71,7 @@ ALTER TABLE messages
 
 네 번째 조건은 1:1 방을 나갔다 재입장한 사용자가 이전 이력을 id로 추측해 답장하면서 원문/닉네임을 재노출하는 것을 막는다. 불일치·system·삭제·숨김 과거 target은 `400 INVALID_CHAT_MESSAGE`로 처리한다.
 
-현재 사용자 본인 메시지는 프론트 메뉴에 나타나지 않지만, 서버는 self reply를 별도로 금지하지 않는다. 같은 room/current-visible user message라는 일반 규칙을 유지해 향후 UX 변화와 서버 계약을 불필요하게 결합하지 않는다.
+프론트는 다른 사용자 메시지에만 답장 메뉴를 노출한다. 다만 서버는 generic same-room/current-visible user-message validator를 사용하므로, self reply를 별도 금지하지 않는다. 이는 향후 프론트 UX 변화와 서버 계약을 불필요하게 결합하지 않기 위함이다.
 
 ## 6. 조회 성능과 이벤트 순서
 

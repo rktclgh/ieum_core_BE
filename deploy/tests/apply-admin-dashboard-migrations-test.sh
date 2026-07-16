@@ -91,6 +91,11 @@ test "$(cat "$capture_dir/password-transport")" = 'environment' \
 stdin_file="$capture_dir/stdin"
 grep -Fq "pg_advisory_lock" "$stdin_file" \
   || fail "session advisory lock is missing"
+grep -Fq "hashtextextended('ieum:admin-dashboard:v25-v26', 0)" "$stdin_file" \
+  || fail "migration helper must retain the deployed advisory-lock namespace"
+if grep -Fq "hashtextextended('ieum:admin-dashboard:v25-v32', 0)" "$stdin_file"; then
+  fail "migration helper must not split migration serialization onto a new advisory-lock namespace"
+fi
 grep -Fq "auth_version_contract_state" "$stdin_file" \
   || fail "auth_version preflight/final verification is missing"
 grep -Fq "admin_audit_contract_state" "$stdin_file" \
