@@ -1,5 +1,6 @@
 package shinhan.fibri.ieum.ai.knowledge.relations;
 
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -114,14 +115,30 @@ public final class KnowledgeRelationCandidateExtractionService {
 
 	private String evidence(String value, String document) {
 		String trimmed = required(value, "evidence");
-		int codePoints = trimmed.codePointCount(0, trimmed.length());
+		String documentSubstring = documentSubstring(trimmed, document);
+		int codePoints = documentSubstring.codePointCount(0, documentSubstring.length());
 		if (codePoints < 1 || codePoints > MAX_EVIDENCE_CODE_POINTS) {
 			throw invalid("evidence must contain 1 to 200 Unicode code points");
 		}
-		if (!document.contains(trimmed)) {
-			throw invalid("evidence must be a document substring");
+		return documentSubstring;
+	}
+
+	private String documentSubstring(String value, String document) {
+		if (document.contains(value)) {
+			return value;
 		}
-		return trimmed;
+		String normalizedValue = Normalizer.normalize(value, Normalizer.Form.NFC);
+		for (int start = 0; start < document.length(); start = document.offsetByCodePoints(start, 1)) {
+			int end = start;
+			for (int codePoints = 0; codePoints < MAX_EVIDENCE_CODE_POINTS && end < document.length(); codePoints++) {
+				end = document.offsetByCodePoints(end, 1);
+				String substring = document.substring(start, end);
+				if (Normalizer.normalize(substring, Normalizer.Form.NFC).equals(normalizedValue)) {
+					return substring;
+				}
+			}
+		}
+		throw invalid("evidence must be a document substring");
 	}
 
 	private String required(String value, String name) {

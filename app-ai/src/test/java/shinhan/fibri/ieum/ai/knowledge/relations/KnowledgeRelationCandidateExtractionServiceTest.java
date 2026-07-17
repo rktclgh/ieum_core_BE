@@ -3,6 +3,7 @@ package shinhan.fibri.ieum.ai.knowledge.relations;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -125,6 +126,29 @@ class KnowledgeRelationCandidateExtractionServiceTest {
 		);
 		assertThat(jdbc.sql("SELECT count(*) FROM knowledge_relation_candidates")
 			.query(Integer.class).single()).isZero();
+	}
+
+	@Test
+	void acceptsCanonicalEquivalentEvidenceAndPersistsTheDocumentSubstring() {
+		String documentEvidence = Normalizer.normalize("주민센터", Normalizer.Form.NFD);
+		long sourceId = insertReadyAcceptedAnswerSource("접수는 " + documentEvidence + "에서 합니다.");
+		repository.enqueue(sourceId);
+		extractor.next(CandidateExtractionResult.valid(List.of(
+			candidate("접수", KnowledgeRelationPredicate.located_in, "주민센터", "주민센터")
+		)));
+
+		service.processNext();
+
+		assertThat(taskState(sourceId)).containsExactly("completed", "1", null);
+		assertThat(jdbc.sql("""
+			SELECT evidence_excerpt
+			FROM knowledge_relation_candidates
+			WHERE source_id = :sourceId
+			""")
+			.param("sourceId", sourceId)
+			.query(String.class)
+			.single()).isEqualTo(documentEvidence)
+			.isNotEqualTo("주민센터");
 	}
 
 	@Test

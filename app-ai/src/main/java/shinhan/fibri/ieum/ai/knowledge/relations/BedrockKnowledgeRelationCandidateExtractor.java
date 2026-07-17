@@ -83,7 +83,7 @@ public final class BedrockKnowledgeRelationCandidateExtractor implements Knowled
 			throw new InvalidKnowledgeRelationExtractionOutputException("empty response");
 		}
 		try {
-			JsonNode root = objectMapper.readTree(generation.getOutput().getText());
+			JsonNode root = objectMapper.readTree(stripMarkdownCodeFence(generation.getOutput().getText()));
 			JsonNode candidateNodes = root.get("candidates");
 			if (candidateNodes == null || !candidateNodes.isArray()) {
 				throw new IllegalArgumentException("missing candidates");
@@ -103,6 +103,22 @@ public final class BedrockKnowledgeRelationCandidateExtractor implements Knowled
 		catch (RuntimeException | java.io.IOException exception) {
 			throw new InvalidKnowledgeRelationExtractionOutputException("invalid provider response", exception);
 		}
+	}
+
+	private String stripMarkdownCodeFence(String value) {
+		String trimmed = value.trim();
+		if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) {
+			return trimmed;
+		}
+		int firstLineEnd = trimmed.indexOf('\n');
+		if (firstLineEnd < 0) {
+			return trimmed;
+		}
+		String firstLine = trimmed.substring(0, firstLineEnd).trim().toLowerCase(java.util.Locale.ROOT);
+		if (!"```".equals(firstLine) && !"```json".equals(firstLine)) {
+			return trimmed;
+		}
+		return trimmed.substring(firstLineEnd + 1, trimmed.length() - 3).trim();
 	}
 
 	private String text(JsonNode node, String field) {
