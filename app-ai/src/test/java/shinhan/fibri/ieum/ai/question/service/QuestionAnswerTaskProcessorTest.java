@@ -30,6 +30,8 @@ import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
 class QuestionAnswerTaskProcessorTest {
@@ -88,11 +90,20 @@ class QuestionAnswerTaskProcessorTest {
 	}
 
 	@Test
-	void logsOnlyTheAllowlistedFailureWhenRetryIsScheduled() {
+	void logsSafeFailureDiagnosticsWithTheRootCauseAndSourceWhenRetryIsScheduled() {
 		ClaimedQuestionTask claim = claim(1);
+		IllegalArgumentException rootCause = new IllegalArgumentException("safe root message");
+		rootCause.setStackTrace(new StackTraceElement[] {
+			new StackTraceElement(
+				"shinhan.fibri.ieum.ai.question.analysis.BedrockNovaQuestionQueryAnalyzer",
+				"analyze",
+				"BedrockNovaQuestionQueryAnalyzer.java",
+				83
+			)
+		});
 		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
 			.thenReturn(Optional.of(claim));
-		doThrow(new RuntimeException("raw provider response secret"))
+		doThrow(new RuntimeException("raw provider response secret", rootCause))
 			.when(orchestrator).process(claim);
 		when(repository.markRetry(
 			42L,
@@ -106,6 +117,9 @@ class QuestionAnswerTaskProcessorTest {
 		processor.process(42L);
 
 		assertThat(messages(logs))
+			.anyMatch(message -> message.contains(
+				"event=question_answer_processing_failed questionId=42 workerId=worker-1 attempts=1 failure=UNEXPECTED_TRANSIENT exceptionType=java.lang.RuntimeException rootCauseType=java.lang.IllegalArgumentException rootCauseSource=shinhan.fibri.ieum.ai.question.analysis.BedrockNovaQuestionQueryAnalyzer#analyze:83 providerErrorCode=none httpStatus=none"
+			))
 			.anyMatch(message -> message.contains(
 				"event=question_answer_retry_scheduled questionId=42 workerId=worker-1 attempts=1 failure=UNEXPECTED_TRANSIENT retryDelayMs=10000"
 			))
@@ -297,6 +311,32 @@ class QuestionAnswerTaskProcessorTest {
 			SdkServiceException.builder().statusCode(503).message("raw provider payload").build(),
 			QuestionTaskFailure.PROVIDER_UNAVAILABLE
 		);
+	}
+
+	@Test
+	void marksProvider403AsPermanentConfigurationAndLogsTheAwsErrorCode() {
+		ClaimedQuestionTask claim = claim(1);
+		AwsServiceException failure = AwsServiceException.builder()
+			.statusCode(403)
+			.awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDeniedException").build())
+			.build();
+		failure.setStackTrace(new StackTraceElement[0]);
+		when(repository.claimByQuestionId(42L, "worker-1", Duration.ofMinutes(2), 5))
+			.thenReturn(Optional.of(claim));
+		doThrow(failure).when(orchestrator).process(claim);
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		processor.process(42L);
+
+		verify(repository).markDead(
+			42L,
+			"worker-1",
+			claim.leaseToken(),
+			QuestionTaskFailure.PERMANENT_CONFIGURATION
+		);
+		assertThat(messages(logs)).anyMatch(message -> message.contains(
+			"failure=PERMANENT_CONFIGURATION exceptionType=software.amazon.awssdk.awscore.exception.AwsServiceException rootCauseType=software.amazon.awssdk.awscore.exception.AwsServiceException"
+		) && message.contains("providerErrorCode=AccessDeniedException httpStatus=403"));
 	}
 
 	@Test

@@ -141,6 +141,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 	@Transactional(propagation = Propagation.NEVER)
 	public void process(ClaimedQuestionTask task) {
 		Objects.requireNonNull(task, "task must not be null");
+		logStageStarted(task, "snapshot");
 		Optional<QuestionInputSnapshot> optionalSnapshot = snapshotRepository.findActiveByQuestionId(task.questionId());
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.ANALYZING, leaseExtension))) {
 			return;
@@ -150,6 +151,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		);
 
 		RegionContext coarseRegion = regionParser.parse(snapshot.location().address());
+		logStageStarted(task, QuestionTaskStage.ANALYZING.databaseValue());
 		QueryAnalysis analysis = analyzer.analyze(new ModelQuestionAnalysisInput(
 			snapshot.title(),
 			snapshot.content(),
@@ -163,11 +165,13 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.EMBEDDING, leaseExtension))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.EMBEDDING.databaseValue());
 		QuestionEmbedding embedding = embeddingGateway.embed(embeddingText);
 		if (cancelled(checkpointService.saveEmbedding(task, embedding, leaseExtension))) {
 			return;
 		}
 
+		logStageStarted(task, QuestionTaskStage.RETRIEVING.databaseValue());
 		HybridKnowledgeRetrievalResult retrieval = retrievalService.retrieve(
 			retrievalRequest(snapshot, analysis, embedding),
 			analysis.entityCandidates()
@@ -208,6 +212,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.GENERATING, leaseExtension))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.GENERATING.databaseValue());
 		GeneratedAnswer answer = answerGateway.generate(prompt, answerTimeout);
 		if (cancelled(checkpointService.guardAndAdvance(
 			task,
@@ -222,6 +227,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			return;
 		}
 		LocalGroundingRequest groundingRequest = new LocalGroundingRequest(prompt, answer);
+		logStageStarted(task, QuestionTaskStage.VALIDATING.databaseValue());
 		GroundingValidationResult validation = groundingGateway.validate(groundingRequest, groundingTimeout);
 		if (!validation.validation().supported()) {
 			if (cancelled(checkpointService.guardCurrentStage(
@@ -231,6 +237,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			))) {
 				return;
 			}
+			logStageStarted(task, "repairing");
 			answer = groundingGateway.repair(groundingRequest, validation.validation(), groundingTimeout);
 			groundingRequest = new LocalGroundingRequest(prompt, answer);
 			if (cancelled(checkpointService.guardCurrentStage(
@@ -240,6 +247,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			))) {
 				return;
 			}
+			logStageStarted(task, QuestionTaskStage.VALIDATING.databaseValue());
 			validation = groundingGateway.validate(groundingRequest, groundingTimeout);
 		}
 
@@ -272,6 +280,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.PERSISTING, leaseExtension))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.PERSISTING.databaseValue());
 		List<com.fasterxml.jackson.databind.JsonNode> citationEvidence = citationAssembler.assemble(
 			answer.answer(),
 			evidence,
@@ -294,6 +303,14 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			)
 		);
 		wakeCallbackAfterCommit(result);
+	}
+
+	private void logStageStarted(ClaimedQuestionTask task, String stage) {
+		log.info(
+			"event=question_answer_stage_started questionId={} stage={}",
+			task.questionId(),
+			stage
+		);
 	}
 
 	private void fallbackToWebOrCompleteInsufficient(
@@ -322,6 +339,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 			return;
 		}
 
+		logStageStarted(task, "web_grounding_preparing");
 		Optional<WebGroundingPrompt> optionalPrompt = webGroundingPromptFactory.create(
 			snapshot,
 			trustedCoarseRegion
@@ -348,6 +366,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.WEB_GROUNDING.databaseValue());
 		Optional<WebGroundedAnswer> optionalWebAnswer = webGroundingGateway.ground(
 			optionalPrompt.get(),
 			WEB_GROUNDING_TIMEOUT
@@ -390,6 +409,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.PERSISTING.databaseValue());
 		String webFallbackReason = currentStage == QuestionTaskStage.VALIDATING
 			? "grounding_unsupported_after_repair"
 			: localFallbackReason;
@@ -432,6 +452,7 @@ public class DefaultQuestionAnswerOrchestrator implements QuestionAnswerOrchestr
 		if (cancelled(checkpointService.guardCurrentStage(task, QuestionTaskStage.PERSISTING, leaseExtension))) {
 			return;
 		}
+		logStageStarted(task, QuestionTaskStage.PERSISTING.databaseValue());
 		finalizationService.completeInsufficient(new InsufficientQuestionAnswerFinalization(
 			fence(task),
 			context(

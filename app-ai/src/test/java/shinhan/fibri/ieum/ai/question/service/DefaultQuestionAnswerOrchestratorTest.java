@@ -25,9 +25,13 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.ai.question.analysis.GeoScope;
@@ -189,6 +193,21 @@ class DefaultQuestionAnswerOrchestratorTest {
 		);
 		providerOrder.verify(fixture.finalizationService).completeGrounded(any());
 		providerOrder.verify(fixture.callbackWake).wake(fixture.task.questionId());
+	}
+
+	@Test
+	void logsTheAnalyzingStageBeforeTheAnalyzerFailure() {
+		Fixture fixture = new Fixture();
+		when(fixture.analyzer.analyze(any())).thenThrow(new IllegalStateException("provider failure"));
+		ListAppender<ILoggingEvent> logs = captureLogs();
+
+		assertThatThrownBy(() -> fixture.orchestrator.process(fixture.task))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("provider failure");
+
+		assertThat(messages(logs)).anyMatch(message -> message.contains(
+			"event=question_answer_stage_started questionId=" + fixture.task.questionId() + " stage=analyzing"
+		));
 	}
 
 	@Test
@@ -671,6 +690,19 @@ class DefaultQuestionAnswerOrchestratorTest {
 			Duration.ofSeconds(31)
 		)).isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("groundingTimeout must be 30 seconds");
+	}
+
+	private ListAppender<ILoggingEvent> captureLogs() {
+		Logger logger = (Logger) LoggerFactory.getLogger(DefaultQuestionAnswerOrchestrator.class);
+		logger.detachAndStopAllAppenders();
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		return appender;
+	}
+
+	private List<String> messages(ListAppender<ILoggingEvent> appender) {
+		return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
 	}
 
 	private static final class Fixture {

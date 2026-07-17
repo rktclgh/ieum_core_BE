@@ -146,7 +146,7 @@ class BedrockNovaQuestionQueryAnalyzerTest {
 				"amazon.nova-micro-v1:0",
 				ANALYSIS_VERSION,
 				512,
-				"ap-southeast-2",
+				"ap-northeast-2",
 				Duration.ofSeconds(30)
 			)
 		);
