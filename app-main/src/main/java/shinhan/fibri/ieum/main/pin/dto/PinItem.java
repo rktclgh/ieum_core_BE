@@ -11,6 +11,7 @@ public record PinItem(
 	String thumbnailUrl,
 	PinLocation location,
 	boolean mine,
+	boolean isResolved,
 	OffsetDateTime createdAt
 ) {
 }

@@ -21,5 +21,7 @@ public interface PinProjection {
 
 	Boolean getMine();
 
+	Boolean getResolved();
+
 	Instant getCreatedAt();
 }
