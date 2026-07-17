@@ -92,6 +92,8 @@ public final class KnowledgeRetrievalScorePolicy {
 	 * match rather than semantic similarity, so a low-confidence or thin relation must not inherit
 	 * the full authority of its curated source. When the same source also surfaces in the vector
 	 * lane, cosine similarity already corroborates relevance, so the confidence gate is not applied.
+	 * A graph-only relation without a confidence value carries no trust signal, so it fails safe to a
+	 * zero authority factor rather than inheriting the full source authority.
 	 */
 	private double effectiveAuthority(
 		String sourceType,
@@ -102,8 +104,9 @@ public final class KnowledgeRetrievalScorePolicy {
 	) {
 		double authority = authorityScore(sourceType, sourceGrade);
 		boolean graphOnly = vectorRank == null && kgRank != null;
-		if (graphOnly && relationConfidence != null) {
-			return authority * confidenceFactor(relationConfidence);
+		if (graphOnly) {
+			double factor = relationConfidence == null ? 0.0d : confidenceFactor(relationConfidence);
+			return authority * factor;
 		}
 		return authority;
 	}
