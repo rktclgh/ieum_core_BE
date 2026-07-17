@@ -34,6 +34,20 @@
 | `GET` | `/admin/inquiries?status=&cursor=&size=` | `200 CursorPage<AdminInquiryItem>` |
 | `GET` | `/admin/inquiries/{inquiryId}` | `200 AdminInquiryItem` |
 | `POST` | `/admin/inquiries/{inquiryId}/answer` | `204` |
+| `GET` | `/admin/knowledge/relation-candidates?status=&cursor=&size=` | `200 AdminKnowledgeCandidateListResponse` |
+| `GET` | `/admin/knowledge/relation-candidates/{candidateId}` | `200 AdminKnowledgeCandidateDetailResponse` |
+| `POST` | `/admin/knowledge/relation-candidates/{candidateId}/approve` | `200 AdminKnowledgeCandidateDecisionResponse` |
+| `POST` | `/admin/knowledge/relation-candidates/{candidateId}/reject` | `200 AdminKnowledgeCandidateDecisionResponse` |
+
+## KG 관계 후보 검토
+
+- 채택된 사람 답변이 Vector source/chunk로 `ready`가 된 뒤에만 비동기 관계 후보를 만들며, 후보는 운영자 승인 전에는 검색에 사용되지 않는다.
+- 후보 상태는 `pending`, `approved`, `rejected`, `invalidated`다. 목록의 기본 filter는 `pending`이다.
+- 상세는 후보 triple·근거 excerpt·source 적격성·질문/답변 맥락·동일 source의 기존 relation·검토 메타데이터를 반환한다.
+- 승인 요청은 `{version, subject, predicate, object}`, 반려 요청은 `{version, reason?}`다. predicate는 KG v1 allowlist만 허용한다.
+- 승인 결과는 `{candidateId, status, version, relation}`이다. relation은 승인에만 존재하고 반려에는 `null`이다.
+- stale version 또는 이미 종결된 후보는 `409 KNOWLEDGE_CANDIDATE_CONCURRENTLY_CHANGED`다. 승인 시 source가 더 이상 적격하지 않으면 후보를 `invalidated`로 보존하고 `409 KNOWLEDGE_CANDIDATE_SOURCE_INELIGIBLE`을 반환한다.
+- 승인/반려는 각각 `KNOWLEDGE_RELATION_APPROVED`, `KNOWLEDGE_RELATION_REJECTED` 관리자 감사 로그와 같은 transaction으로 기록한다.
 
 ## KPI overview
 
@@ -119,7 +133,7 @@ Content-Type: application/json
 - 콘텐츠 삭제/비노출 API
 - 회원 영구 삭제 API
 - AI 제재 pending-review API
-- AI 정책 CRUD 및 지식 탐색/승격 API
+- AI 정책 CRUD 및 후보 검토 외 지식 탐색/시각화 API
 - 감사 로그 조회 UI/API, 보존 기간 정책
 
 이 항목들은 관리자 대시보드 MVP의 AS-BUILT API로 취급하지 않는다.

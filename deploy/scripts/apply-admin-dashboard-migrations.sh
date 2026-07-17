@@ -600,7 +600,7 @@ BEGIN
           '[[:space:]()]',
           '',
           'g'
-        ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text]'
+        ) = 'action=ANYARRAY[''USER_SANCTION_CREATED''::text,''USER_ACTIVATED''::text,''USER_ROLE_CHANGED''::text,''REPORT_CONFIRMED''::text,''REPORT_DISMISSED''::text,''INQUIRY_ANSWERED''::text,''KNOWLEDGE_RELATION_APPROVED''::text,''KNOWLEDGE_RELATION_REJECTED''::text]'
     ) = 1
     AND count(*) FILTER (
       WHERE conname = 'ck_admin_audit_logs_target_type'
@@ -612,7 +612,7 @@ BEGIN
           '[[:space:]()]',
           '',
           'g'
-        ) = 'target_type=ANYARRAY[''user''::text,''report''::text,''inquiry''::text]'
+        ) = 'target_type=ANYARRAY[''user''::text,''report''::text,''inquiry''::text,''knowledge_relation_candidate''::text]'
     ) = 1
     AND count(*) FILTER (
       WHERE conname = 'ck_admin_audit_logs_details_object'
@@ -1305,6 +1305,7 @@ SELECT NOT EXISTS (
 \i db/migrations/v33_question_ai_ungrounded_answer.sql
 \endif
 \i db/migrations/v34_question_ai_ungrounded_answer_validate.sql
+\i db/migrations/v35_knowledge_relation_candidates.sql
 
 DO $verify$
 BEGIN
