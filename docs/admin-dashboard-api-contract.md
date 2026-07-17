@@ -21,6 +21,7 @@
 | `GET` | `/admin/stats/users?from=&to=` | `200 UserStatsResponse` |
 | `GET` | `/admin/stats/content?from=&to=` | `200 ContentStatsResponse` |
 | `GET` | `/admin/stats/reports?from=&to=` | `200 ReportStatsResponse` |
+| `GET` | `/admin/stats/overview?from=&to=&bucket=day` | `200 AdminStatsOverviewResponse` |
 | `GET` | `/admin/users?status=&q=&cursor=&size=` | `200 CursorPage<AdminUserItem>` |
 | `GET` | `/admin/users/{userId}` | `200 AdminUserDetailResponse` |
 | `POST` | `/admin/users/{userId}/sanctions` | `201 CreateSanctionResponse` |
@@ -33,6 +34,59 @@
 | `GET` | `/admin/inquiries?status=&cursor=&size=` | `200 CursorPage<AdminInquiryItem>` |
 | `GET` | `/admin/inquiries/{inquiryId}` | `200 AdminInquiryItem` |
 | `POST` | `/admin/inquiries/{inquiryId}/answer` | `204` |
+
+## KPI overview
+
+- `from`, `to`는 KST 날짜(`YYYY-MM-DD`)이며 양 끝을 포함한다. 생략하면 KST 오늘까지 최근 30일을 사용한다.
+- 허용 기간은 1~366일이고 현재 `bucket`은 `day`만 허용한다.
+- 응답은 적용된 `from`, `to`, `bucket`, 기간 합계 `summary`, 날짜별 0-채움 `series`, 기간과 무관한 현재 운영 대기열 `queues`를 반환한다.
+- 채택률은 사람 답변(`ai_generated=false`)만 분모·분자로 계산하며, 분모가 0이면 `0`이다.
+- `queues.pendingReportCount`는 `status=pending`, `queues.retryReportCount`와 `queues.deadReportCount`는 미해결 신고(`status in pending, ai_reviewed`) 중 해당 AI work 상태만 집계한다. 확정/기각된 신고는 retry/dead queue에서 제외한다.
+
+```json
+{
+  "from": "2026-07-01",
+  "to": "2026-07-31",
+  "bucket": "day",
+  "summary": {
+    "signupCount": 0,
+    "activeUserCount": 0,
+    "suspensionCount": 0,
+    "questionCount": 0,
+    "humanAnswerCount": 0,
+    "acceptedHumanAnswerCount": 0,
+    "acceptedRate": 0.0,
+    "reportCount": 0,
+    "aiReviewedCount": 0,
+    "confirmedCount": 0,
+    "dismissedCount": 0,
+    "sanctionCount": 0
+  },
+  "series": [
+    {
+      "date": "2026-07-01",
+      "signupCount": 0,
+      "activeUserCount": 0,
+      "questionCount": 0,
+      "humanAnswerCount": 0,
+      "acceptedHumanAnswerCount": 0,
+      "reportCount": 0,
+      "aiReviewedCount": 0,
+      "confirmedCount": 0,
+      "dismissedCount": 0,
+      "sanctionCount": 0
+    }
+  ],
+  "queues": {
+    "pendingReportCount": 0,
+    "retryReportCount": 0,
+    "deadReportCount": 0,
+    "pendingInquiryCount": 0
+  }
+}
+```
+
+- 실패 코드는 공통 인증/인가 규칙 외에 `400 VALIDATION_FAILED`(날짜 형식 등 바인딩 실패), `400 INVALID_STATS_RANGE`(from > to 또는 366일 초과), `400 INVALID_STATS_BUCKET`(`bucket`이 `day`가 아님)를 반환한다.
 
 ## 역할 변경
 
