@@ -65,7 +65,7 @@ class BedrockNovaQuestionQueryAnalyzerTest {
 
 		assertThat(prompt.getOptions()).isInstanceOf(BedrockChatOptions.class);
 		BedrockChatOptions options = (BedrockChatOptions) prompt.getOptions();
-		assertThat(options.getModel()).isEqualTo("amazon.nova-micro-v1:0");
+		assertThat(options.getModel()).isEqualTo("apac.amazon.nova-micro-v1:0");
 		assertThat(options.getTemperature()).isEqualTo(0.0d);
 		assertThat(options.getMaxTokens()).isEqualTo(512);
 	}
@@ -143,10 +143,10 @@ class BedrockNovaQuestionQueryAnalyzerTest {
 			chatModel,
 			OBJECT_MAPPER,
 			new QuestionAnalyzerProperties(
-				"amazon.nova-micro-v1:0",
+				"apac.amazon.nova-micro-v1:0",
 				ANALYSIS_VERSION,
 				512,
-				"ap-southeast-2",
+				"ap-northeast-2",
 				Duration.ofSeconds(30)
 			)
 		);

@@ -17,6 +17,7 @@ import shinhan.fibri.ieum.ai.question.repository.ClaimedQuestionTask;
 import shinhan.fibri.ieum.ai.question.repository.QuestionTaskWorkRepository;
 import shinhan.fibri.ieum.ai.question.webgrounding.QuestionWebGroundingUnavailableException;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebGroundingFailureCode;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.exception.SdkServiceException;
 
@@ -64,6 +65,7 @@ public class QuestionAnswerTaskProcessor {
 		}
 		catch (RuntimeException exception) {
 			QuestionTaskFailure failure = classify(exception);
+			logFailureDiagnostics(claim, exception, failure);
 			logProviderFailure(claim, exception, failure);
 			if (failure.disposition() == QuestionTaskFailureDisposition.DISCARD) {
 				log.warn(
@@ -93,6 +95,83 @@ public class QuestionAnswerTaskProcessor {
 			);
 			logFailureTransition(claim, failure, transitioned, false, retryDelay, startedAt);
 		}
+	}
+
+	private void logFailureDiagnostics(
+		ClaimedQuestionTask claim,
+		RuntimeException exception,
+		QuestionTaskFailure failure
+	) {
+		FailureDiagnostics diagnostics = failureDiagnostics(exception);
+		log.warn(
+			"event=question_answer_processing_failed questionId={} workerId={} attempts={} failure={} exceptionType={} rootCauseType={} rootCauseSource={} providerErrorCode={} httpStatus={}",
+			claim.questionId(),
+			claim.workerId(),
+			claim.attempts(),
+			failure,
+			diagnostics.exceptionType(),
+			diagnostics.rootCauseType(),
+			diagnostics.rootCauseSource(),
+			diagnostics.providerErrorCode(),
+			diagnostics.httpStatus()
+		);
+	}
+
+	private FailureDiagnostics failureDiagnostics(RuntimeException exception) {
+		Throwable rootCause = rootCause(exception);
+		SdkServiceException serviceException = findServiceException(exception);
+		return new FailureDiagnostics(
+			exception.getClass().getName(),
+			rootCause.getClass().getName(),
+			rootCauseSource(rootCause),
+			providerErrorCode(serviceException),
+			serviceException == null ? "none" : Integer.toString(serviceException.statusCode())
+		);
+	}
+
+	private String providerErrorCode(SdkServiceException exception) {
+		if (exception == null) {
+			return "none";
+		}
+		if (exception instanceof AwsServiceException awsException
+			&& awsException.awsErrorDetails() != null
+			&& awsException.awsErrorDetails().errorCode() != null
+			&& !awsException.awsErrorDetails().errorCode().isBlank()) {
+			return awsException.awsErrorDetails().errorCode().trim();
+		}
+		return exception.getClass().getSimpleName();
+	}
+
+	private Throwable rootCause(Throwable throwable) {
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		Throwable current = throwable;
+		Throwable last = throwable;
+		while (current != null && visited.add(current)) {
+			last = current;
+			current = current.getCause();
+		}
+		return last;
+	}
+
+	private String rootCauseSource(Throwable rootCause) {
+		StackTraceElement[] stackTrace = rootCause.getStackTrace();
+		if (stackTrace == null || stackTrace.length == 0) {
+			return "none";
+		}
+		StackTraceElement source = stackTrace[0];
+		return source.getClassName() + "#" + source.getMethodName() + ":" + source.getLineNumber();
+	}
+
+	private SdkServiceException findServiceException(RuntimeException exception) {
+		Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+		Throwable current = exception;
+		while (current != null && visited.add(current)) {
+			if (current instanceof SdkServiceException serviceException) {
+				return serviceException;
+			}
+			current = current.getCause();
+		}
+		return null;
 	}
 
 	private void logProviderFailure(
@@ -235,6 +314,9 @@ public class QuestionAnswerTaskProcessor {
 		if (explicitFailure != null) {
 			return explicitFailure;
 		}
+		if (providerFailure == QuestionTaskFailure.PERMANENT_CONFIGURATION) {
+			return providerFailure;
+		}
 		if (embeddingUnavailable) {
 			return QuestionTaskFailure.EMBEDDING_UNAVAILABLE;
 		}
@@ -270,6 +352,7 @@ public class QuestionAnswerTaskProcessor {
 
 	private int providerFailurePriority(QuestionTaskFailure failure) {
 		return switch (failure) {
+			case PERMANENT_CONFIGURATION -> 5;
 			case PROVIDER_RATE_LIMITED -> 4;
 			case WEB_GROUNDING_RATE_LIMITED -> 4;
 			case PROVIDER_TIMEOUT -> 3;
@@ -316,6 +399,9 @@ public class QuestionAnswerTaskProcessor {
 	}
 
 	private QuestionTaskFailure classifyServiceFailure(SdkServiceException exception) {
+		if (exception.statusCode() == 401 || exception.statusCode() == 403) {
+			return QuestionTaskFailure.PERMANENT_CONFIGURATION;
+		}
 		if (exception.isThrottlingException() || exception.statusCode() == 429) {
 			return QuestionTaskFailure.PROVIDER_RATE_LIMITED;
 		}
@@ -337,4 +423,12 @@ public class QuestionAnswerTaskProcessor {
 			default -> throw new IllegalStateException("unsupported retry attempt: " + attempt);
 		};
 	}
+
+	private record FailureDiagnostics(
+		String exceptionType,
+		String rootCauseType,
+		String rootCauseSource,
+		String providerErrorCode,
+		String httpStatus
+	) {}
 }
