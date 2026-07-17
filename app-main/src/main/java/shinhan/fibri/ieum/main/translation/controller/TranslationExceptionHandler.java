@@ -12,9 +12,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import shinhan.fibri.ieum.main.answer.exception.AnswerNotFoundException;
 import shinhan.fibri.ieum.main.auth.dto.AuthErrorResponse;
-import shinhan.fibri.ieum.main.report.exception.ReportMessageNotFoundException;
+import shinhan.fibri.ieum.main.translation.service.TranslationAuthenticationRequiredException;
 import shinhan.fibri.ieum.main.translation.service.TranslationNotAvailableException;
 import shinhan.fibri.ieum.main.translation.service.TranslationProviderUnavailableException;
 import shinhan.fibri.ieum.main.translation.service.TranslationRateLimitedException;
@@ -38,16 +37,12 @@ public class TranslationExceptionHandler {
 		return validationFailure(List.of(new AuthErrorResponse.FieldError(exception.getName(), "Invalid value")));
 	}
 
-	@ExceptionHandler(AnswerNotFoundException.class)
-	public ResponseEntity<AuthErrorResponse> handleAnswerNotFound(AnswerNotFoundException exception) {
-		return ResponseEntity.status(HttpStatus.NOT_FOUND)
-			.body(new AuthErrorResponse("ANSWER_NOT_FOUND", exception.getMessage()));
-	}
-
-	@ExceptionHandler(ReportMessageNotFoundException.class)
-	public ResponseEntity<AuthErrorResponse> handleMessageNotFound(ReportMessageNotFoundException exception) {
-		return ResponseEntity.status(HttpStatus.NOT_FOUND)
-			.body(new AuthErrorResponse("REPORT_MESSAGE_NOT_FOUND", exception.getMessage()));
+	@ExceptionHandler(TranslationAuthenticationRequiredException.class)
+	public ResponseEntity<AuthErrorResponse> handleAuthenticationRequired(
+		TranslationAuthenticationRequiredException exception
+	) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new AuthErrorResponse("AUTHENTICATION_REQUIRED", exception.getMessage()));
 	}
 
 	@ExceptionHandler(TranslationNotAvailableException.class)

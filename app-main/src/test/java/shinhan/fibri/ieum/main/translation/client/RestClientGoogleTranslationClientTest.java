@@ -37,7 +37,7 @@ class RestClientGoogleTranslationClientTest {
 
 		ProviderTranslationResult result = client.translate("hello", TargetLanguage.KO);
 
-		assertThat(result).isEqualTo(new ProviderTranslationResult("안녕", "en"));
+		assertThat(result).isEqualTo(new ProviderTranslationResult("안녕"));
 		server.verify();
 	}
 

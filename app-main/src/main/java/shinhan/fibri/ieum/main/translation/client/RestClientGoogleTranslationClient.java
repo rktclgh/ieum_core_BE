@@ -54,10 +54,10 @@ public class RestClientGoogleTranslationClient implements TranslationClient {
 			throw new TranslationProviderUnavailableException();
 		}
 		GoogleTranslation translation = response.data().translations().getFirst();
-		if (translation.translatedText() == null || translation.detectedSourceLanguage() == null) {
+		if (translation.translatedText() == null) {
 			throw new TranslationProviderUnavailableException();
 		}
-		return new ProviderTranslationResult(translation.translatedText(), translation.detectedSourceLanguage());
+		return new ProviderTranslationResult(translation.translatedText());
 	}
 
 	private record GoogleTranslateResponse(GoogleTranslateData data) {
