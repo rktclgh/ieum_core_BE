@@ -12,7 +12,7 @@ import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeGraphResponse;
 import shinhan.fibri.ieum.main.admin.knowledge.service.KnowledgeGraphQueryService;
 
 @RestController
-@RequestMapping("/api/v1/admin/knowledge/graph")
+@RequestMapping("/api/v1/admin/ai/knowledge/graph")
 @RequiredArgsConstructor
 public class AdminKnowledgeGraphController {
 

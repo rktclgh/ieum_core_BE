@@ -38,7 +38,7 @@ class AdminKnowledgeGraphControllerTest {
 
 	@Test
 	void rejectsLimitGreaterThanEightyWithValidationErrorShape() throws Exception {
-		mockMvc.perform(get("/api/v1/admin/knowledge/graph")
+		mockMvc.perform(get("/api/v1/admin/ai/knowledge/graph")
 				.param("limit", "81"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code", is("VALIDATION_FAILED")))
