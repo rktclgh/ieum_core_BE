@@ -136,7 +136,7 @@ class BedrockReportReviewModelProviderTest {
 		return new ReportModelProperties(
 			"gemini-3.1-flash-lite",
 			"amazon.nova-lite-v1:0",
-			"ap-southeast-2",
+			"ap-northeast-2",
 			Duration.ofSeconds(30),
 			"report-review-v1"
 		);
