@@ -23,7 +23,7 @@ public class KnowledgeRelationCandidateDecisionService {
 	private final JdbcKnowledgeRelationCandidateAdminRepository repository;
 	private final AdminAuditLogWriter auditLogWriter;
 
-	@Transactional
+	@Transactional(noRollbackFor = KnowledgeCandidateSourceIneligibleException.class)
 	public AdminKnowledgeCandidateDecisionResponse approve(
 		long candidateId,
 		long actorUserId,

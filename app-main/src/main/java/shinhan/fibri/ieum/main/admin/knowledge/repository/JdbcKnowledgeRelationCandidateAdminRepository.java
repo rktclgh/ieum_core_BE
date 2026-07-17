@@ -139,7 +139,7 @@ public class JdbcKnowledgeRelationCandidateAdminRepository {
 	public void invalidatePendingCandidate(long candidateId) {
 		jdbc.sql("""
 			UPDATE knowledge_relation_candidates
-			SET status = 'rejected',
+			SET status = 'invalidated',
 			    version = version + 1,
 			    reviewed_at = clock_timestamp(),
 			    review_note = 'source_ineligible',
@@ -155,7 +155,7 @@ public class JdbcKnowledgeRelationCandidateAdminRepository {
 	public int invalidateIneligiblePendingCandidates() {
 		return jdbc.sql("""
 			UPDATE knowledge_relation_candidates candidate
-			SET status = 'rejected',
+			SET status = 'invalidated',
 			    version = version + 1,
 			    reviewed_at = clock_timestamp(),
 			    review_note = 'source_ineligible',

@@ -9,10 +9,13 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import shinhan.fibri.ieum.common.knowledge.KnowledgeRelationPredicate;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.knowledge.dto.AdminKnowledgeCandidateApproveRequest;
@@ -29,7 +32,6 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	private static final String DATABASE = "ieum_main_admin_knowledge_candidate_decision";
 	private static KnowledgeRelationCandidateDecisionService service;
 	private static JdbcTemplate jdbc;
-	private static TransactionTemplate transaction;
 
 	@BeforeAll
 	static void setUpDatabase() {
@@ -37,11 +39,12 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		SqlScriptRunner.run(DATABASE, "schema.sql");
 		var dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
 		jdbc = new JdbcTemplate(dataSource);
-		service = new KnowledgeRelationCandidateDecisionService(
+		var transactionManager = new DataSourceTransactionManager(dataSource);
+		var target = new KnowledgeRelationCandidateDecisionService(
 			new JdbcKnowledgeRelationCandidateAdminRepository(JdbcClient.create(dataSource)),
 			new AdminAuditLogWriter(JdbcClient.create(dataSource), new ObjectMapper().findAndRegisterModules())
 		);
-		transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+		service = transactionalService(target, transactionManager);
 	}
 
 	@BeforeEach
@@ -60,7 +63,7 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	void approvePromotesEligibleCandidateWithEvidenceAndAudit() {
 		long candidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "기존 주어", "requires", "기존 목적어");
 
-		AdminKnowledgeCandidateDecisionResponse response = inTransaction(() -> service.approve(
+		AdminKnowledgeCandidateDecisionResponse response = service.approve(
 			candidateId,
 			9L,
 			new AdminKnowledgeCandidateApproveRequest(
@@ -69,7 +72,7 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 				KnowledgeRelationPredicate.requires,
 				"여권"
 			)
-		));
+		);
 
 		assertThat(response.candidateId()).isEqualTo(candidateId);
 		assertThat(response.status()).isEqualTo("approved");
@@ -99,17 +102,17 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	void duplicateTripleReusesExistingRelation() {
 		insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
 		long duplicateCandidateId = insertCandidate(300L, 401L, 501L, "외국인등록", "requires", "여권");
-		long existingRelationId = inTransaction(() -> service.approve(
+		long existingRelationId = service.approve(
 			500L,
 			9L,
 			approve(1, "외국인등록", KnowledgeRelationPredicate.requires, "여권")
-		)).relation().relationId();
+		).relation().relationId();
 
-		AdminKnowledgeCandidateDecisionResponse response = inTransaction(() -> service.approve(
+		AdminKnowledgeCandidateDecisionResponse response = service.approve(
 			duplicateCandidateId,
 			9L,
 			approve(1, "외국인등록", KnowledgeRelationPredicate.requires, "여권")
-		));
+		);
 
 		assertThat(response.relation().relationId()).isEqualTo(existingRelationId);
 		assertThat(count("""
@@ -124,19 +127,19 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	void staleVersionAndTerminalCandidateReturnConcurrentChange() {
 		long candidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
 
-		assertThatThrownBy(() -> inTransaction(() -> service.approve(
+		assertThatThrownBy(() -> service.approve(
 			candidateId,
 			9L,
 			approve(2, "외국인등록", KnowledgeRelationPredicate.requires, "여권")
-		))).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
+		)).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
 
-		inTransaction(() -> service.reject(candidateId, 9L, new AdminKnowledgeCandidateRejectRequest(1, "중복")));
+		service.reject(candidateId, 9L, new AdminKnowledgeCandidateRejectRequest(1, "중복"));
 
-		assertThatThrownBy(() -> inTransaction(() -> service.approve(
+		assertThatThrownBy(() -> service.approve(
 			candidateId,
 			9L,
 			approve(2, "외국인등록", KnowledgeRelationPredicate.requires, "여권")
-		))).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
+		)).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
 		assertThat(count("SELECT COUNT(*) FROM knowledge_relations")).isZero();
 	}
 
@@ -145,14 +148,14 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		long candidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
 		jdbc.update("UPDATE answers SET content = '   ' WHERE answer_id = 200");
 
-		assertThatThrownBy(() -> inTransaction(() -> service.approve(
+		assertThatThrownBy(() -> service.approve(
 			candidateId,
 			9L,
 			approve(1, "외국인등록", KnowledgeRelationPredicate.requires, "여권")
-		))).isInstanceOf(KnowledgeCandidateSourceIneligibleException.class);
+		)).isInstanceOf(KnowledgeCandidateSourceIneligibleException.class);
 
 		assertThat(value("SELECT status FROM knowledge_relation_candidates WHERE candidate_id = " + candidateId))
-			.isEqualTo("rejected");
+			.isEqualTo("invalidated");
 		assertThat(value("SELECT review_note FROM knowledge_relation_candidates WHERE candidate_id = " + candidateId))
 			.isEqualTo("source_ineligible");
 		assertThat(count("SELECT COUNT(*) FROM knowledge_relations")).isZero();
@@ -162,11 +165,11 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	void rejectMakesCandidateTerminalAndWritesAudit() {
 		long candidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
 
-		AdminKnowledgeCandidateDecisionResponse response = inTransaction(() -> service.reject(
+		AdminKnowledgeCandidateDecisionResponse response = service.reject(
 			candidateId,
 			9L,
 			new AdminKnowledgeCandidateRejectRequest(1, "근거 부족")
-		));
+		);
 
 		assertThat(response.candidateId()).isEqualTo(candidateId);
 		assertThat(response.status()).isEqualTo("rejected");
@@ -174,11 +177,11 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		assertThat(response.relation()).isNull();
 		assertThat(value("SELECT review_note FROM knowledge_relation_candidates WHERE candidate_id = " + candidateId))
 			.isEqualTo("근거 부족");
-		assertThatThrownBy(() -> inTransaction(() -> service.reject(
+		assertThatThrownBy(() -> service.reject(
 			candidateId,
 			9L,
 			new AdminKnowledgeCandidateRejectRequest(2, "다시 반려")
-		))).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
+		)).isInstanceOf(KnowledgeCandidateConcurrentlyChangedException.class);
 		assertAudit(
 			"KNOWLEDGE_RELATION_REJECTED",
 			candidateId,
@@ -285,8 +288,16 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		return "\"" + value + "\"";
 	}
 
-	private static <T> T inTransaction(TransactionCallback<T> callback) {
-		return transaction.execute(status -> callback.execute());
+	private static KnowledgeRelationCandidateDecisionService transactionalService(
+		KnowledgeRelationCandidateDecisionService target,
+		PlatformTransactionManager transactionManager
+	) {
+		ProxyFactory proxyFactory = new ProxyFactory(target);
+		proxyFactory.addAdvice(new TransactionInterceptor(
+			transactionManager,
+			new AnnotationTransactionAttributeSource()
+		));
+		return (KnowledgeRelationCandidateDecisionService) proxyFactory.getProxy();
 	}
 
 	private Object value(String sql) {
@@ -301,7 +312,4 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 		return "[" + "0.0,".repeat(767) + "0.0]";
 	}
 
-	private interface TransactionCallback<T> {
-		T execute();
-	}
 }
