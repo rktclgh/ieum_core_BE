@@ -93,10 +93,10 @@ public class BedrockNoRetryClientConfiguration {
 
 		@ConditionalOnProperty(
 			prefix = "app.ai.features",
-			name = "knowledge-relation-extraction-enabled",
+			name = "accepted-answer-relation-candidates-enabled",
 			havingValue = "true"
 		)
-		static final class KnowledgeRelationExtractionEnabled {
+		static final class AcceptedAnswerRelationCandidatesEnabled {
 		}
 	}
 }

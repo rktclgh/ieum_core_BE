@@ -21,11 +21,18 @@ public final class KnowledgeRelationCandidateTaskLane {
 	}
 
 	public boolean submit() {
+		return drain(1);
+	}
+
+	public boolean drain(int maxTasks) {
+		if (maxTasks < 1) {
+			throw new IllegalArgumentException("maxTasks must be positive");
+		}
 		if (!enabled || service == null) {
 			return false;
 		}
 		try {
-			executor.execute(service::processNext);
+			executor.execute(() -> processAtMost(maxTasks));
 			return true;
 		}
 		catch (RejectedExecutionException exception) {
@@ -35,5 +42,11 @@ public final class KnowledgeRelationCandidateTaskLane {
 
 	public boolean isEnabled() {
 		return enabled;
+	}
+
+	private void processAtMost(int maxTasks) {
+		for (int processed = 0; processed < maxTasks && service.processNext(); processed++) {
+			// The durable repository determines whether another eligible task is available.
+		}
 	}
 }

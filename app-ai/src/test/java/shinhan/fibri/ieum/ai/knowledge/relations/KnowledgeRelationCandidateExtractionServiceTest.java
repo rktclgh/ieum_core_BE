@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.ai.knowledge.relations;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -8,10 +9,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.concurrent.RejectedExecutionException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import shinhan.fibri.ieum.ai.knowledge.accepted.AcceptedAnswerKnowledgeDocument;
@@ -147,6 +150,125 @@ class KnowledgeRelationCandidateExtractionServiceTest {
 			"dead", "2", "relation_extraction_provider_failed"
 		);
 		assertThat(sourceAndChunkState(sourceId)).containsExactly("ready", "1", "gemini-embedding-2");
+	}
+
+	@Test
+	void rejectsEvidenceLongerThanTwoHundredCodePointsInServiceAndSchema() {
+		String overlongEvidence = "\uD83D\uDE00".repeat(201);
+		long sourceId = insertReadyAcceptedAnswerSource(overlongEvidence);
+		repository.enqueue(sourceId);
+		extractor.next(CandidateExtractionResult.valid(List.of(
+			candidate("신청", KnowledgeRelationPredicate.requires, "신분증", overlongEvidence)
+		)));
+
+		service.processNext();
+
+		assertThat(overlongEvidence.codePointCount(0, overlongEvidence.length())).isEqualTo(201);
+		assertThat(taskState(sourceId)).containsExactly(
+			"completed", "1", "invalid_extraction_output"
+		);
+		assertThatThrownBy(() -> jdbc.sql("""
+			INSERT INTO knowledge_relation_candidates(
+			    source_id, evidence_chunk_id, candidate_fingerprint,
+			    subject_text, predicate, object_text, confidence, evidence_excerpt,
+			    extraction_provider, extraction_model, status, created_by, updated_by
+			)
+			SELECT :sourceId, chunk_id, repeat('b', 64),
+			       '신청', 'requires', '신분증', 0.91, :evidence,
+			       'test', 'test', 'pending', 'test', 'test'
+			FROM knowledge_chunks
+			WHERE source_id = :sourceId AND chunk_order = 0
+			""")
+			.param("sourceId", sourceId)
+			.param("evidence", overlongEvidence)
+			.update()).isInstanceOf(DataIntegrityViolationException.class);
+		String validEvidence = overlongEvidence.substring(0, overlongEvidence.offsetByCodePoints(0, 200));
+		assertThat(jdbc.sql("""
+			INSERT INTO knowledge_relation_candidates(
+			    source_id, evidence_chunk_id, candidate_fingerprint,
+			    subject_text, predicate, object_text, confidence, evidence_excerpt,
+			    extraction_provider, extraction_model, status, created_by, updated_by
+			)
+			SELECT :sourceId, chunk_id, repeat('c', 64),
+			       '신청', 'requires', '신분증', 0.91, :evidence,
+			       'test', 'test', 'invalidated', 'test', 'test'
+			FROM knowledge_chunks
+			WHERE source_id = :sourceId AND chunk_order = 0
+			""")
+			.param("sourceId", sourceId)
+			.param("evidence", validEvidence)
+			.update()).isOne();
+	}
+
+	@Test
+	void invalidatesIneligibleTasksAndContinuesToTheNextEligibleTask() {
+		long inactiveSourceId = insertReadyAcceptedAnswerSource("접수는 주민센터에서 합니다.");
+		long missingChunkSourceId = insertReadyAcceptedAnswerSource("신청은 온라인에서 합니다.");
+		long eligibleSourceId = insertReadyAcceptedAnswerSource("발급은 주민센터에서 합니다.");
+		repository.enqueue(inactiveSourceId);
+		repository.enqueue(missingChunkSourceId);
+		repository.enqueue(eligibleSourceId);
+		jdbc.sql("UPDATE knowledge_sources SET status = 'inactive' WHERE source_id = :sourceId")
+			.param("sourceId", inactiveSourceId)
+			.update();
+		jdbc.sql("DELETE FROM knowledge_chunks WHERE source_id = :sourceId")
+			.param("sourceId", missingChunkSourceId)
+			.update();
+		extractor.next(CandidateExtractionResult.valid(List.of(
+			candidate("발급", KnowledgeRelationPredicate.located_in, "주민센터", "발급은 주민센터에서 합니다")
+		)));
+
+		assertThat(service.processNext()).isTrue();
+
+		assertThat(taskState(inactiveSourceId)).containsExactly(
+			"invalidated", "0", "relation_source_not_ready_or_missing_chunk"
+		);
+		assertThat(taskState(missingChunkSourceId)).containsExactly(
+			"invalidated", "0", "relation_source_not_ready_or_missing_chunk"
+		);
+		assertThat(taskState(eligibleSourceId)).containsExactly("completed", "1", null);
+	}
+
+	@Test
+	void boundedRecoveryDrainsDurablePendingAndRetryTasksAfterSaturationAndRestart() {
+		long pendingSourceId = insertReadyAcceptedAnswerSource("접수는 주민센터에서 합니다.");
+		long retrySourceId = insertReadyAcceptedAnswerSource("신청은 온라인에서 합니다.");
+		repository.enqueue(pendingSourceId);
+		repository.enqueue(retrySourceId);
+		jdbc.sql("""
+			UPDATE knowledge_relation_extraction_tasks
+			SET status = 'retry', next_attempt_at = clock_timestamp() - interval '1 second'
+			WHERE source_id = :sourceId
+			""")
+			.param("sourceId", retrySourceId)
+			.update();
+		extractor.next(CandidateExtractionResult.valid(List.of(
+			candidate("접수", KnowledgeRelationPredicate.located_in, "주민센터", "접수는 주민센터에서 합니다")
+		)));
+		extractor.next(CandidateExtractionResult.valid(List.of(
+			candidate("신청", KnowledgeRelationPredicate.used_for, "온라인", "신청은 온라인에서 합니다")
+		)));
+
+		KnowledgeRelationCandidateTaskLane saturatedLane = new KnowledgeRelationCandidateTaskLane(
+			true,
+			command -> { throw new RejectedExecutionException("saturated"); },
+			service
+		);
+		assertThat(saturatedLane.submit()).isFalse();
+		assertThat(taskState(pendingSourceId)).containsExactly("pending", "0", null);
+
+		KnowledgeRelationCandidateTaskRecovery recovery = new KnowledgeRelationCandidateTaskRecovery(
+			new KnowledgeRelationCandidateTaskLane(true, Runnable::run, service),
+			1
+		);
+		recovery.drain();
+
+		assertThat(taskState(pendingSourceId)).containsExactly("completed", "1", null);
+		assertThat(taskState(retrySourceId)).containsExactly("retry", "0", null);
+
+		recovery.drain();
+
+		assertThat(taskState(retrySourceId)).containsExactly("completed", "1", null);
 	}
 
 	private ExtractedKnowledgeRelationCandidate candidate(

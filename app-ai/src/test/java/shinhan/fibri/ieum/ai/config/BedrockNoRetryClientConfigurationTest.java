@@ -47,7 +47,8 @@ class BedrockNoRetryClientConfigurationTest {
 		featureOffRunner
 			.withPropertyValues(
 				"app.ai.features.question-answer-enabled=false",
-				"app.ai.features.report-review-enabled=false"
+				"app.ai.features.report-review-enabled=false",
+				"app.ai.features.accepted-answer-relation-candidates-enabled=false"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();
@@ -86,6 +87,21 @@ class BedrockNoRetryClientConfigurationTest {
 			.withPropertyValues(
 				"app.ai.features.question-answer-enabled=false",
 				"app.ai.features.report-review-enabled=true"
+			)
+			.run(context -> {
+				assertThat(context).hasNotFailed();
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeClient.class));
+				assertSingleAttemptSeoulTransport(context.getBean(BedrockRuntimeAsyncClient.class));
+			});
+	}
+
+	@Test
+	void acceptedAnswerRelationCandidatesFeatureAloneUsesTheSingleAttemptClients() {
+		springAiRunner
+			.withPropertyValues(
+				"app.ai.features.question-answer-enabled=false",
+				"app.ai.features.report-review-enabled=false",
+				"app.ai.features.accepted-answer-relation-candidates-enabled=true"
 			)
 			.run(context -> {
 				assertThat(context).hasNotFailed();

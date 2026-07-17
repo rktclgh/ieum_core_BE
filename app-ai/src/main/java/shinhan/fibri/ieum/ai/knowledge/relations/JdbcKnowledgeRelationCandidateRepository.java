@@ -23,6 +23,10 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 	private static final String ACTOR = "knowledge-relation-extraction";
 	private static final String PROVIDER_FAILURE_CODE = "relation_extraction_provider_failed";
 	private static final String INVALID_OUTPUT_CODE = "invalid_extraction_output";
+	private static final String SOURCE_INELIGIBLE_CODE = "relation_source_not_ready_or_missing_chunk";
+	private static final String SOURCE_INELIGIBLE_MESSAGE =
+		"Source is not ready or has no eligible chunk_order=0";
+	private static final int MAX_INVALIDATIONS_PER_CLAIM = 32;
 
 	private final JdbcClient jdbc;
 	private final TransactionTemplate transaction;
@@ -82,7 +86,7 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 		validatePositiveDuration(lease, "lease");
 		validateMaxAttempts(maxAttempts);
 		return Objects.requireNonNull(
-			transaction.execute(status -> claimNextInTransaction(lease, maxAttempts)),
+			transaction.execute(status -> claimNextUntilEligible(lease, maxAttempts)),
 			"claim transaction returned null"
 		);
 	}
@@ -158,13 +162,29 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 		});
 	}
 
-	private Optional<ClaimedKnowledgeRelationExtractionTask> claimNextInTransaction(
+	private Optional<ClaimedKnowledgeRelationExtractionTask> claimNextUntilEligible(
+		Duration lease,
+		int maxAttempts
+	) {
+		for (int invalidated = 0; invalidated < MAX_INVALIDATIONS_PER_CLAIM; invalidated++) {
+			ClaimAttempt attempt = claimNextInTransaction(lease, maxAttempts);
+			if (attempt.task() != null) {
+				return Optional.of(attempt.task());
+			}
+			if (!attempt.invalidated()) {
+				return Optional.empty();
+			}
+		}
+		return Optional.empty();
+	}
+
+	private ClaimAttempt claimNextInTransaction(
 		Duration lease,
 		int maxAttempts
 	) {
 		UUID token = UUID.randomUUID();
 		return jdbc.sql("""
-			WITH claimed AS (
+			WITH selected AS (
 			    SELECT task_id
 			    FROM knowledge_relation_extraction_tasks
 			    WHERE attempts < :maxAttempts
@@ -178,7 +198,25 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 			    FOR UPDATE SKIP LOCKED
 			    LIMIT 1
 			),
-			updated AS (
+			eligible AS (
+			    SELECT selected.task_id,
+			           source.source_id,
+			           source.display_name,
+			           source.content_hash,
+			           chunk.chunk_id,
+			           chunk.content
+			    FROM selected
+			    JOIN knowledge_relation_extraction_tasks task ON task.task_id = selected.task_id
+			    JOIN knowledge_sources source ON source.source_id = task.source_id
+			    JOIN knowledge_chunks chunk ON chunk.source_id = source.source_id
+			    WHERE source.source_type = 'accepted_human_answer'
+			      AND source.status = 'ready'
+			      AND source.active
+			      AND chunk.chunk_order = 0
+			      AND btrim(chunk.content) <> ''
+			    FOR UPDATE OF source, chunk
+			),
+			claimed AS (
 			    UPDATE knowledge_relation_extraction_tasks task
 			    SET status = 'processing',
 			        lease_token = :token,
@@ -188,39 +226,85 @@ public final class JdbcKnowledgeRelationCandidateRepository implements Knowledge
 			        last_error_code = NULL,
 			        last_error_message = NULL,
 			        updated_by = :actor
-			    FROM claimed
-			    WHERE task.task_id = claimed.task_id
+			    FROM eligible
+			    WHERE task.task_id = eligible.task_id
 			    RETURNING task.task_id, task.source_id, task.lease_token, task.lease_until, task.attempts
+			),
+			invalidated AS (
+			    UPDATE knowledge_relation_extraction_tasks task
+			    SET status = 'invalidated',
+			        lease_token = NULL,
+			        lease_until = NULL,
+			        next_attempt_at = NULL,
+			        completed_at = NULL,
+			        last_error_code = :sourceIneligibleCode,
+			        last_error_message = :sourceIneligibleMessage,
+			        updated_by = :actor
+			    FROM selected
+			    LEFT JOIN eligible ON eligible.task_id = selected.task_id
+			    WHERE task.task_id = selected.task_id
+			      AND eligible.task_id IS NULL
+			    RETURNING task.task_id
 			)
-			SELECT updated.task_id, updated.source_id, updated.lease_token, updated.lease_until,
-			       updated.attempts, kc.chunk_id, ks.display_name, ks.content_hash, kc.content
-			FROM updated
-			JOIN knowledge_sources ks ON ks.source_id = updated.source_id
-			JOIN knowledge_chunks kc ON kc.source_id = ks.source_id AND kc.chunk_order = 0
-			WHERE ks.status = 'ready'
+			SELECT claim.task_id, claim.source_id, claim.lease_token, claim.lease_until,
+			       claim.attempts, claim.chunk_id, claim.display_name, claim.content_hash,
+			       claim.content, invalidated.task_id AS invalidated_task_id
+			FROM (SELECT 1) seed
+			LEFT JOIN (
+			    SELECT claimed.task_id, claimed.source_id, claimed.lease_token, claimed.lease_until,
+			           claimed.attempts, eligible.chunk_id, eligible.display_name,
+			           eligible.content_hash, eligible.content
+			    FROM claimed
+			    JOIN eligible ON eligible.task_id = claimed.task_id
+			) claim ON TRUE
+			LEFT JOIN invalidated ON TRUE
+			WHERE claim.task_id IS NOT NULL OR invalidated.task_id IS NOT NULL
 			""")
 			.param("maxAttempts", maxAttempts)
 			.param("token", token)
 			.param("leaseMillis", lease.toMillis())
+			.param("sourceIneligibleCode", SOURCE_INELIGIBLE_CODE)
+			.param("sourceIneligibleMessage", SOURCE_INELIGIBLE_MESSAGE)
 			.param("actor", ACTOR)
-			.query((rs, row) -> new ClaimedKnowledgeRelationExtractionTask(
-				rs.getLong("task_id"),
-				rs.getLong("source_id"),
-				rs.getLong("chunk_id"),
-				UUID.fromString(rs.getString("lease_token")),
-				rs.getObject("lease_until", OffsetDateTime.class),
-				rs.getInt("attempts"),
-				new AcceptedAnswerKnowledgeDocument(
-					rs.getString("display_name"),
-					rs.getString("content_hash").trim(),
-					rs.getString("content"),
-					GeoScope.general,
-					RegionContext.empty(),
-					0.0d,
-					0.0d
-				)
-			))
-			.optional();
+			.query((rs, row) -> {
+				if (rs.getObject("invalidated_task_id") != null) {
+					return ClaimAttempt.invalidatedAttempt();
+				}
+				return ClaimAttempt.claimed(new ClaimedKnowledgeRelationExtractionTask(
+					rs.getLong("task_id"),
+					rs.getLong("source_id"),
+					rs.getLong("chunk_id"),
+					UUID.fromString(rs.getString("lease_token")),
+					rs.getObject("lease_until", OffsetDateTime.class),
+					rs.getInt("attempts"),
+					new AcceptedAnswerKnowledgeDocument(
+						rs.getString("display_name"),
+						rs.getString("content_hash").trim(),
+						rs.getString("content"),
+						GeoScope.general,
+						RegionContext.empty(),
+						0.0d,
+						0.0d
+					)
+				));
+			})
+			.optional()
+			.orElseGet(ClaimAttempt::empty);
+	}
+
+	private record ClaimAttempt(ClaimedKnowledgeRelationExtractionTask task, boolean invalidated) {
+
+		private static ClaimAttempt claimed(ClaimedKnowledgeRelationExtractionTask task) {
+			return new ClaimAttempt(task, false);
+		}
+
+		private static ClaimAttempt invalidatedAttempt() {
+			return new ClaimAttempt(null, true);
+		}
+
+		private static ClaimAttempt empty() {
+			return new ClaimAttempt(null, false);
+		}
 	}
 
 	private boolean lockClaimedTask(ClaimedKnowledgeRelationExtractionTask task) {

@@ -69,13 +69,16 @@ CREATE TABLE IF NOT EXISTS public.knowledge_relation_candidates (
             'supports','has_deadline','depends_on','reported_to','used_for'
         )),
     CONSTRAINT ck_knowledge_relation_candidates_status
-        CHECK (status IN ('pending','approved','rejected','promoted')),
+        CHECK (status IN ('pending','approved','rejected','invalidated')),
     CONSTRAINT ck_knowledge_relation_candidates_terms
         CHECK (btrim(subject_text) <> '' AND btrim(object_text) <> ''),
     CONSTRAINT ck_knowledge_relation_candidates_confidence
         CHECK (confidence BETWEEN 0 AND 1),
     CONSTRAINT ck_knowledge_relation_candidates_evidence
-        CHECK (btrim(evidence_excerpt) <> ''),
+        CHECK (
+            btrim(evidence_excerpt) <> ''
+            AND char_length(evidence_excerpt) BETWEEN 1 AND 200
+        ),
     CONSTRAINT ck_knowledge_relation_candidates_version
         CHECK (version >= 1)
 );
@@ -85,6 +88,21 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_relation_candidates_review
     WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_knowledge_relation_candidates_source
     ON public.knowledge_relation_candidates(source_id, candidate_id);
+
+ALTER TABLE public.knowledge_relation_candidates
+    DROP CONSTRAINT IF EXISTS ck_knowledge_relation_candidates_status;
+ALTER TABLE public.knowledge_relation_candidates
+    ADD CONSTRAINT ck_knowledge_relation_candidates_status
+        CHECK (status IN ('pending','approved','rejected','invalidated'));
+
+ALTER TABLE public.knowledge_relation_candidates
+    DROP CONSTRAINT IF EXISTS ck_knowledge_relation_candidates_evidence;
+ALTER TABLE public.knowledge_relation_candidates
+    ADD CONSTRAINT ck_knowledge_relation_candidates_evidence
+        CHECK (
+            btrim(evidence_excerpt) <> ''
+            AND char_length(evidence_excerpt) BETWEEN 1 AND 200
+        );
 
 DO $$
 BEGIN

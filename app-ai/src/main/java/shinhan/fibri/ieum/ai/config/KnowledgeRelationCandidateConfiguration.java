@@ -11,6 +11,7 @@ import org.springframework.boot.convert.DurationStyle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import shinhan.fibri.ieum.ai.knowledge.relations.BedrockKnowledgeRelationCandidateExtractor;
@@ -19,11 +20,13 @@ import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateExtra
 import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateExtractor;
 import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateRepository;
 import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateTaskLane;
+import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateTaskRecovery;
 
 @Configuration(proxyBeanMethods = false)
+@EnableScheduling
 @ConditionalOnProperty(
 	prefix = "app.ai.features",
-	name = "knowledge-relation-extraction-enabled",
+	name = "accepted-answer-relation-candidates-enabled",
 	havingValue = "true"
 )
 public class KnowledgeRelationCandidateConfiguration {
@@ -55,12 +58,20 @@ public class KnowledgeRelationCandidateConfiguration {
 		}
 		return new KnowledgeRelationCandidateTaskLane(true, executor, service);
 	}
+
+	@Bean
+	KnowledgeRelationCandidateTaskRecovery knowledgeRelationCandidateTaskRecovery(
+		KnowledgeRelationCandidateTaskLane lane,
+		@Value("${app.ai.knowledge-relation.recovery-batch-size:8}") int recoveryBatchSize
+	) {
+		return new KnowledgeRelationCandidateTaskRecovery(lane, recoveryBatchSize);
+	}
 }
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(
 	prefix = "app.ai.features",
-	name = "knowledge-relation-extraction-enabled",
+	name = "accepted-answer-relation-candidates-enabled",
 	havingValue = "true"
 )
 class KnowledgeRelationCandidateEnabledConfiguration {

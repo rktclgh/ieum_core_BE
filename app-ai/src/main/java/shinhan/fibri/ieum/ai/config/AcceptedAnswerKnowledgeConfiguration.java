@@ -21,6 +21,7 @@ import shinhan.fibri.ieum.ai.knowledge.accepted.service.AcceptedAnswerKnowledgeI
 import shinhan.fibri.ieum.ai.knowledge.accepted.service.AcceptedAnswerKnowledgeTaskLane;
 import shinhan.fibri.ieum.ai.knowledge.embedding.KnowledgeDocumentEmbedder;
 import shinhan.fibri.ieum.ai.knowledge.embedding.KnowledgeDocumentEmbeddingTextFormatter;
+import shinhan.fibri.ieum.ai.knowledge.relations.KnowledgeRelationCandidateTaskLane;
 import shinhan.fibri.ieum.ai.question.analysis.StoredAddressRegionParser;
 import shinhan.fibri.ieum.ai.question.webgrounding.WebQuestionPiiSanitizer;
 
@@ -100,7 +101,7 @@ class AcceptedAnswerKnowledgeEnabledConfiguration {
 		JdbcClient jdbcClient,
 		PlatformTransactionManager transactionManager,
 		AcceptedAnswerKnowledgeDocumentFactory documentFactory,
-		@Value("${app.ai.features.knowledge-relation-extraction-enabled:false}") boolean enqueueRelationExtractionTasks
+		@Value("${app.ai.features.accepted-answer-relation-candidates-enabled:false}") boolean enqueueRelationExtractionTasks
 	) {
 		return new JdbcAcceptedAnswerKnowledgeRepository(
 			jdbcClient,
@@ -127,14 +128,21 @@ class AcceptedAnswerKnowledgeEnabledConfiguration {
 	AcceptedAnswerKnowledgeIngestionService acceptedAnswerKnowledgeIngestionService(
 		AcceptedAnswerKnowledgeRepository repository,
 		KnowledgeDocumentEmbedder embedder,
-		AcceptedAnswerKnowledgeDispatchProperties properties
+		AcceptedAnswerKnowledgeDispatchProperties properties,
+		ObjectProvider<KnowledgeRelationCandidateTaskLane> candidateTaskLaneProvider
 	) {
 		return new AcceptedAnswerKnowledgeIngestionService(
 			repository,
 			embedder,
 			properties.taskLease(),
 			properties.maxAttempts(),
-			properties.retryDelay()
+			properties.retryDelay(),
+			() -> {
+				KnowledgeRelationCandidateTaskLane lane = candidateTaskLaneProvider.getIfAvailable();
+				if (lane != null) {
+					lane.submit();
+				}
+			}
 		);
 	}
 }

@@ -10,6 +10,7 @@ public final class KnowledgeRelationCandidateExtractionService {
 
 	private static final int MAX_CANDIDATES = 5;
 	private static final int MAX_TERM_CODE_POINTS = 200;
+	private static final int MAX_EVIDENCE_CODE_POINTS = 200;
 
 	private final KnowledgeRelationCandidateRepository repository;
 	private final KnowledgeRelationCandidateExtractor extractor;
@@ -113,6 +114,10 @@ public final class KnowledgeRelationCandidateExtractionService {
 
 	private String evidence(String value, String document) {
 		String trimmed = required(value, "evidence");
+		int codePoints = trimmed.codePointCount(0, trimmed.length());
+		if (codePoints < 1 || codePoints > MAX_EVIDENCE_CODE_POINTS) {
+			throw invalid("evidence must contain 1 to 200 Unicode code points");
+		}
 		if (!document.contains(trimmed)) {
 			throw invalid("evidence must be a document substring");
 		}
