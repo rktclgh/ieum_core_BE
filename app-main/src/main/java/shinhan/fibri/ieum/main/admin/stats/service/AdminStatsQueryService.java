@@ -11,6 +11,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsDailySeriesResponse;
 import shinhan.fibri.ieum.main.admin.stats.dto.AdminStatsOverviewResponse;
@@ -92,7 +93,7 @@ public class AdminStatsQueryService {
 		);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	public AdminStatsOverviewResponse getOverview(StatsOverviewRequest request) {
 		String bucket = request.bucket() == null ? "day" : request.bucket();
 		if (!"day".equals(bucket)) {

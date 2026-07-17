@@ -88,19 +88,19 @@ public class AdminStatsQueryRepository {
 			SELECT
 			  COUNT(*) FILTER (WHERE created_at >= :from AND created_at < :to) AS report_count,
 			  COUNT(*) FILTER (
-			  	WHERE ai_reviewed_at >= :from
-			  	  AND ai_reviewed_at < :to
-			  	  AND CAST(ai_review_state AS varchar) = 'completed'
+			    WHERE ai_reviewed_at >= :from
+			      AND ai_reviewed_at < :to
+			      AND ai_review_state = 'completed'::ai_job_status
 			  ) AS ai_reviewed_count,
 			  COUNT(*) FILTER (
-			  	WHERE resolved_at >= :from
-			  	  AND resolved_at < :to
-			  	  AND CAST(status AS varchar) = 'confirmed'
+			    WHERE resolved_at >= :from
+			      AND resolved_at < :to
+			      AND status = 'confirmed'::report_status
 			  ) AS confirmed_count,
 			  COUNT(*) FILTER (
-			  	WHERE resolved_at >= :from
-			  	  AND resolved_at < :to
-			  	  AND CAST(status AS varchar) = 'dismissed'
+			    WHERE resolved_at >= :from
+			      AND resolved_at < :to
+			      AND status = 'dismissed'::report_status
 			  ) AS dismissed_count
 			FROM reports
 			WHERE (created_at >= :from AND created_at < :to)
@@ -146,15 +146,15 @@ public class AdminStatsQueryRepository {
 			  (SELECT COUNT(*) FROM reports r
 			   WHERE r.ai_reviewed_at >= :from
 			     AND r.ai_reviewed_at < :to
-			     AND CAST(r.ai_review_state AS varchar) = 'completed') AS ai_reviewed_count,
+			     AND r.ai_review_state = 'completed'::ai_job_status) AS ai_reviewed_count,
 			  (SELECT COUNT(*) FROM reports r
 			   WHERE r.resolved_at >= :from
 			     AND r.resolved_at < :to
-			     AND CAST(r.status AS varchar) = 'confirmed') AS confirmed_count,
+			     AND r.status = 'confirmed'::report_status) AS confirmed_count,
 			  (SELECT COUNT(*) FROM reports r
 			   WHERE r.resolved_at >= :from
 			     AND r.resolved_at < :to
-			     AND CAST(r.status AS varchar) = 'dismissed') AS dismissed_count,
+			     AND r.status = 'dismissed'::report_status) AS dismissed_count,
 			  (SELECT COUNT(*) FROM user_sanctions s WHERE s.created_at >= :from AND s.created_at < :to) AS sanction_count
 			""";
 		return jdbcTemplate.queryForObject(sql, rangeParams(from, to), (rs, rowNum) -> new SummaryStatsRow(
@@ -219,7 +219,7 @@ public class AdminStatsQueryRepository {
 			  FROM reports r
 			  WHERE r.ai_reviewed_at >= :from
 			    AND r.ai_reviewed_at < :to
-			    AND CAST(r.ai_review_state AS varchar) = 'completed'
+			    AND r.ai_review_state = 'completed'::ai_job_status
 			  GROUP BY 1
 			),
 			confirmed AS (
@@ -227,7 +227,7 @@ public class AdminStatsQueryRepository {
 			  FROM reports r
 			  WHERE r.resolved_at >= :from
 			    AND r.resolved_at < :to
-			    AND CAST(r.status AS varchar) = 'confirmed'
+			    AND r.status = 'confirmed'::report_status
 			  GROUP BY 1
 			),
 			dismissed AS (
@@ -235,7 +235,7 @@ public class AdminStatsQueryRepository {
 			  FROM reports r
 			  WHERE r.resolved_at >= :from
 			    AND r.resolved_at < :to
-			    AND CAST(r.status AS varchar) = 'dismissed'
+			    AND r.status = 'dismissed'::report_status
 			  GROUP BY 1
 			),
 			sanctions AS (
@@ -297,14 +297,14 @@ public class AdminStatsQueryRepository {
 	public QueueStatsRow getCurrentQueues() {
 		String sql = """
 			SELECT
-			  (SELECT COUNT(*) FROM reports r WHERE CAST(r.status AS varchar) = 'pending') AS pending_report_count,
+			  (SELECT COUNT(*) FROM reports r WHERE r.status = 'pending'::report_status) AS pending_report_count,
 			  (SELECT COUNT(*) FROM reports r
-			   WHERE CAST(r.ai_review_state AS varchar) = 'retry'
-			     AND CAST(r.status AS varchar) IN ('pending', 'ai_reviewed')) AS retry_report_count,
+			   WHERE r.ai_review_state = 'retry'::ai_job_status
+			     AND r.status IN ('pending'::report_status, 'ai_reviewed'::report_status)) AS retry_report_count,
 			  (SELECT COUNT(*) FROM reports r
-			   WHERE CAST(r.ai_review_state AS varchar) = 'dead'
-			     AND CAST(r.status AS varchar) IN ('pending', 'ai_reviewed')) AS dead_report_count,
-			  (SELECT COUNT(*) FROM inquiries i WHERE CAST(i.status AS varchar) = 'pending') AS pending_inquiry_count
+			   WHERE r.ai_review_state = 'dead'::ai_job_status
+			     AND r.status IN ('pending'::report_status, 'ai_reviewed'::report_status)) AS dead_report_count,
+			  (SELECT COUNT(*) FROM inquiries i WHERE i.status = 'pending'::inquiry_status) AS pending_inquiry_count
 			""";
 		return jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), (rs, rowNum) -> new QueueStatsRow(
 			rs.getLong("pending_report_count"),
