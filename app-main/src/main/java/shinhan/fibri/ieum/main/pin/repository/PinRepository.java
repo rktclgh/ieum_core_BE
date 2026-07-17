@@ -18,9 +18,10 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       ST_Y(p.location::geometry)                   AS "latitude",
 			       ST_X(p.location::geometry)                   AS "longitude",
 			       (p.author_id = :userId)                      AS "mine",
+			       COALESCE(q.is_resolved, false)               AS "resolved",
 			       p.created_at                                 AS "createdAt"
 			FROM pins p
-			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.is_resolved = false
+			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.deleted_at IS NULL
 			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
 			                    AND m.deleted_at IS NULL
 			                    AND m.status = 'open'
@@ -69,9 +70,10 @@ public interface PinRepository extends JpaRepository<Pin, Long> {
 			       ST_Y(p.location::geometry)                   AS "latitude",
 			       ST_X(p.location::geometry)                   AS "longitude",
 			       (p.author_id = :userId)                      AS "mine",
+			       COALESCE(q.is_resolved, false)               AS "resolved",
 			       p.created_at                                 AS "createdAt"
 			FROM pins p
-			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.is_resolved = false
+			LEFT JOIN questions q ON q.pin_id = p.pin_id AND q.deleted_at IS NULL
 			LEFT JOIN meetings  m ON m.pin_id = p.pin_id
 			                    AND m.deleted_at IS NULL
 			                    AND m.status = 'open'

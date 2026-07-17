@@ -31,7 +31,7 @@ class PinServiceTest {
 	@Test
 	void getMapPinsTrimsLimitAndMarksTruncated() {
 		List<PinProjection> rows = java.util.stream.LongStream.rangeClosed(1, 501)
-			.mapToObj(id -> projection(id, "question", "title-" + id, null, 37.5, 127.0, false))
+			.mapToObj(id -> projection(id, "question", "title-" + id, null, 37.5, 127.0, false, false))
 			.toList();
 		when(pinRepository.findMapPins(42L, null, 37.0, 126.0, 38.0, 128.0, 501))
 			.thenReturn(rows);
@@ -51,7 +51,7 @@ class PinServiceTest {
 	void getMapPinsMapsThumbnailAndLocation() {
 		UUID thumbnailFileId = UUID.fromString("00000000-0000-0000-0000-000000000123");
 		when(pinRepository.findMapPins(42L, "meeting", 37.0, 126.0, 38.0, 128.0, 501))
-			.thenReturn(List.of(projection(10L, "meeting", "coffee", thumbnailFileId, 37.55, 126.98, true)));
+			.thenReturn(List.of(projection(10L, "meeting", "coffee", thumbnailFileId, 37.55, 126.98, true, true)));
 
 		PinMapResponse response = service.getMapPins(
 			principal(),
@@ -66,6 +66,7 @@ class PinServiceTest {
 		assertThat(item.location().latitude()).isEqualTo(37.55);
 		assertThat(item.location().longitude()).isEqualTo(126.98);
 		assertThat(item.mine()).isTrue();
+		assertThat(item.isResolved()).isTrue();
 	}
 
 	@Test
@@ -81,9 +82,9 @@ class PinServiceTest {
 	void getListPinsUsesLookaheadAndNextCursor() {
 		when(pinRepository.findListPins(42L, "question", null, 3))
 			.thenReturn(List.of(
-				projection(30L, "question", "a", null, 37.1, 127.1, false),
-				projection(20L, "question", "b", null, 37.2, 127.2, false),
-				projection(10L, "question", "c", null, 37.3, 127.3, false)
+				projection(30L, "question", "a", null, 37.1, 127.1, false, false),
+				projection(20L, "question", "b", null, 37.2, 127.2, false, false),
+				projection(10L, "question", "c", null, 37.3, 127.3, false, false)
 			));
 
 		CursorPage<PinItem> response = service.getListPins(
@@ -122,7 +123,8 @@ class PinServiceTest {
 		UUID thumbnailFileId,
 		double latitude,
 		double longitude,
-		boolean mine
+		boolean mine,
+		boolean resolved
 	) {
 		Instant createdAt = Instant.parse("2026-07-08T01:00:00Z");
 		return new PinProjection() {
@@ -164,6 +166,11 @@ class PinServiceTest {
 			@Override
 			public Boolean getMine() {
 				return mine;
+			}
+
+			@Override
+			public Boolean getResolved() {
+				return resolved;
 			}
 
 			@Override
