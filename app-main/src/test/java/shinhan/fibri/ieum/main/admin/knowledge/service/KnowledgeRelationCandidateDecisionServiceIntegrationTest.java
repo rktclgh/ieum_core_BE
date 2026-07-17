@@ -174,6 +174,21 @@ class KnowledgeRelationCandidateDecisionServiceIntegrationTest {
 	}
 
 	@Test
+	void listsPendingCandidatesOnFirstAndCursorPages() {
+		long firstCandidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
+		long secondCandidateId = insertEligibleCandidate(101L, 201L, 301L, 401L, "체류", "requires", "비자");
+
+		var firstPage = queryService.list(new AdminKnowledgeCandidateListRequest("pending", null, 1));
+
+		assertThat(firstPage.items()).extracting(item -> item.candidateId()).containsExactly(secondCandidateId);
+		assertThat(firstPage.nextCursor()).isNotBlank();
+
+		var nextPage = queryService.list(new AdminKnowledgeCandidateListRequest("pending", firstPage.nextCursor(), 1));
+
+		assertThat(nextPage.items()).extracting(item -> item.candidateId()).containsExactly(firstCandidateId);
+	}
+
+	@Test
 	void rejectMakesCandidateTerminalAndWritesAudit() {
 		long candidateId = insertEligibleCandidate(100L, 200L, 300L, 400L, "외국인등록", "requires", "여권");
 
