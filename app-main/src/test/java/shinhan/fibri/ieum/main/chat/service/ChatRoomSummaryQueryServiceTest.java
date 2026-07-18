@@ -242,7 +242,7 @@ class ChatRoomSummaryQueryServiceTest {
 	}
 
 	@Test
-	void listForUserLeavesGroupRoomCounterpartNullEvenWhenMultipleMemberRowsArrive() {
+	void listForUserSkipsCounterpartQueryEntirelyWhenOnlyGroupRoomsExist() {
 		User me = user(42L, "me@example.com", "me");
 		ChatRoom groupRoom = room(ChatRoom.group(9L), 300L);
 		ChatMember member = ChatMember.join(groupRoom, me);
@@ -251,17 +251,45 @@ class ChatRoomSummaryQueryServiceTest {
 		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(300L))).thenReturn(List.of(member));
 		when(messageRepository.countUnreadByRoomIds(42L, List.of(300L))).thenReturn(List.of());
 		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(300L))).thenReturn(List.of());
-		when(chatMemberRepository.findCounterpartsByRoomIds(42L, List.of(300L)))
-			.thenReturn(List.of(
-				counterpart(300L, 77L, "friend", null, "KR"),
-				counterpart(300L, 88L, "other", null, "US")
-			));
 
 		var response = service.listForUser(42L, null);
 
 		assertThat(response).singleElement().satisfies(summary ->
 			assertThat(summary.counterpart()).isNull()
 		);
+		// 그룹 방만 있으면 1:1 방 id 목록이 비므로 빈 IN 절 쿼리를 아예 내지 않는다.
+		verify(chatMemberRepository, never())
+			.findCounterpartsByRoomIds(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyList());
+	}
+
+	@Test
+	void listForUserExcludesGroupRoomIdsFromTheCounterpartQuery() {
+		User me = user(42L, "me@example.com", "me");
+		ChatRoom directRoom = room(ChatRoom.direct(42L, 77L), 100L);
+		ChatRoom groupRoom = room(ChatRoom.group(9L), 300L);
+		ChatMember directMember = ChatMember.join(directRoom, me);
+		ChatMember groupMember = ChatMember.join(groupRoom, me);
+		onlineUserIds.add(77L);
+		when(chatRoomRepository.findActiveRoomsByUserId(42L)).thenReturn(List.of(directRoom, groupRoom));
+		when(chatMemberRepository.findActiveByUserIdAndRoomIds(42L, List.of(100L, 300L)))
+			.thenReturn(List.of(directMember, groupMember));
+		when(messageRepository.countUnreadByRoomIds(42L, List.of(100L, 300L))).thenReturn(List.of());
+		when(messageRepository.findLastVisibleMessagesByRoomIds(42L, List.of(100L, 300L))).thenReturn(List.of());
+		when(chatMemberRepository.findCounterpartsByRoomIds(42L, List.of(100L)))
+			.thenReturn(List.of(counterpart(100L, 77L, "friend", null, "KR")));
+
+		var response = service.listForUser(42L, null);
+
+		assertThat(response)
+			.filteredOn(summary -> summary.roomId().equals(100L))
+			.singleElement()
+			.satisfies(summary -> assertThat(summary.counterpart().active()).isTrue());
+		assertThat(response)
+			.filteredOn(summary -> summary.roomId().equals(300L))
+			.singleElement()
+			.satisfies(summary -> assertThat(summary.counterpart()).isNull());
+		// 그룹 방 인원이 많을수록 버려질 행이 늘어나므로 group id는 쿼리에 넣지 않는다.
+		verify(chatMemberRepository).findCounterpartsByRoomIds(42L, List.of(100L));
 	}
 
 	@Test

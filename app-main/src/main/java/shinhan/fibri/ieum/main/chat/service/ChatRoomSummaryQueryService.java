@@ -56,8 +56,13 @@ public class ChatRoomSummaryQueryService {
 			.stream()
 			.collect(Collectors.toMap(message -> message.getRoom().getId(), Function.identity()));
 		Map<Long, String> titleByQuestionId = findQuestionTitles(rooms);
-		Map<Long, List<ChatMemberRepository.RoomCounterpartProjection>> counterpartsByRoomId =
-			chatMemberRepository.findCounterpartsByRoomIds(userId, roomIds)
+		List<Long> oneToOneRoomIds = rooms.stream()
+			.filter(room -> room.getRoomType() != RoomType.group)
+			.map(ChatRoom::getId)
+			.toList();
+		Map<Long, List<ChatMemberRepository.RoomCounterpartProjection>> counterpartsByRoomId = oneToOneRoomIds.isEmpty()
+			? Map.of()
+			: chatMemberRepository.findCounterpartsByRoomIds(userId, oneToOneRoomIds)
 				.stream()
 				.collect(Collectors.groupingBy(ChatMemberRepository.RoomCounterpartProjection::getRoomId));
 
