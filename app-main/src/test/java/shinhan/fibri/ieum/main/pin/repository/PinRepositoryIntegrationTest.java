@@ -124,6 +124,11 @@ class PinRepositoryIntegrationTest {
 			"INSERT INTO meetings (pin_id, title, status, deleted_at) VALUES (10, 'deleted meeting', 'open'::meeting_status, now())"
 		);
 		insertSchedule(8L, "2099-07-15T19:00:00+09:00", "2099-07-15T23:59:59+09:00");
+
+		insertPin(33L, "question", 127.15, 37.65);
+		jdbcTemplate.update(
+			"INSERT INTO questions (pin_id, title, is_resolved, deleted_at) VALUES (11, 'deleted question', false, now())"
+		);
 	}
 
 	@Test
@@ -138,7 +143,7 @@ class PinRepositoryIntegrationTest {
 			501
 		);
 
-		assertThat(rows).hasSize(4);
+		assertThat(rows).hasSize(5);
 		PinProjection meeting = rows.stream()
 			.filter(row -> row.getPinId().equals(2L))
 			.findFirst()
@@ -150,6 +155,7 @@ class PinRepositoryIntegrationTest {
 		assertThat(meeting.getLatitude()).isEqualTo(37.6);
 		assertThat(meeting.getLongitude()).isEqualTo(127.1);
 		assertThat(meeting.getMine()).isTrue();
+		assertThat(meeting.getResolved()).isFalse();
 		assertThat(meeting.getCreatedAt()).isBeforeOrEqualTo(Instant.now());
 
 		PinProjection question = rows.stream()
@@ -161,6 +167,51 @@ class PinRepositoryIntegrationTest {
 		assertThat(question.getTitle()).isEqualTo("alive question");
 		assertThat(question.getThumbnailFileId()).isEqualTo(QUESTION_IMAGE_ID);
 		assertThat(question.getMine()).isFalse();
+		assertThat(question.getResolved()).isFalse();
+	}
+
+	@Test
+	void findMapPinsIncludesResolvedQuestionsWithResolvedFlagAndExcludesSoftDeleted() {
+		List<PinProjection> rows = pinRepository.findMapPins(
+			42L,
+			"question",
+			37.0,
+			126.0,
+			38.0,
+			128.0,
+			501
+		);
+
+		assertThat(rows).extracting(PinProjection::getTitle)
+			.contains("alive question", "resolved question")
+			.doesNotContain("deleted question");
+
+		PinProjection resolved = rows.stream()
+			.filter(row -> row.getTitle().equals("resolved question"))
+			.findFirst()
+			.orElseThrow();
+		assertThat(resolved.getResolved()).isTrue();
+
+		PinProjection alive = rows.stream()
+			.filter(row -> row.getTitle().equals("alive question"))
+			.findFirst()
+			.orElseThrow();
+		assertThat(alive.getResolved()).isFalse();
+	}
+
+	@Test
+	void findListPinsIncludesResolvedQuestionsWithResolvedFlagAndExcludesSoftDeleted() {
+		List<PinProjection> rows = pinRepository.findListPins(42L, "question", null, 50);
+
+		assertThat(rows).extracting(PinProjection::getTitle)
+			.contains("alive question", "resolved question")
+			.doesNotContain("deleted question");
+
+		PinProjection resolved = rows.stream()
+			.filter(row -> row.getTitle().equals("resolved question"))
+			.findFirst()
+			.orElseThrow();
+		assertThat(resolved.getResolved()).isTrue();
 	}
 
 	@Test
@@ -264,7 +315,8 @@ class PinRepositoryIntegrationTest {
 				question_id BIGSERIAL PRIMARY KEY,
 				pin_id BIGINT UNIQUE,
 				title VARCHAR(200),
-				is_resolved BOOLEAN NOT NULL DEFAULT false
+				is_resolved BOOLEAN NOT NULL DEFAULT false,
+				deleted_at TIMESTAMPTZ
 			)
 			""");
 		jdbcTemplate.execute("""
