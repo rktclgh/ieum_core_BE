@@ -22,7 +22,8 @@ public class FriendPresenceChangedListener {
 	@EventListener
 	public void onPresenceChanged(UserPresenceChangedEvent event) {
 		try {
-			OutboundEvent outboundEvent = OutboundEvent.presence(new PresenceSsePayload(event.userId(), event.online()));
+			boolean online = registry.isOnline(event.userId());
+			OutboundEvent outboundEvent = OutboundEvent.presence(new PresenceSsePayload(event.userId(), online));
 			for (Long friendId : friendService.acceptedFriendIdsOf(event.userId())) {
 				if (registry.isOnline(friendId)) {
 					registry.push(friendId, outboundEvent);

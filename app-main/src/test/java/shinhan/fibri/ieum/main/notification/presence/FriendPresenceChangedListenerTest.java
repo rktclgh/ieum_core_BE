@@ -23,6 +23,7 @@ class FriendPresenceChangedListenerTest {
 	@Test
 	void fansOutPresenceChangeOnlyToOnlineAcceptedFriends() {
 		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L, 8L, 9L));
+		when(registry.isOnline(42L)).thenReturn(true);
 		when(registry.isOnline(7L)).thenReturn(true);
 		when(registry.isOnline(8L)).thenReturn(false);
 		when(registry.isOnline(9L)).thenReturn(true);
@@ -36,8 +37,20 @@ class FriendPresenceChangedListenerTest {
 	}
 
 	@Test
+	void usesCurrentPresenceWhenThePublishedTransitionIsAlreadyStale() {
+		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L));
+		when(registry.isOnline(42L)).thenReturn(false);
+		when(registry.isOnline(7L)).thenReturn(true);
+
+		listener.onPresenceChanged(new UserPresenceChangedEvent(42L, true));
+
+		verify(registry).push(7L, OutboundEvent.presence(new PresenceSsePayload(42L, false)));
+	}
+
+	@Test
 	void listenerFailureDoesNotEscapeLifecyclePublication() {
 		when(friendService.acceptedFriendIdsOf(42L)).thenReturn(Set.of(7L, 8L));
+		when(registry.isOnline(42L)).thenReturn(false);
 		when(registry.isOnline(7L)).thenReturn(true);
 		doThrow(new IllegalStateException("sse unavailable"))
 			.when(registry).push(7L, OutboundEvent.presence(new PresenceSsePayload(42L, false)));
