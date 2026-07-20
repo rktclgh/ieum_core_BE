@@ -28,7 +28,11 @@ class SmallintEntityMappingTest {
 	void rejectsSortOrderOutsideSmallintRange() {
 		assertThatThrownBy(() -> AnswerImage.link(1L, UUID.randomUUID(), Short.MAX_VALUE + 1))
 			.isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> AnswerImage.link(1L, UUID.randomUUID(), -1))
+			.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> QuestionImage.link(1L, UUID.randomUUID(), Short.MAX_VALUE + 1))
+			.isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> QuestionImage.link(1L, UUID.randomUUID(), -1))
 			.isInstanceOf(IllegalArgumentException.class);
 	}
 
@@ -101,6 +105,15 @@ class SmallintEntityMappingTest {
 			true,
 			true,
 			Short.MAX_VALUE + 1
+		)).isInstanceOf(IllegalArgumentException.class);
+		assertThatThrownBy(() -> settings.update(
+			"ko",
+			false,
+			true,
+			true,
+			true,
+			true,
+			-1
 		)).isInstanceOf(IllegalArgumentException.class);
 	}
 }
