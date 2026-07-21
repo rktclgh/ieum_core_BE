@@ -10,6 +10,15 @@ public final class KnowledgeRetrievalScorePolicy {
 	private static final double FUSION_SEMANTIC_WEIGHT = 0.65d;
 	private static final double AUTHORITY_WEIGHT = 0.35d;
 	private static final double NEUTRAL_GEO_SCORE = 0.5d;
+	/**
+	 * Trust floor for evidence backed by a knowledge-graph relation. A relation only reaches
+	 * {@code knowledge_relations} after an operator approves the extracted candidate, so the human
+	 * review — not the origin document's source type — is what establishes its trust. Relations are
+	 * extracted from accepted human answers, which would otherwise inherit the low
+	 * {@code accepted_human_answer} authority and rank below the raw answer they were distilled from.
+	 * Applied as a floor so higher-authority origins such as curated government sources keep theirs.
+	 */
+	private static final double APPROVED_RELATION_AUTHORITY = 0.85d;
 
 	private final VectorKnowledgeRetrievalConfig config;
 
@@ -87,13 +96,19 @@ public final class KnowledgeRetrievalScorePolicy {
 	}
 
 	/**
-	 * Applies the source authority score, gated by knowledge-graph relation confidence when the
-	 * evidence is graph-only (no vector-lane corroboration). A KG relation is retrieved by entity
-	 * match rather than semantic similarity, so a low-confidence or thin relation must not inherit
-	 * the full authority of its curated source. When the same source also surfaces in the vector
-	 * lane, cosine similarity already corroborates relevance, so the confidence gate is not applied.
-	 * A graph-only relation without a confidence value carries no trust signal, so it fails safe to a
-	 * zero authority factor rather than inheriting the full source authority.
+	 * Resolves the authority of a piece of evidence in two steps.
+	 *
+	 * <p>Evidence backed by a knowledge-graph relation is lifted to at least
+	 * {@link #APPROVED_RELATION_AUTHORITY}, because reaching {@code knowledge_relations} required an
+	 * operator to approve the extracted candidate. Without this floor an approved relation would
+	 * inherit the authority of the accepted answer it was extracted from and rank below that raw
+	 * answer, inverting the intended trust order.
+	 *
+	 * <p>The relation confidence then gates graph-only evidence (no vector-lane corroboration), since
+	 * such a relation is retrieved by entity match rather than semantic similarity: a thin or
+	 * low-confidence relation must not ride the floor into the top results. When the same source also
+	 * surfaces in the vector lane, cosine similarity already corroborates relevance, so the gate is
+	 * not applied. A graph-only relation carrying no confidence value fails safe to a zero factor.
 	 */
 	private double effectiveAuthority(
 		String sourceType,
@@ -103,6 +118,9 @@ public final class KnowledgeRetrievalScorePolicy {
 		BigDecimal relationConfidence
 	) {
 		double authority = authorityScore(sourceType, sourceGrade);
+		if (kgRank != null) {
+			authority = Math.max(authority, APPROVED_RELATION_AUTHORITY);
+		}
 		boolean graphOnly = vectorRank == null && kgRank != null;
 		if (graphOnly) {
 			double factor = relationConfidence == null ? 0.0d : confidenceFactor(relationConfidence);

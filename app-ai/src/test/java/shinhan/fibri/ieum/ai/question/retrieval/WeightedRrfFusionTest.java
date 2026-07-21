@@ -60,8 +60,8 @@ class WeightedRrfFusionTest {
 		HybridKnowledgeEvidence both = (HybridKnowledgeEvidence) fused.get(0);
 		assertThat(both.vectorRank()).isEqualTo(1);
 		assertThat(both.kgRank()).isEqualTo(1);
-		assertThat(both.semanticScore()).isEqualByComparingTo("0.930000");
-		assertThat(both.finalScore()).isEqualByComparingTo("0.908500");
+		assertThat(both.semanticScore()).isEqualByComparingTo("0.947500");
+		assertThat(both.finalScore()).isEqualByComparingTo("0.925125");
 		assertThat(both.relationId()).isEqualTo(303L);
 		assertThat(both.excerpt()).isEqualTo(
 			"관계: 아이돌봄서비스 supports 출산가정\n근거: 공통 근거"
@@ -75,8 +75,8 @@ class WeightedRrfFusionTest {
 		HybridKnowledgeEvidence onlyKg = (HybridKnowledgeEvidence) fused.get(2);
 		assertThat(onlyKg.vectorRank()).isNull();
 		assertThat(onlyKg.kgRank()).isEqualTo(2);
-		assertThat(onlyKg.semanticScore()).isEqualByComparingTo("0.479806");
-		assertThat(onlyKg.finalScore()).isEqualByComparingTo("0.480816");
+		assertThat(onlyKg.semanticScore()).isEqualByComparingTo("0.493806");
+		assertThat(onlyKg.finalScore()).isEqualByComparingTo("0.494116");
 		assertThat(onlyKg.relationId()).isEqualTo(202L);
 		assertThatThrownBy(() -> fused.add(vectorOnly))
 			.isInstanceOf(UnsupportedOperationException.class);
@@ -134,8 +134,8 @@ class WeightedRrfFusionTest {
 		assertThat(evidence.relationId()).isEqualTo(7L);
 		assertThat(evidence.relationConfidence()).isEqualByComparingTo("0.900000");
 		assertThat(evidence.kgRank()).isEqualTo(3);
-		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.921746");
-		assertThat(evidence.finalScore()).isEqualByComparingTo("0.900659");
+		assertThat(evidence.semanticScore()).isEqualByComparingTo("0.939246");
+		assertThat(evidence.finalScore()).isEqualByComparingTo("0.917284");
 		assertThat(evidence.excerpt()).isEqualTo(
 			"관계: 결정주체 prevents 결정객체\n근거: 결정 근거"
 		);
@@ -238,6 +238,38 @@ class WeightedRrfFusionTest {
 	}
 
 	@Test
+	void ranksOperatorApprovedRelationsAboveTheAcceptedAnswersTheyWereExtractedFrom() {
+		VectorKnowledgeRetrievalRequest request = request(GeoScope.general, RegionContext.empty());
+		VectorKnowledgeEvidence rawAcceptedAnswer = vectorScorer.score(
+			acceptedAnswerCandidate(1L, 11L, 0.95d),
+			1,
+			request,
+			retrievedAt
+		);
+		KnowledgeGraphCandidate approvedRelation = acceptedAnswerRelation(
+			401L, 4L, 44L, "0.900000", "승인된 관계 근거"
+		);
+		KnowledgeGraphCandidate thinRelation = acceptedAnswerRelation(
+			501L, 5L, 55L, "0.300000", "부실한 관계 근거"
+		);
+
+		KnowledgeEvidence raw = fusion
+			.fuse(List.of(rawAcceptedAnswer), List.of(), request, retrievedAt)
+			.getFirst();
+		HybridKnowledgeEvidence approved = (HybridKnowledgeEvidence) fusion
+			.fuse(List.of(), List.of(approvedRelation), request, retrievedAt)
+			.getFirst();
+		HybridKnowledgeEvidence thin = (HybridKnowledgeEvidence) fusion
+			.fuse(List.of(), List.of(thinRelation), request, retrievedAt)
+			.getFirst();
+
+		// 운영자 승인으로 승격된 관계는 원본이 채택답변이어도 날것의 채택답변을 앞선다.
+		assertThat(approved.finalScore()).isGreaterThan(raw.finalScore());
+		// 승격됐더라도 confidence가 낮으면 안전장치가 우선한다.
+		assertThat(thin.finalScore()).isLessThan(raw.finalScore());
+	}
+
+	@Test
 	void ordersRoundedScoreTiesBySourceThenChunkRegardlessOfInputOrder() {
 		VectorKnowledgeEvidence sourceTwo = vectorEvidenceWithScores(2L, 1L, "0.800000", "0.500000");
 		VectorKnowledgeEvidence sourceOneChunkTwo = vectorEvidenceWithScores(
@@ -288,6 +320,36 @@ class WeightedRrfFusionTest {
 		assertThat(result.evidence()).containsExactly(item);
 		assertThatThrownBy(() -> result.evidence().clear())
 			.isInstanceOf(UnsupportedOperationException.class);
+	}
+
+	private KnowledgeGraphCandidate acceptedAnswerRelation(
+		long relationId,
+		long sourceId,
+		long chunkId,
+		String confidence,
+		String excerpt
+	) {
+		return new KnowledgeGraphCandidate(
+			"돌봄서비스",
+			"subject",
+			relationId,
+			sourceId,
+			chunkId,
+			"돌봄서비스",
+			"supports",
+			"출산가정",
+			new BigDecimal(confidence),
+			"accepted_human_answer",
+			"source-" + sourceId,
+			excerpt,
+			"community",
+			"a".repeat(64),
+			"https://example.com/source/" + sourceId,
+			"transportation",
+			GeoScope.general,
+			RegionContext.empty(),
+			null
+		);
 	}
 
 	private VectorKnowledgeCandidate acceptedAnswerCandidate(
