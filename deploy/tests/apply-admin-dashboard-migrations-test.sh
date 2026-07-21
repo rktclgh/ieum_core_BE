@@ -150,6 +150,8 @@ grep -Fq "message_type_contract_state" "$stdin_file" \
   || fail "message type preflight/final verification is missing"
 grep -Fq "message_reply_contract_state" "$stdin_file" \
   || fail "message reply preflight/final verification is missing"
+grep -Fq "chat_notice_contract_state" "$stdin_file" \
+  || fail "chat notice preflight/final verification is missing"
 grep -Fq "partial or incompatible users.auth_version schema" "$stdin_file" \
   || fail "partial auth schema must fail explicitly"
 grep -Fq "partial or incompatible admin_audit_logs schema" "$stdin_file" \
@@ -158,6 +160,8 @@ grep -Fq "partial or incompatible messages.message_type schema" "$stdin_file" \
   || fail "partial message type schema must fail explicitly"
 grep -Fq "partial or incompatible messages.reply_to_message_id schema" "$stdin_file" \
   || fail "partial message reply schema must fail explicitly"
+grep -Fq "partial or incompatible chat_notices schema" "$stdin_file" \
+  || fail "partial chat notice schema must fail explicitly"
 grep -Fq "apply_admin_audit_migration" "$stdin_file" \
   || fail "an exact existing audit schema must skip the non-idempotent v26 file"
 grep -Fq "apply_auth_version_migration" "$stdin_file" \
@@ -166,6 +170,8 @@ grep -Fq "apply_message_type_migration" "$stdin_file" \
   || fail "an exact existing message type schema must skip the non-idempotent v28 file"
 grep -Fq "apply_message_reply_migration" "$stdin_file" \
   || fail "an exact existing message reply schema must skip the non-idempotent v32 file"
+grep -Fq "apply_chat_notice_migration" "$stdin_file" \
+  || fail "an exact existing chat notice schema must skip the v38 file"
 grep -Fq "SET search_path = pg_catalog, public" "$stdin_file" \
   || fail "migration session must pin trusted catalog resolution before running qualified DDL"
 search_path_line="$(grep -n -m1 -F 'SET search_path = pg_catalog, public' "$stdin_file" | cut -d: -f1)"
@@ -220,6 +226,32 @@ required_message_type_catalog_tokens=(
 for token in "${required_message_type_catalog_tokens[@]}"; do
   grep -Fq "$token" "$stdin_file" \
     || fail "message type exact catalog verification is missing: $token"
+done
+required_chat_notice_catalog_tokens=(
+  "CREATE OR REPLACE FUNCTION pg_temp.chat_notice_contract_state()"
+  "table_class.relname = 'chat_notices'"
+  "'public.chat_rooms'::regclass"
+  "'public.messages'::regclass"
+  "'public.users'::regclass"
+  "format_type(attribute.atttypid, attribute.atttypmod) = expected.type_name"
+  "chat_notices_notice_id_seq"
+  "fk_chat_notices_room"
+  "fk_chat_notices_message"
+  "fk_chat_notices_created_by"
+  "fk_chat_rooms_pinned_notice"
+  "constraint_row.confdeltype = 'c'"
+  "constraint_row.confdeltype = 'n'"
+  "uidx_chat_notices_room_message"
+  "idx_chat_notices_room_created"
+  "index_row.indkey::text = '2 3'"
+  "index_row.indoption::text = '0 0'"
+  "index_row.indkey::text = '2 5 1'"
+  "index_row.indoption::text = '0 3 3'"
+  "RAISE EXCEPTION 'chat_notices schema verification failed'"
+)
+for token in "${required_chat_notice_catalog_tokens[@]}"; do
+  grep -Fq "$token" "$stdin_file" \
+    || fail "chat notice exact catalog verification is missing: $token"
 done
 if grep -Fq "indexdef LIKE" "$stdin_file"; then
   fail "index verification must not rely on permissive text matching"
@@ -295,6 +327,9 @@ grep -Fq "conname = 'fk_chat_rooms_pinned_notice'" "$stdin_file" \
   || fail "v38 guard must catch a missing pinned notice foreign key"
 grep -Fq "index_class.relname = 'uidx_chat_notices_room_message'" "$stdin_file" \
   || fail "v38 guard must catch a missing chat notice unique index"
+if grep -Fq "to_regclass('public.chat_notices') IS NULL" "$stdin_file"; then
+  fail "v38 guard must use the exact chat notice contract state instead of a permissive table-presence check"
+fi
 
 for workflow in "$root/.github/workflows/deploy-app-main.yml" "$root/.github/workflows/deploy-app-ai.yml"; do
   for migration in v28_chat_system_messages v29_meeting_schedule_details v30_report_schedule_target_enum v31_report_schedule_target v32_chat_message_reply v33_question_ai_ungrounded_answer v34_question_ai_ungrounded_answer_validate v35_knowledge_relation_candidates v36_meeting_schedule_date_time v37_notification_i18n v38_chat_notices; do
