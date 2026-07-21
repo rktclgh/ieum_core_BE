@@ -1321,6 +1321,38 @@ SELECT (
 \i db/migrations/v36_meeting_schedule_date_time.sql
 \endif
 \i db/migrations/v37_notification_i18n.sql
+SELECT (
+  to_regclass('public.chat_rooms') IS NOT NULL
+  AND to_regclass('public.messages') IS NOT NULL
+  AND (
+    to_regclass('public.chat_notices') IS NULL
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('public.chat_rooms')
+        AND attname = 'pinned_notice_id'
+        AND attnum > 0
+        AND NOT attisdropped
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = 'public.chat_rooms'::regclass
+        AND conname = 'fk_chat_rooms_pinned_notice'
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_index index_row
+      JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
+      WHERE index_row.indrelid = 'public.chat_notices'::regclass
+        AND index_class.relname = 'uidx_chat_notices_room_message'
+        AND index_row.indisunique
+    )
+  )
+) AS apply_chat_notice_migration \gset
+\if :apply_chat_notice_migration
+\i db/migrations/v38_chat_notices.sql
+\endif
 
 DO $verify$
 BEGIN
