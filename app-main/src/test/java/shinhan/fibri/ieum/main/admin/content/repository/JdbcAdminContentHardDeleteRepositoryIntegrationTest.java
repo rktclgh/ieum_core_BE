@@ -1,15 +1,31 @@
 package shinhan.fibri.ieum.main.admin.content.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import shinhan.fibri.ieum.main.admin.content.domain.AdminContentType;
 import shinhan.fibri.ieum.testsupport.CanonicalPostgresContainer;
@@ -20,8 +36,11 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 
 	private static final String DATABASE = "ieum_admin_content_hard_delete";
 
+	private DataSource dataSource;
 	private NamedParameterJdbcTemplate jdbc;
+	private JdbcTemplate plainJdbc;
 	private JdbcAdminContentHardDeleteRepository repository;
+	private TransactionTemplate transactionTemplate;
 
 	@AfterAll
 	static void cleanUpDatabase() {
@@ -33,8 +52,11 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 	void setUp() {
 		CanonicalPostgresContainer.recreateDatabase(DATABASE);
 		SqlScriptRunner.run(DATABASE, "schema.sql");
-		jdbc = new NamedParameterJdbcTemplate(CanonicalPostgresContainer.dataSource(DATABASE));
+		dataSource = CanonicalPostgresContainer.dataSource(DATABASE);
+		jdbc = new NamedParameterJdbcTemplate(dataSource);
+		plainJdbc = new JdbcTemplate(dataSource);
 		repository = new JdbcAdminContentHardDeleteRepository(jdbc);
+		transactionTemplate = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
 	}
 
 	@Test
@@ -93,6 +115,50 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 		assertThat(count("files", "file_id", answerFile)).isZero();
 		assertThat(count("files", "file_id", sharedFile)).isOne();
 		assertThat(count("questions", "question_id", otherQuestionId)).isOne();
+	}
+
+	@Test
+	void hardDeleteQuestionLocksChatRoomBeforeFileSnapshotSoConcurrentMessageInsertCannotSlipIn() throws Exception {
+		long ownerId = insertUser("question-lock-owner");
+		UUID chatFile = UUID.fromString("44444444-4444-4444-4444-444444444444");
+		insertFile(chatFile, ownerId, "final/chat/" + chatFile + "/original.jpg");
+		long questionId = insertQuestion(ownerId, "question-lock", null);
+		long roomId = insertQuestionRoom(questionId);
+		insertImageOnlyMessageInRoom(roomId, ownerId, chatFile);
+		AtomicInteger hardDeletePid = new AtomicInteger();
+
+		try (Connection filesBarrier = dataSource.getConnection();
+			 ExecutorService executor = Executors.newFixedThreadPool(2)) {
+			lockFilesTable(filesBarrier);
+			Future<AdminContentHardDeleteResult> hardDelete = executor.submit(() -> transactionTemplate.execute(status -> {
+				hardDeletePid.set(plainJdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+				AdminContentHardDeleteTarget target = repository.findForHardDelete(AdminContentType.QUESTION, questionId)
+					.orElseThrow();
+				return repository.hardDelete(AdminContentType.QUESTION, target);
+			}));
+
+			await("hard delete backend pid", () -> hardDeletePid.get() > 0);
+			await("hard delete chat room lock", () -> hasChatRoomRowShareLock(hardDeletePid.get()));
+
+			Future<Integer> concurrentMessageInsert = executor.submit(() -> plainJdbc.update(
+				"INSERT INTO messages (room_id, sender_id, content) VALUES (?, ?, 'late message')",
+				roomId,
+				ownerId
+			));
+
+			assertThatThrownBy(() -> concurrentMessageInsert.get(500, TimeUnit.MILLISECONDS))
+				.isInstanceOf(TimeoutException.class);
+
+			filesBarrier.commit();
+
+			assertThat(hardDelete.get(10, TimeUnit.SECONDS).s3Keys())
+				.containsExactly("final/chat/" + chatFile + "/original.jpg");
+			assertThatThrownBy(() -> concurrentMessageInsert.get(10, TimeUnit.SECONDS))
+				.isInstanceOf(ExecutionException.class)
+				.hasCauseInstanceOf(DataIntegrityViolationException.class);
+			assertThat(count("chat_rooms", "room_id", roomId)).isZero();
+			assertThat(count("questions", "question_id", questionId)).isZero();
+		}
 	}
 
 	@Test
@@ -237,7 +303,12 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 	}
 
 	private void insertQuestionChatImageMessage(long questionId, long userId, UUID fileId) {
-		long roomId = jdbc.queryForObject(
+		long roomId = insertQuestionRoom(questionId);
+		insertImageOnlyMessageInRoom(roomId, userId, fileId);
+	}
+
+	private long insertQuestionRoom(long questionId) {
+		return jdbc.queryForObject(
 			"""
 				INSERT INTO chat_rooms (room_type, question_id, room_key)
 				VALUES ('question', :questionId, :roomKey)
@@ -246,7 +317,6 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 			new MapSqlParameterSource("questionId", questionId).addValue("roomKey", "q:" + questionId + ":1:2"),
 			Long.class
 		);
-		insertImageOnlyMessageInRoom(roomId, userId, fileId);
 	}
 
 	private long insertGroupRoom(long meetingId) {
@@ -400,5 +470,42 @@ class JdbcAdminContentHardDeleteRepositoryIntegrationTest {
 			new MapSqlParameterSource("reportId", reportId),
 			Long.class
 		);
+	}
+
+	private void lockFilesTable(Connection connection) throws Exception {
+		connection.setAutoCommit(false);
+		try (Statement statement = connection.createStatement()) {
+			statement.execute("LOCK TABLE files IN ACCESS EXCLUSIVE MODE");
+		}
+	}
+
+	private boolean hasChatRoomRowShareLock(int pid) {
+		Boolean locked = jdbc.queryForObject(
+			"""
+				SELECT EXISTS (
+					SELECT 1
+					  FROM pg_locks lock
+					 WHERE lock.pid = :pid
+					   AND lock.locktype = 'relation'
+					   AND lock.relation = 'public.chat_rooms'::regclass
+					   AND lock.mode = 'RowShareLock'
+					   AND lock.granted
+				)
+				""",
+			new MapSqlParameterSource("pid", pid),
+			Boolean.class
+		);
+		return Boolean.TRUE.equals(locked);
+	}
+
+	private void await(String conditionName, BooleanSupplier condition) throws InterruptedException {
+		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+		while (System.nanoTime() < deadline) {
+			if (condition.getAsBoolean()) {
+				return;
+			}
+			Thread.sleep(25);
+		}
+		throw new AssertionError("Timed out waiting for " + conditionName);
 	}
 }
