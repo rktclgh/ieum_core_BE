@@ -1,7 +1,7 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -60,12 +60,14 @@ public class AdminContentService {
 
 	@Transactional(readOnly = true)
 	public AdminContentListResponse getQuestions(AdminContentListRequest request) {
-		return page(contentQueryRepository.findQuestions(cursorId(request), pageLimit(request)));
+		int size = pageLimit(request);
+		return page(contentQueryRepository.findQuestions(cursorId(request), size + 1), size);
 	}
 
 	@Transactional(readOnly = true)
 	public AdminContentListResponse getMeetings(AdminContentListRequest request) {
-		return page(contentQueryRepository.findMeetings(cursorId(request), pageLimit(request)));
+		int size = pageLimit(request);
+		return page(contentQueryRepository.findMeetings(cursorId(request), size + 1), size);
 	}
 
 	@Transactional
@@ -184,12 +186,14 @@ public class AdminContentService {
 		};
 	}
 
-	private static AdminContentListResponse page(List<AdminContentListItem> rows) {
+	private static AdminContentListResponse page(List<AdminContentListItem> rows, int size) {
 		if (rows.isEmpty()) {
 			return new AdminContentListResponse(List.of(), null);
 		}
-		String nextCursor = rows.getLast().contentId().toString();
-		return new AdminContentListResponse(rows, nextCursor);
+		boolean hasNext = rows.size() > size;
+		List<AdminContentListItem> items = hasNext ? rows.subList(0, size) : rows;
+		String nextCursor = hasNext ? items.getLast().contentId().toString() : null;
+		return new AdminContentListResponse(items, nextCursor);
 	}
 
 	private static int pageLimit(AdminContentListRequest request) {

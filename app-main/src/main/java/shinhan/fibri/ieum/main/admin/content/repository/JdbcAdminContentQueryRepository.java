@@ -66,7 +66,9 @@ public class JdbcAdminContentQueryRepository implements AdminContentQueryReposit
 				       CAST(COUNT(mp.user_id) AS integer) AS participant_count
 				  FROM meetings m
 				  JOIN users u ON u.user_id = m.host_id
-				  LEFT JOIN meeting_participants mp ON mp.meeting_id = m.meeting_id
+				  LEFT JOIN meeting_participants mp
+				    ON mp.meeting_id = m.meeting_id
+				   AND mp.status = 'joined'
 				 WHERE m.deleted_at IS NULL
 				   AND (:cursorId IS NULL OR m.meeting_id < :cursorId)
 				 GROUP BY m.meeting_id, u.nickname
@@ -158,6 +160,7 @@ public class JdbcAdminContentQueryRepository implements AdminContentQueryReposit
 				      SELECT CAST(COUNT(*) AS integer) AS participant_count
 				        FROM meeting_participants mp
 				       WHERE mp.meeting_id = m.meeting_id
+				         AND mp.status = 'joined'
 				  ) participants ON true
 				 WHERE m.meeting_id = :id
 				   AND m.deleted_at IS NULL

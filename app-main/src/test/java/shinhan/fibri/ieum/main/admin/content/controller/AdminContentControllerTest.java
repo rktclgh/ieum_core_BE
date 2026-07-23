@@ -106,12 +106,16 @@ class AdminContentControllerTest {
 
 		mockMvc.perform(get("/api/v1/admin/content/questions")
 				.with(admin())
+				.param("cursor", "41")
 				.param("size", "20"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.nextCursor", is("41")))
 			.andExpect(jsonPath("$.items[0].contentType", is("question")))
 			.andExpect(jsonPath("$.items[0].contentId", is(42)))
 			.andExpect(jsonPath("$.items[0].title", is("question title")));
+
+		verify(adminContentService).getQuestions(org.mockito.ArgumentMatchers.argThat(request ->
+			"41".equals(request.cursor()) && request.size().equals(20)));
 	}
 
 	@Test

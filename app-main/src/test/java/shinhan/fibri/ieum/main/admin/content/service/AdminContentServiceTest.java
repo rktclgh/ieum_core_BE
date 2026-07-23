@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +24,9 @@ import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.content.domain.AdminContentType;
 import shinhan.fibri.ieum.main.admin.content.dto.AdminContentDetailResponse;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListItem;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListRequest;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListResponse;
 import shinhan.fibri.ieum.main.admin.content.dto.AdminContentUpdateRequest;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
@@ -117,6 +121,27 @@ class AdminContentServiceTest {
 			.isInstanceOf(UnsupportedContentTypeException.class);
 
 		verify(questionRepository, never()).findDeletionState(any());
+	}
+
+	@Test
+	void getQuestionsFetchesOneExtraRowAndOnlyReturnsNextCursorWhenMoreRowsExist() {
+		when(contentQueryRepository.findQuestions(50L, 3)).thenReturn(List.of(
+			listItem("question", 49L),
+			listItem("question", 48L),
+			listItem("question", 47L)
+		));
+		when(contentQueryRepository.findMeetings(null, 3)).thenReturn(List.of(
+			listItem("meeting", 10L),
+			listItem("meeting", 9L)
+		));
+
+		AdminContentListResponse questions = service.getQuestions(new AdminContentListRequest("50", 2));
+		AdminContentListResponse meetings = service.getMeetings(new AdminContentListRequest(null, 2));
+
+		assertThat(questions.items()).extracting(AdminContentListItem::contentId).containsExactly(49L, 48L);
+		assertThat(questions.nextCursor()).isEqualTo("48");
+		assertThat(meetings.items()).extracting(AdminContentListItem::contentId).containsExactly(10L, 9L);
+		assertThat(meetings.nextCursor()).isNull();
 	}
 
 	@Test
@@ -216,6 +241,22 @@ class AdminContentServiceTest {
 			id,
 			title,
 			content,
+			"author",
+			2L,
+			OffsetDateTime.parse("2026-07-01T00:00:00Z"),
+			OffsetDateTime.parse("2026-07-02T00:00:00Z"),
+			null,
+			"question".equals(type) ? false : null,
+			"meeting".equals(type) ? "open" : null,
+			"meeting".equals(type) ? 1 : null
+		);
+	}
+
+	private static AdminContentListItem listItem(String type, Long id) {
+		return new AdminContentListItem(
+			type,
+			id,
+			type + " title",
 			"author",
 			2L,
 			OffsetDateTime.parse("2026-07-01T00:00:00Z"),
