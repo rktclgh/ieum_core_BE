@@ -189,7 +189,7 @@ class ReportPolicyEvaluatorTest {
 	}
 
 	private ReportModelRuleMatch match(String ruleCode, String confidence) {
-		return new ReportModelRuleMatch(ruleCode, new BigDecimal(confidence), List.of(2L), ruleCode + " reason");
+		return new ReportModelRuleMatch(ruleCode, new BigDecimal(confidence), List.of(2L), ruleCode + " 위반 근거");
 	}
 
 	private ReportPolicyEvaluationResult evaluate(ReportPolicySnapshot snapshot, ReportModelReviewOutput output) {

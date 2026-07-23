@@ -16,11 +16,19 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import shinhan.fibri.ieum.common.auth.domain.UserRole;
+import shinhan.fibri.ieum.common.auth.domain.UserStatus;
+import shinhan.fibri.ieum.common.auth.principal.AuthenticatedUser;
+import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
+import shinhan.fibri.ieum.main.admin.content.domain.AdminContentType;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentDetailResponse;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentUpdateRequest;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentQueryRepository;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.pin.repository.PinWriter;
 import shinhan.fibri.ieum.main.question.domain.Question;
@@ -33,6 +41,8 @@ class AdminContentServiceTest {
 	private final QuestionRepository questionRepository = mock(QuestionRepository.class);
 	private final PinWriter pinWriter = mock(PinWriter.class);
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter = mock(QuestionAnswerTicketWriter.class);
+	private final AdminAuditLogWriter auditLogWriter = mock(AdminAuditLogWriter.class);
+	private final AdminContentQueryRepository contentQueryRepository = mock(AdminContentQueryRepository.class);
 	private final QuestionDeletionExecutor questionDeletionExecutor = new QuestionDeletionExecutor(
 		questionRepository,
 		pinWriter,
@@ -42,8 +52,9 @@ class AdminContentServiceTest {
 		questionDeletionExecutor,
 		mock(AdminContentHardDeleteRepository.class),
 		questionAnswerTicketWriter,
-		mock(AdminAuditLogWriter.class),
-		mock(AdminContentFileCleanupTaskRepository.class)
+		auditLogWriter,
+		mock(AdminContentFileCleanupTaskRepository.class),
+		contentQueryRepository
 	);
 
 	@Test
@@ -108,6 +119,69 @@ class AdminContentServiceTest {
 		verify(questionRepository, never()).findDeletionState(any());
 	}
 
+	@Test
+	void updateQuestionCancelsAiWorkBeforeLockingAndWritesAudit() {
+		AdminContentDetailResponse before = detail("question", 42L, "old title", "old content");
+		AdminContentDetailResponse after = detail("question", 42L, "new title", "new content");
+		when(contentQueryRepository.lockDetail(AdminContentType.QUESTION, 42L)).thenReturn(Optional.of(before));
+		when(contentQueryRepository.findDetail(AdminContentType.QUESTION, 42L)).thenReturn(Optional.of(after));
+
+		AdminContentDetailResponse result = service.update(
+			admin(),
+			"question",
+			42L,
+			new AdminContentUpdateRequest("new title", "new content")
+		);
+
+		assertThat(result).isEqualTo(after);
+		InOrder inOrder = inOrder(questionAnswerTicketWriter, contentQueryRepository, auditLogWriter);
+		inOrder.verify(questionAnswerTicketWriter).requestCancellation(42L);
+		inOrder.verify(contentQueryRepository).lockDetail(AdminContentType.QUESTION, 42L);
+		inOrder.verify(contentQueryRepository).update(AdminContentType.QUESTION, 42L, "new title", "new content");
+		inOrder.verify(auditLogWriter).append(
+			eq(1L),
+			eq(AdminAuditAction.QUESTION_UPDATED),
+			eq("question"),
+			eq(42L),
+			eq(java.util.Map.of(
+				"previousTitle", "old title",
+				"newTitle", "new title",
+				"previousContentLength", 11,
+				"newContentLength", 11
+			))
+		);
+	}
+
+	@Test
+	void updateMeetingDoesNotCancelQuestionAiWork() {
+		AdminContentDetailResponse before = detail("meeting", 7L, "old meeting", "old content");
+		AdminContentDetailResponse after = detail("meeting", 7L, "new meeting", "new content");
+		when(contentQueryRepository.lockDetail(AdminContentType.MEETING, 7L)).thenReturn(Optional.of(before));
+		when(contentQueryRepository.findDetail(AdminContentType.MEETING, 7L)).thenReturn(Optional.of(after));
+
+		AdminContentDetailResponse result = service.update(
+			admin(),
+			"meeting",
+			7L,
+			new AdminContentUpdateRequest("new meeting", "new content")
+		);
+
+		assertThat(result).isEqualTo(after);
+		verify(questionAnswerTicketWriter, never()).requestCancellation(7L);
+		verify(auditLogWriter).append(
+			eq(1L),
+			eq(AdminAuditAction.MEETING_UPDATED),
+			eq("meeting"),
+			eq(7L),
+			eq(java.util.Map.of(
+				"previousTitle", "old meeting",
+				"newTitle", "new meeting",
+				"previousContentLength", 11,
+				"newContentLength", 11
+			))
+		);
+	}
+
 	private QuestionDeletionState deletionState(Long authorId, Instant deletedAt) {
 		return new QuestionDeletionState() {
 			@Override
@@ -130,5 +204,26 @@ class AdminContentServiceTest {
 		} catch (ReflectiveOperationException exception) {
 			throw new IllegalStateException(exception);
 		}
+	}
+
+	private static AuthenticatedUser admin() {
+		return new AuthenticatedUser(1L, "admin@example.com", UserRole.admin, UserStatus.active);
+	}
+
+	private static AdminContentDetailResponse detail(String type, Long id, String title, String content) {
+		return new AdminContentDetailResponse(
+			type,
+			id,
+			title,
+			content,
+			"author",
+			2L,
+			OffsetDateTime.parse("2026-07-01T00:00:00Z"),
+			OffsetDateTime.parse("2026-07-02T00:00:00Z"),
+			null,
+			"question".equals(type) ? false : null,
+			"meeting".equals(type) ? "open" : null,
+			"meeting".equals(type) ? 1 : null
+		);
 	}
 }

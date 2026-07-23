@@ -1,6 +1,7 @@
 package shinhan.fibri.ieum.main.admin.content.service;
 
 import java.util.Map;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,13 +11,20 @@ import shinhan.fibri.ieum.main.admin.audit.domain.AdminAuditAction;
 import shinhan.fibri.ieum.main.admin.audit.repository.AdminAuditLogWriter;
 import shinhan.fibri.ieum.main.admin.content.domain.AdminContentType;
 import shinhan.fibri.ieum.main.admin.content.dto.AdminContentPreviewResponse;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentDetailResponse;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListRequest;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListResponse;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentListItem;
+import shinhan.fibri.ieum.main.admin.content.dto.AdminContentUpdateRequest;
 import shinhan.fibri.ieum.main.admin.content.exception.ContentNotFoundException;
 import shinhan.fibri.ieum.main.admin.content.exception.HardDeleteConfirmationMismatchException;
+import shinhan.fibri.ieum.main.admin.content.exception.InvalidAdminContentCursorException;
 import shinhan.fibri.ieum.main.admin.content.exception.UnsupportedContentTypeException;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentFileCleanupTaskRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteRepository;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteResult;
 import shinhan.fibri.ieum.main.admin.content.repository.AdminContentHardDeleteTarget;
+import shinhan.fibri.ieum.main.admin.content.repository.AdminContentQueryRepository;
 import shinhan.fibri.ieum.main.ai.question.repository.QuestionAnswerTicketWriter;
 import shinhan.fibri.ieum.main.question.exception.QuestionForbiddenException;
 import shinhan.fibri.ieum.main.question.service.QuestionDeletionExecutor;
@@ -32,19 +40,32 @@ public class AdminContentService {
 	private final QuestionAnswerTicketWriter questionAnswerTicketWriter;
 	private final AdminAuditLogWriter auditLogWriter;
 	private final AdminContentFileCleanupTaskRepository fileCleanupTaskRepository;
+	private final AdminContentQueryRepository contentQueryRepository;
 
 	public AdminContentService(
 		QuestionDeletionExecutor questionDeletionExecutor,
 		AdminContentHardDeleteRepository hardDeleteRepository,
 		QuestionAnswerTicketWriter questionAnswerTicketWriter,
 		AdminAuditLogWriter auditLogWriter,
-		AdminContentFileCleanupTaskRepository fileCleanupTaskRepository
+		AdminContentFileCleanupTaskRepository fileCleanupTaskRepository,
+		AdminContentQueryRepository contentQueryRepository
 	) {
 		this.questionDeletionExecutor = questionDeletionExecutor;
 		this.hardDeleteRepository = hardDeleteRepository;
 		this.questionAnswerTicketWriter = questionAnswerTicketWriter;
 		this.auditLogWriter = auditLogWriter;
 		this.fileCleanupTaskRepository = fileCleanupTaskRepository;
+		this.contentQueryRepository = contentQueryRepository;
+	}
+
+	@Transactional(readOnly = true)
+	public AdminContentListResponse getQuestions(AdminContentListRequest request) {
+		return page(contentQueryRepository.findQuestions(cursorId(request), pageLimit(request)));
+	}
+
+	@Transactional(readOnly = true)
+	public AdminContentListResponse getMeetings(AdminContentListRequest request) {
+		return page(contentQueryRepository.findMeetings(cursorId(request), pageLimit(request)));
 	}
 
 	@Transactional
@@ -78,6 +99,43 @@ public class AdminContentService {
 			target.createdAt(),
 			target.deletedAt()
 		);
+	}
+
+	@Transactional(readOnly = true)
+	public AdminContentDetailResponse detail(String type, Long id) {
+		AdminContentType contentType = AdminContentType.fromPath(type);
+		return contentQueryRepository.findDetail(contentType, id)
+			.orElseThrow(ContentNotFoundException::new);
+	}
+
+	@Transactional
+	public AdminContentDetailResponse update(
+		AuthenticatedUser principal,
+		String type,
+		Long id,
+		AdminContentUpdateRequest request
+	) {
+		AdminContentType contentType = AdminContentType.fromPath(type);
+		if (contentType == AdminContentType.QUESTION) {
+			questionAnswerTicketWriter.requestCancellation(id);
+		}
+		AdminContentDetailResponse before = contentQueryRepository.lockDetail(contentType, id)
+			.orElseThrow(ContentNotFoundException::new);
+		contentQueryRepository.update(contentType, id, request.title(), request.content());
+		auditLogWriter.append(
+			principal.userId(),
+			updateAuditAction(contentType),
+			contentType.pathValue(),
+			id,
+			Map.of(
+				"previousTitle", before.title(),
+				"newTitle", request.title(),
+				"previousContentLength", length(before.content()),
+				"newContentLength", length(request.content())
+			)
+		);
+		return contentQueryRepository.findDetail(contentType, id)
+			.orElseThrow(ContentNotFoundException::new);
 	}
 
 	@Transactional
@@ -117,5 +175,44 @@ public class AdminContentService {
 			case QUESTION -> AdminAuditAction.QUESTION_HARD_DELETED;
 			case MEETING -> AdminAuditAction.MEETING_HARD_DELETED;
 		};
+	}
+
+	private static AdminAuditAction updateAuditAction(AdminContentType contentType) {
+		return switch (contentType) {
+			case QUESTION -> AdminAuditAction.QUESTION_UPDATED;
+			case MEETING -> AdminAuditAction.MEETING_UPDATED;
+		};
+	}
+
+	private static AdminContentListResponse page(List<AdminContentListItem> rows) {
+		if (rows.isEmpty()) {
+			return new AdminContentListResponse(List.of(), null);
+		}
+		String nextCursor = rows.getLast().contentId().toString();
+		return new AdminContentListResponse(rows, nextCursor);
+	}
+
+	private static int pageLimit(AdminContentListRequest request) {
+		Integer size = request == null ? null : request.size();
+		return size == null ? 20 : size;
+	}
+
+	private static Long cursorId(AdminContentListRequest request) {
+		if (request == null || request.cursor() == null || request.cursor().isBlank()) {
+			return null;
+		}
+		try {
+			long parsed = Long.parseLong(request.cursor());
+			if (parsed < 1) {
+				throw new NumberFormatException("cursor must be positive");
+			}
+			return parsed;
+		} catch (NumberFormatException exception) {
+			throw new InvalidAdminContentCursorException();
+		}
+	}
+
+	private static int length(String content) {
+		return content == null ? 0 : content.length();
 	}
 }
